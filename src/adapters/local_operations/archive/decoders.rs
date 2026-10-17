@@ -20,7 +20,7 @@ use std::{
 
 use gtk::glib;
 
-use crate::services::INCORRECT_ARCHIVE_PASSWORD;
+use crate::services::{INCORRECT_ARCHIVE_PASSWORD, TransferReport};
 
 use super::{
     ArchiveError, MAYBE_BAD_PASSWORD, PASSWORD_REQUIRED, archive_failed, archive_io_failed,
@@ -349,8 +349,9 @@ pub(super) fn extract_zip_from_archive(
     password: Option<&str>,
     progress: &Arc<AtomicUsize>,
     cancelled: &AtomicBool,
+    report: &mut TransferReport,
 ) -> Result<ArchiveOutcome<Option<String>>, ArchiveError> {
-    let mut session = ExtractionSession::open(dest_dir, archive_name, progress, cancelled)?;
+    let mut session = ExtractionSession::open(dest_dir, archive_name, progress, cancelled, report)?;
     if let Some(claimed) = archive.decompressed_size() {
         session.preflight_claimed_size(claimed)?;
     }
@@ -420,8 +421,9 @@ pub(super) fn extract_tar(
     gzip: bool,
     progress: &Arc<AtomicUsize>,
     cancelled: &AtomicBool,
+    report: &mut TransferReport,
 ) -> Result<ArchiveOutcome<Option<String>>, ArchiveError> {
-    let mut session = ExtractionSession::open(dest_dir, archive_name, progress, cancelled)?;
+    let mut session = ExtractionSession::open(dest_dir, archive_name, progress, cancelled, report)?;
     session.record_hard_link_targets();
     let file = std::fs::File::open(archive_path).map_err(|error| archive_io_failed(&error))?;
     let reader = if gzip {
@@ -537,8 +539,9 @@ pub(super) fn extract_7z_from_reader(
     password: sevenz_rust2::Password,
     progress: &Arc<AtomicUsize>,
     cancelled: &AtomicBool,
+    report: &mut TransferReport,
 ) -> Result<ArchiveOutcome<Option<String>>, ArchiveError> {
-    let mut session = ExtractionSession::open(dest_dir, archive_name, progress, cancelled)?;
+    let mut session = ExtractionSession::open(dest_dir, archive_name, progress, cancelled, report)?;
     let password_supplied = !password.is_empty();
     let mut archive =
         sevenz_rust2::ArchiveReader::new(reader, password).map_err(sevenz_decode_error)?;

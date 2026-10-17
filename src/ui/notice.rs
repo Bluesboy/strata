@@ -12,28 +12,40 @@ pub(super) fn show_notice(
     text: &str,
     duration: Duration,
 ) {
-    show(overlay, true, heading, text, duration);
+    show(overlay, true, true, heading, text, duration);
+}
+
+pub(super) fn add_notice(
+    overlay: &gtk::Overlay,
+    heading: Option<&str>,
+    text: &str,
+    duration: Duration,
+) {
+    show(overlay, true, false, heading, text, duration);
 }
 
 /// A notice without the success check, for reporting a value as it changes.
 pub(super) fn show_status(overlay: &gtk::Overlay, text: &str, duration: Duration) {
-    show(overlay, false, None, text, duration);
+    show(overlay, false, true, None, text, duration);
 }
 
 fn show(
     overlay: &gtk::Overlay,
     check: bool,
+    replace: bool,
     heading: Option<&str>,
     text: &str,
     duration: Duration,
 ) {
     let overlay = &super::modal::window_overlay(overlay).unwrap_or_else(|| overlay.clone());
     let (dock, list) = super::progress_dock::dock(overlay);
-    let mut child = list.first_child();
-    while let Some(widget) = child {
-        child = widget.next_sibling();
-        if widget.has_css_class(NOTICE_CLASS) {
-            list.remove(&widget);
+    if replace {
+        let mut child = list.first_child();
+        while let Some(widget) = child {
+            child = widget.next_sibling();
+            if widget.has_css_class(NOTICE_CLASS) {
+                list.remove(&widget);
+            }
         }
     }
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);

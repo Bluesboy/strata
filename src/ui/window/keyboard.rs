@@ -554,6 +554,8 @@ struct Dispatcher {
     shortcuts: ShortcutFooter,
     history: Rc<NavigationHistory>,
     rename_target: Rc<RefCell<Option<crate::model::FileEntry>>>,
+    /// Only the latest typed name submitted may act after its check.
+    typed_name_revision: Rc<Cell<u64>>,
     /// Cursor and fill changes must not retarget an open prompt.
     destination_targets: Rc<RefCell<Vec<crate::model::FileEntry>>>,
     destination_revision: Rc<Cell<u64>>,
@@ -611,6 +613,7 @@ impl Dispatcher {
             shortcuts: parts.shortcuts,
             history: parts.history,
             rename_target: Rc::default(),
+            typed_name_revision: Rc::default(),
             destination_targets: Rc::default(),
             destination_revision: Rc::default(),
             destinations: crate::ui::folder_picker::FolderPicker::default(),
@@ -639,9 +642,11 @@ impl Dispatcher {
             open_with_on_destroy.invalidate();
         });
         let rename_target = dispatcher.rename_target.clone();
+        let typed_name_revision = dispatcher.typed_name_revision.clone();
         let destination_targets = dispatcher.destination_targets.clone();
         let destinations = dispatcher.destinations.clone();
         dispatcher.shortcuts.connect_prompt_reset(move || {
+            typed_name_revision.set(typed_name_revision.get().wrapping_add(1));
             drop(rename_target.take());
             drop(destination_targets.take());
             destinations.cancel();
