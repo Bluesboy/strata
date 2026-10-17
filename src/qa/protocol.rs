@@ -102,8 +102,10 @@ pub(crate) enum Command {
         timeout: Duration,
         message: Option<String>,
     },
+    /// `message` names the twin's assertion, as a wait's names its `strata.wait`.
     Expect {
         predicates: Vec<Predicate>,
+        message: Option<String>,
     },
     Query(Query),
 }
@@ -285,6 +287,7 @@ struct WaitFields {
 #[serde(deny_unknown_fields)]
 struct ExpectFields {
     expect: Value,
+    message: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -504,7 +507,10 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
                     .map_err(invalid)?,
                 one => vec![serde_json::from_value(one).map_err(invalid)?],
             };
-            Ok(Command::Expect { predicates })
+            Ok(Command::Expect {
+                predicates,
+                message: fields.message,
+            })
         }
         _ => {
             let fields: QueryFields = serde_json::from_value(fields).map_err(invalid)?;

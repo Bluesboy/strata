@@ -1,0 +1,19 @@
+diff --git a/src/adapters/local_operations.rs b/src/adapters/local_operations.rs
+index e82dedde..c099b0f4 100644
+--- a/src/adapters/local_operations.rs
++++ b/src/adapters/local_operations.rs
+@@ -5940,7 +5940,13 @@ impl OperationProvider for LocalOperationProvider {
+                 // copy undo trashes recorded locations, and the merged folder
+                 // held pre-existing contents that must not be trashed.
+                 let created_location = target_location
+-                    .filter(|_| !request.move_sources && item.conflict != TransferConflict::Merge);
++                    .filter(|_| !request.move_sources && item.conflict != TransferConflict::Merge)
++                    .map(|created| match item.conflict {
++                        TransferConflict::KeepBoth => {
++                            location_for_file(&destination.child(&name)).unwrap_or(created)
++                        }
++                        _ => created,
++                    });
+                 progress.finish_item(
+                     item_started_at,
+                     item_sizes[index],

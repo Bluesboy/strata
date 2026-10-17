@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 from .environment import process_environment
+from .manifest import MANIFEST
 from .xtest import ALL_MODIFIERS, LOCK_MASK, KeyboardState, XTestConnection
 
 DEFAULT_LAYOUT = "us"
@@ -36,16 +37,29 @@ class Layout:
     variants: str = ""
 
 
-US = Layout("us", "us")
+def _layout(name: str) -> Layout:
+    """A layout as `tests/fixtures/harness.json` defines it."""
+
+    definition = MANIFEST["layouts"][name]
+    return Layout(
+        name,
+        definition["layouts"],
+        group=definition["group"],
+        caps_lock=definition["caps_lock"],
+        variants=definition["variants"],
+    )
+
+
+US = _layout("us")
 # Beside US, as Russian users usually configure it: GTK finds Latin keys in US.
-RUSSIAN = Layout("ru", "us,ru", group=1)
+RUSSIAN = _layout("ru")
 # No configured layout has Latin letters.
-RUSSIAN_ONLY = Layout("ru-only", "ru")
-AZERTY = Layout("fr", "fr")
-QWERTZ = Layout("de", "de")
-CAPS_LOCK = Layout("caps-lock", "us", caps_lock=True)
+RUSSIAN_ONLY = _layout("ru-only")
+AZERTY = _layout("fr")
+QWERTZ = _layout("de")
+CAPS_LOCK = _layout("caps-lock")
 # Plain cn is US; this variant types tone marks as AltGr+1–4 dead keys.
-PINYIN = Layout("cn-altgr-pinyin", "cn", variants="altgr-pinyin")
+PINYIN = _layout("cn-altgr-pinyin")
 
 
 @contextmanager

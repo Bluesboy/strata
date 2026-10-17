@@ -103,6 +103,17 @@ const MODES: [(&str, &str); 3] = [("columns", "Columns"), ("icons", "Icons"), ("
 const DEFAULT_TREE: &str = "canonical";
 /// Synthetic input the process sent, in the format `docs/e2e-testing.md` defines.
 const INPUT_LOG: &str = "input.log";
+/// The `app` snapshot after the last step, compared with the twin's final state.
+const STATE_FILE: &str = "state.json";
+/// The run's twin, errors, and failed steps, for `scripts/qa_parity.py`.
+const RESULT_FILE: &str = "result.json";
+/// Set to `1` by `scripts/qa_parity.py`: each run names its fixture directory
+/// after its twin's node id, as the twin does, so typed paths and pane names
+/// are the same on both sides.
+const PARITY_FIXTURES: &str = "STRATA_PARITY_FIXTURES";
+/// How long the final state may keep changing before it is taken anyway.
+const STATE_SETTLE_TIMEOUT: Duration = Duration::from_secs(5);
+const STATE_SETTLE_INTERVAL: Duration = Duration::from_millis(250);
 /// Per-test paths the manifest leaves out of its static environment.
 const XDG_DIRECTORIES: [(&str, &str); 5] = [
     ("HOME", "home"),
@@ -1204,6 +1215,23 @@ fn run_scenario(name: &str) {
             panic!("{}/{}: {error}", scenario.header.scenario, run.label);
         }
     }
+    // Written past libtest's output capture, so the plan shows even when a run
+    // never reports; `scripts/qa_parity.py` requires a result line for each.
+    {
+        let mut planned = std::io::stdout().lock();
+        // libtest may have left `test <name> ... ` open on the current line.
+        let _ = writeln!(planned);
+        for run in runs(&scenario.header) {
+            let _ = writeln!(
+                planned,
+                "RUN {}/{} (twin {})",
+                scenario.header.scenario,
+                run.label,
+                twin(&scenario.header, &run)
+            );
+        }
+        let _ = planned.flush();
+    }
     let mut failed = Vec::new();
     for run in runs(&scenario.header) {
         let outcome = execute(&scenario, &run, &manifest);
@@ -1258,10 +1286,16 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
         .prefix("strata-qa-")
         .tempdir_in("/tmp")
         .expect("the run's scratch directory should be created");
-    let fixture = tempfile::Builder::new()
-        .prefix("strata-qa-fixture-")
-        .tempdir_in("/tmp")
-        .expect("the fixture directory should be created");
+    let parity_name = std::env::var_os(PARITY_FIXTURES)
+        .is_some_and(|value| value == "1")
+        .then(|| parity_fixture_name(&twin(&scenario.header, run)));
+    let mut fixture = tempfile::Builder::new();
+    let fixture = match &parity_name {
+        Some(name) => fixture.prefix(name).rand_bytes(0),
+        None => fixture.prefix("strata-qa-fixture-"),
+    }
+    .tempdir_in("/tmp")
+    .expect("the fixture directory should be created");
     let artifacts = Path::new(REPOSITORY)
         .join("target/qa-artifacts")
         .join(&scenario.header.scenario)
@@ -1326,7 +1360,12 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
     let failed = !outcome.errors.is_empty() || !outcome.failures.is_empty();
     let collect =
         failed || std::env::var_os("STRATA_QA_KEEP_ARTIFACTS").is_some_and(|value| value == "1");
+    let mut final_state = Value::Null;
     if collect {
+        // The window as the run left it, for final-state parity with the twin.
+        if application.responsive {
+            final_state = settled_state(&mut application);
+        }
         if outcome.last_tree.is_none()
             && application.responsive
             && let Ok(reply) = application.send(&json!({ "query": "tree" }), COMMAND_TIMEOUT)
@@ -1355,6 +1394,11 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
                 INPUT_LOG,
                 fs::read_to_string(scratch.path().join(INPUT_LOG)).unwrap_or_default(),
             ),
+            (STATE_FILE, pretty(&final_state)),
+            (
+                RESULT_FILE,
+                pretty(&run_result(scenario, run, &steps, &outcome)),
+            ),
         ];
         if failed {
             let all: Vec<String> = outcome
@@ -1376,6 +1420,68 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
         }
     }
     outcome
+}
+
+/// `parity_fixture_name` in `tests/e2e/harness/fixtures.py` derives the same name.
+fn parity_fixture_name(twin: &str) -> String {
+    use sha2::Digest as _;
+    let digest = sha2::Sha256::digest(twin.as_bytes());
+    let mut name = String::from("strata-fixture-");
+    for byte in &digest[..6] {
+        let _ = write!(name, "{byte:02x}");
+    }
+    name
+}
+
+/// The snapshot once two reads in a row agree, so an operation's late
+/// selection or focus change is not compared half done; the twin waits alike.
+fn settled_state(application: &mut Application) -> Value {
+    let deadline = Instant::now() + STATE_SETTLE_TIMEOUT;
+    let mut previous = Value::Null;
+    loop {
+        let Ok(reply) = application.send(&json!({ "query": "state" }), COMMAND_TIMEOUT) else {
+            return previous;
+        };
+        let state = reply["app"].clone();
+        if state == previous || Instant::now() >= deadline {
+            return state;
+        }
+        previous = state;
+        std::thread::sleep(STATE_SETTLE_INTERVAL);
+    }
+}
+
+fn pretty(value: &Value) -> String {
+    serde_json::to_string_pretty(value).unwrap_or_default() + "\n"
+}
+
+/// What `scripts/qa_parity.py` reads back: the twin this run ports, and the
+/// step each failure stopped at, with the step itself so its `message` can be
+/// matched against the twin's.
+fn run_result(
+    scenario: &Scenario,
+    run: &Run,
+    steps: &[(usize, Value)],
+    outcome: &Outcome,
+) -> Value {
+    let failures: Vec<Value> = outcome
+        .failures
+        .iter()
+        .map(|(line, text)| {
+            let step = line
+                .and_then(|line| steps.iter().find(|(number, _)| *number == line))
+                .map_or(Value::Null, |(_, step)| step.clone());
+            json!({ "line": line, "step": step, "text": text })
+        })
+        .collect();
+    json!({
+        "scenario": scenario.header.scenario,
+        "run": run.label,
+        "mode": run.mode,
+        "twin": twin(&scenario.header, run),
+        "errors": outcome.errors,
+        "failures": failures,
+    })
 }
 
 fn seed(

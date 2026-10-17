@@ -1,4 +1,4 @@
-{"scenario":"cut-moves-only-after-paste","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_clipboard.py::test_cut_moves_only_after_paste[$mode]","mutation":null,"known_bug":null}
+{"scenario":"cut-moves-only-after-paste","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_clipboard.py::test_cut_moves_only_after_paste[$mode]","mutation":"cut","known_bug":null}
 {"select":{"entry":"todo.txt"}}
 {"key":"ctrl+x"}
 {"fs":{"path":"todo.txt","exists":true},"timeout_ms":0,"message":"cut must not touch the filesystem before the paste"}

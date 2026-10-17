@@ -15,21 +15,21 @@
 {"key":"End"}
 {"wait":{"field":{"of":"rename","caret":73}},"message":"End to reach the extension"}
 {"expect":{"field":{"of":"rename","selection":null}}}
-{"expect":{"editor_within_viewport":{"of":"rename"}}}
+{"expect":{"editor_within_viewport":{"of":"rename"}},"message":"the rename editor to stay inside the viewport"}
 {"type":"-final"}
 {"wait":{"field":{"of":"rename","text":"synthetic-quarterly-report-with-a-very-long-descriptive-basename-2026.txt-final"}},"message":"typing after the extension"}
 {"wait":{"field":{"of":"rename","caret":79}},"message":"the caret to follow typing"}
-{"expect":{"editor_within_viewport":{"of":"rename"}}}
+{"expect":{"editor_within_viewport":{"of":"rename"}},"message":"the rename editor to stay inside the viewport"}
 {"key":"BackSpace","repeat":6}
 {"wait":{"field":{"of":"rename","text":"synthetic-quarterly-report-with-a-very-long-descriptive-basename-2026.txt"}},"message":"Backspace to remove the appended text"}
 {"key":"Left"}
 {"wait":{"field":{"of":"rename","caret":72}},"message":"Left to move the caret"}
 {"key":"Right"}
 {"wait":{"field":{"of":"rename","caret":73}},"message":"Right to return to the end"}
-{"expect":{"editor_within_viewport":{"of":"rename"}}}
+{"expect":{"editor_within_viewport":{"of":"rename"}},"message":"the rename editor to stay inside the viewport"}
 {"click":{"field":"rename"}}
 {"wait":{"field":{"of":"rename","caret":{"min":1,"max":72}}},"message":"clicking inside the visible name to move the caret"}
-{"expect":{"editor_within_viewport":{"of":"rename"}}}
+{"expect":{"editor_within_viewport":{"of":"rename"}},"message":"the rename editor to stay inside the viewport"}
 {"key":"End"}
 {"wait":{"field":{"of":"rename","caret":73}},"message":"End after clicking"}
 {"key":"Return"}

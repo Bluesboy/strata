@@ -12,23 +12,37 @@
 {"wait":{"preview":"beta source"},"message":"the selected preview"}
 {"move":{"result":"alpha/match-note.txt"}}
 {"settle":{"result":"alpha/match-note.txt"}}
-{"expect":[{"state":{"target":{"result":"alpha/match-note.txt"},"selected":false}},{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}},{"preview":"beta source"}]}
+{"expect":{"state":{"target":{"result":"alpha/match-note.txt"},"selected":false}},"message":"hovering not to select the alpha result"}
+{"expect":{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}},"message":"the beta result to stay selected"}
+{"expect":{"preview":"beta source"},"message":"the preview to stay on the beta result"}
 {"key":"ctrl+a"}
 {"type":"match-note.t"}
 {"wait":{"matches":{"count":3}},"message":"the updated result count"}
-{"expect":[{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}},{"field":{"of":"filter","focused":true}},{"field":{"of":"filter","text":"match-note.t"}},{"preview":"beta source"}]}
+{"expect":{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}},"message":"the beta result to stay selected"}
+{"expect":{"field":{"of":"filter","focused":true}},"message":"the filter to keep focus"}
+{"expect":{"field":{"of":"filter","text":"match-note.t"}},"message":"the filter to keep the typed query"}
+{"expect":{"preview":"beta source"},"message":"the preview to stay on the beta result"}
 {"key":"ctrl+a"}
 {"type":"match-note"}
 {"wait":{"matches":{"count":4}},"message":"the updated result count"}
-{"expect":[{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}},{"field":{"of":"filter","focused":true}},{"field":{"of":"filter","text":"match-note"}},{"preview":"beta source"}]}
+{"expect":{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}},"message":"the beta result to stay selected"}
+{"expect":{"field":{"of":"filter","focused":true}},"message":"the filter to keep focus"}
+{"expect":{"field":{"of":"filter","text":"match-note"}},"message":"the filter to keep the typed query"}
+{"expect":{"preview":"beta source"},"message":"the preview to stay on the beta result"}
 {"key":"ctrl+a"}
 {"type":"match-note.t"}
 {"wait":{"matches":{"count":3}},"message":"the updated result count"}
-{"expect":[{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}},{"field":{"of":"filter","focused":true}},{"field":{"of":"filter","text":"match-note.t"}},{"preview":"beta source"}]}
+{"expect":{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}},"message":"the beta result to stay selected"}
+{"expect":{"field":{"of":"filter","focused":true}},"message":"the filter to keep focus"}
+{"expect":{"field":{"of":"filter","text":"match-note.t"}},"message":"the filter to keep the typed query"}
+{"expect":{"preview":"beta source"},"message":"the preview to stay on the beta result"}
 {"key":"ctrl+a"}
 {"type":"match-note"}
 {"wait":{"matches":{"count":4}},"message":"the updated result count"}
-{"expect":[{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}},{"field":{"of":"filter","focused":true}},{"field":{"of":"filter","text":"match-note"}},{"preview":"beta source"}]}
+{"expect":{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}},"message":"the beta result to stay selected"}
+{"expect":{"field":{"of":"filter","focused":true}},"message":"the filter to keep focus"}
+{"expect":{"field":{"of":"filter","text":"match-note"}},"message":"the filter to keep the typed query"}
+{"expect":{"preview":"beta source"},"message":"the preview to stay on the beta result"}
 {"key":"space"}
 {"wait":{"preview":null},"message":"Space to close after updates"}
 {"expect":{"field":{"of":"filter","text":"match-note"}}}

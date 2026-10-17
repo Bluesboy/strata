@@ -1,4 +1,4 @@
-{"scenario":"typed-path-navigates","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_locations.py::test_typing_a_path_navigates_there","mutation":null,"known_bug":null}
+{"scenario":"typed-path-navigates","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_locations.py::test_typing_a_path_navigates_there","mutation":"location-entry","known_bug":null}
 {"key":"ctrl+l"}
 {"wait":{"field":{}},"message":"an editable field to take focus"}
 {"remember":{"field":true},"as":"location"}

@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import functools
+import json
 import os
+import re
 import signal
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -22,10 +25,16 @@ from harness.environment import TestEnvironment  # noqa: E402
 from harness.fixtures import FixtureTree  # noqa: E402
 from harness.interaction import Keyboard, Pointer  # noqa: E402
 from harness.keyboard_layout import switched  # noqa: E402
-from harness.xtest import XTestConnection  # noqa: E402
+from harness.xtest import INPUT_LOG_VARIABLE, XTestConnection  # noqa: E402
 
 # Retry infrastructure startup only, never interaction assertions.
 DISPLAY_START_ATTEMPTS = 2
+# Set to a directory, each scenario writes its final window state, the
+# `--qa` reply snapshot's shape, to `<directory>/<test id>.json`.
+STATE_DUMP_VARIABLE = "STRATA_STATE_DUMP"
+# How long the final state may keep changing before it is dumped anyway.
+STATE_SETTLE_TIMEOUT = 5.0
+STATE_SETTLE_INTERVAL = 0.25
 
 pytest_plugins = ["harness.ci_plugin", "harness.warnings_plugin"]
 
@@ -181,18 +190,57 @@ def strata(
     failed = False
     try:
         application.start()
+        _start_input_log(request, window)
         yield window
     except BaseException:
         failed = True
         raise
     finally:
         try:
+            window.keyboard.connection.stop_input_log()
+            _dump_state(request, window)
             if failed or request.node.stash.get(_REPORT_KEY, False) or request.config.getoption(
                 "--keep-artifacts"
             ):
                 _collect_artifacts(request, window)
         finally:
             application.stop()
+
+
+def node_file_name(node_id: str) -> str:
+    """The file a scenario's input log and state dump are named after.
+
+    `scripts/qa_parity.py` derives the same name from a twin's node id.
+    """
+
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", node_id)
+
+
+def _start_input_log(request: pytest.FixtureRequest, window: Strata) -> None:
+    directory = os.environ.get(INPUT_LOG_VARIABLE)
+    if not directory:
+        return
+
+    def origin() -> tuple[int, int]:
+        bounds = window.window.screen_bounds()
+        return bounds.x, bounds.y
+
+    window.keyboard.connection.start_input_log(
+        Path(directory) / f"{node_file_name(request.node.nodeid)}.log", origin
+    )
+
+
+def _dump_state(request: pytest.FixtureRequest, window: Strata) -> None:
+    directory = os.environ.get(STATE_DUMP_VARIABLE)
+    if not directory:
+        return
+    try:
+        state = _settled_snapshot(window)
+    except Exception as error:  # the window may already be gone after a failure
+        state = {"error": repr(error)}
+    path = Path(directory) / f"{node_file_name(request.node.nodeid)}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"nodeid": request.node.nodeid, "app": state}, indent=2) + "\n")
 
 
 @pytest.fixture
@@ -215,6 +263,19 @@ def unreserved_columns(strata: Strata) -> None:
     )
     strata.keyboard.press("Escape")
     strata.wait(lambda: strata.focused_pane(), "focus to return to the file listing")
+
+
+def _settled_snapshot(window: Strata) -> dict[str, object]:
+    """The snapshot once two reads in a row agree, as the `--qa` runner takes it."""
+
+    deadline = time.monotonic() + STATE_SETTLE_TIMEOUT
+    previous = None
+    while True:
+        state = window.state_snapshot()
+        if state == previous or time.monotonic() >= deadline:
+            return state
+        previous = state
+        time.sleep(STATE_SETTLE_INTERVAL)
 
 
 _REPORT_KEY = pytest.StashKey[bool]()

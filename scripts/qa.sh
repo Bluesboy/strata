@@ -78,6 +78,7 @@ exec "$engine" run "${options[@]}" \
   --env CARGO_PROFILE_DEV_DEBUG=0 --env CARGO_INCREMENTAL=0 \
   --env STRATA_QA_CONTAINER=1 \
   --env "STRATA_QA_KEEP_ARTIFACTS=${STRATA_QA_KEEP_ARTIFACTS:-0}" \
+  --env "STRATA_PARITY_FIXTURES=${STRATA_PARITY_FIXTURES:-0}" \
   "$image" bash -euc '
     mkdir -p "$HOME" "$CARGO_HOME"
     rustc --version

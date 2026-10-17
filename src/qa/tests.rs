@@ -112,12 +112,20 @@ fn commands_parse_from_the_scenario_spelling_with_their_defaults() {
             dir: None,
         }))
     );
-    let Ok(Command::Expect { predicates }) =
-        parse_command(r#"{"expect":[{"selected":["a"],"dir":"x"},{"focused":null}]}"#)
+    let Ok(Command::Expect {
+        predicates,
+        message: None,
+    }) = parse_command(r#"{"expect":[{"selected":["a"],"dir":"x"},{"focused":null}]}"#)
     else {
         panic!("expect should take a list of predicates");
     };
     assert_eq!(predicates.len(), 2);
+    let Ok(Command::Expect { message, .. }) =
+        parse_command(r#"{"expect":{"focused":null},"message":"focus to leave the list"}"#)
+    else {
+        panic!("expect should take the twin's assertion message");
+    };
+    assert_eq!(message.as_deref(), Some("focus to leave the list"));
 }
 
 #[test]

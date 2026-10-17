@@ -423,12 +423,18 @@ impl Controller {
                     }
                 }
             }
-            Command::Expect { predicates } => {
+            Command::Expect {
+                predicates,
+                message,
+            } => {
                 let mut failures = Vec::new();
                 for predicate in &predicates {
                     match self.check(&input, predicate) {
                         Ok(Ok(())) => {}
-                        Ok(Err(failure)) => failures.push(failure),
+                        Ok(Err(mut failure)) => {
+                            failure.message.clone_from(&message);
+                            failures.push(failure);
+                        }
                         Err(error) => return Outcome::error(error),
                     }
                 }
