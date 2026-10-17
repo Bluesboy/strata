@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-//! Runs the `.jsonl` scenarios in `tests/qa/scenarios` against `strata --qa`.
+//! Runs the `.jsonl` scenarios in `tests/qa/scenarios/<twin test file>/` against
+//! `strata --qa`.
 //!
 //! Each run gets its own Xvfb, HOME, XDG directories, and fixture tree, seeded
 //! from `tests/fixtures/harness.json` exactly as the Python harness seeds
@@ -49,7 +50,8 @@ macro_rules! scenarios {
     };
 }
 
-// One test per file in tests/qa/scenarios, named after it with underscores.
+// One test per scenario file, named after it with underscores; names are unique
+// across the folders.
 scenarios! {
     alt_up_and_history,
     appearance_menu_switches_view,
@@ -503,10 +505,39 @@ struct Scenario {
     steps: Vec<(usize, Value)>,
 }
 
+/// Every scenario file, each under the folder named after its twin's test file.
+fn scenario_files() -> Vec<PathBuf> {
+    let directory = Path::new(REPOSITORY).join("tests/qa/scenarios");
+    let mut files = Vec::new();
+    for folder in fs::read_dir(&directory).expect("the scenario directory should be listable") {
+        let folder = folder
+            .expect("the scenario entry should be readable")
+            .path();
+        assert!(
+            folder.is_dir(),
+            "{}: scenarios live in a folder named after their twin's test file",
+            folder.display()
+        );
+        for file in fs::read_dir(&folder).expect("the scenario folder should be listable") {
+            let file = file.expect("the scenario entry should be readable").path();
+            if file
+                .extension()
+                .is_some_and(|extension| extension == "jsonl")
+            {
+                files.push(file);
+            }
+        }
+    }
+    files.sort();
+    files
+}
+
 fn scenario_path(name: &str) -> PathBuf {
-    Path::new(REPOSITORY)
-        .join("tests/qa/scenarios")
-        .join(format!("{}.jsonl", name.replace('_', "-")))
+    let file = format!("{}.jsonl", name.replace('_', "-"));
+    scenario_files()
+        .into_iter()
+        .find(|path| path.file_name().is_some_and(|found| *found == *file))
+        .unwrap_or_else(|| panic!("no scenario file {file} in tests/qa/scenarios"))
 }
 
 fn load_scenario(path: &Path) -> Result<Scenario, String> {
@@ -2580,14 +2611,8 @@ fn wait_for_fs(
 
 #[test]
 fn every_scenario_file_is_registered_and_well_formed() {
-    let directory = Path::new(REPOSITORY).join("tests/qa/scenarios");
-    let mut files: Vec<String> = fs::read_dir(&directory)
-        .expect("the scenario directory should be listable")
-        .map(|entry| entry.expect("the scenario entry should be readable").path())
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "jsonl")
-        })
+    let mut files: Vec<String> = scenario_files()
+        .into_iter()
         .map(|path| {
             load_scenario(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
             let stem = path
@@ -2607,11 +2632,24 @@ fn every_scenario_file_is_registered_and_well_formed() {
     let manifest = manifest();
     let mut twins = BTreeMap::new();
     for name in REGISTERED {
-        let scenario = load_scenario(&scenario_path(name)).expect("the scenario should load");
+        let path = scenario_path(name);
+        let folder = path
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|folder| folder.to_str())
+            .unwrap_or_default()
+            .to_owned();
+        let scenario = load_scenario(&path).expect("the scenario should load");
         let header = &scenario.header;
         for run in runs(header) {
             let node = twin(header, &run);
             let (file, test) = node.split_once("::").unwrap_or((&node, ""));
+            assert_eq!(
+                Path::new(file).file_stem().and_then(|stem| stem.to_str()),
+                Some(folder.as_str()),
+                "{name}/{}: the scenario belongs in the folder named after {file}",
+                run.label
+            );
             let function = test.split('[').next().unwrap_or_default();
             let source = fs::read_to_string(Path::new(REPOSITORY).join(file)).unwrap_or_default();
             assert!(

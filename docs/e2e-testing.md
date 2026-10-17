@@ -616,8 +616,12 @@ keyboard layouts, and the Python harness reads the same file
 agreeing; `tests/e2e/unit/test_harness_manifest.py` checks what the Python
 harness materialises from it.
 
-A scenario is a `.jsonl` file in `tests/qa/scenarios`, registered in the
-`scenarios!` list in `tests/qa.rs`. Its first line is a header:
+A scenario is a `.jsonl` file that ports one Python test function. It lives in
+`tests/qa/scenarios/<test file>/`, the folder named after its twin's file (for
+example `tests/qa/scenarios/test_clipboard/copy-leaves-source.jsonl`), and is
+registered in the `scenarios!` list in `tests/qa.rs`. Scenario names are unique
+across folders, and the registration test checks that each file sits in its
+twin's folder. Its first line is a header:
 
 ```json
 {"scenario":"arrow-keys-move-focus","modes":["columns"],"prefs":{"type_to_search":false},"layout":"us","twin":"tests/e2e/scenarios/test_keyboard_navigation.py::test_arrow_keys_move_focus_and_selection[arrows-$mode]","mutation":"keyboard-navigation","known_bug":null,"variants":[...]}

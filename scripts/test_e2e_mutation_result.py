@@ -62,8 +62,8 @@ class MutationRunnerTests(unittest.TestCase):
                     shutil.copyfile(Path(__file__).with_name(name), scripts / name)
                 (root / "tests/e2e/mutations").mkdir(parents=True)
                 (root / "tests/e2e/mutations/clipboard.patch").write_text(PATCH)
-                (root / "tests/qa/scenarios").mkdir(parents=True)
-                (root / "tests/qa/scenarios/copy-leaves-source.jsonl").write_text(
+                (root / "tests/qa/scenarios/test_clipboard").mkdir(parents=True)
+                (root / "tests/qa/scenarios/test_clipboard/copy-leaves-source.jsonl").write_text(
                     '{"scenario":"copy-leaves-source","mutation":"clipboard"}\n'
                 )
                 applied = root / "applied"

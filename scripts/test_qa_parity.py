@@ -267,10 +267,10 @@ class CiShardingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             scenarios, mutations = root / "scenarios", root / "mutations"
-            scenarios.mkdir()
+            (scenarios / "test_example").mkdir(parents=True)
             mutations.mkdir()
-            (scenarios / "alpha.jsonl").write_text(json.dumps({"scenario": "alpha", "mutation": "break-alpha"}) + "\n")
-            (scenarios / "beta.jsonl").write_text(json.dumps({"scenario": "beta", "mutation": None}) + "\n")
+            (scenarios / "test_example" / "alpha.jsonl").write_text(json.dumps({"scenario": "alpha", "mutation": "break-alpha"}) + "\n")
+            (scenarios / "test_example" / "beta.jsonl").write_text(json.dumps({"scenario": "beta", "mutation": None}) + "\n")
             (mutations / "break-alpha.patch").write_text("+++ b/src/main.rs\n")
             with mock.patch.object(qa_parity, "SCENARIOS", scenarios), \
                     mock.patch.object(qa_parity, "MUTATIONS", mutations), \
@@ -280,7 +280,7 @@ class CiShardingTests(unittest.TestCase):
                 with contextlib.redirect_stdout(output):
                     self.assertEqual(qa_parity.ci_plan(None), 0)
                 self.assertIn('"names":"beta break-alpha"', output.getvalue())
-                (scenarios / "break-alpha.jsonl").write_text(json.dumps({"scenario": "break-alpha", "mutation": None}) + "\n")
+                (scenarios / "test_example" / "break-alpha.jsonl").write_text(json.dumps({"scenario": "break-alpha", "mutation": None}) + "\n")
                 with self.assertRaises(SystemExit):
                     qa_parity.ci_units()
 
@@ -288,7 +288,7 @@ class CiShardingTests(unittest.TestCase):
         cases = [
             (["src/ui/browser/mod.rs"], True),
             (["tests/e2e/scenarios/test_clipboard.py"], True),
-            (["tests/qa/scenarios/copy-leaves-source.jsonl"], True),
+            (["tests/qa/scenarios/test_clipboard/copy-leaves-source.jsonl"], True),
             (["tests/e2e/mutations/clipboard.patch"], True),
             (["tests/qa.rs"], True),
             (["docs/e2e-testing.md", "README.md"], False),
@@ -304,8 +304,9 @@ class ScenarioChoiceTests(unittest.TestCase):
     def test_a_name_is_a_mutation_patch_or_else_a_scenario(self):
         with tempfile.TemporaryDirectory() as directory:
             scenarios = Path(directory)
-            (scenarios / "alpha.jsonl").write_text(json.dumps({"scenario": "alpha", "mutation": "break-alpha"}) + "\n")
-            (scenarios / "beta.jsonl").write_text(json.dumps({"scenario": "beta", "mutation": None}) + "\n")
+            (scenarios / "test_example").mkdir()
+            (scenarios / "test_example" / "alpha.jsonl").write_text(json.dumps({"scenario": "alpha", "mutation": "break-alpha"}) + "\n")
+            (scenarios / "test_example" / "beta.jsonl").write_text(json.dumps({"scenario": "beta", "mutation": None}) + "\n")
             with mock.patch.object(qa_parity, "SCENARIOS", scenarios):
                 chosen = qa_parity.chosen_scenarios(["break-alpha", "beta", "alpha"])
                 self.assertEqual([(s.name, s.unit) for s in chosen],
@@ -323,12 +324,12 @@ class AggregateTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         root = Path(self.directory.name)
         scenarios, mutations = root / "scenarios", root / "mutations"
-        scenarios.mkdir()
+        (scenarios / "test_example").mkdir(parents=True)
         mutations.mkdir()
         for name in ("alpha", "beta"):
-            (scenarios / f"{name}.jsonl").write_text(json.dumps({"scenario": name, "mutation": f"break-{name}"}) + "\n")
+            (scenarios / "test_example" / f"{name}.jsonl").write_text(json.dumps({"scenario": name, "mutation": f"break-{name}"}) + "\n")
             (mutations / f"break-{name}.patch").write_text("+++ b/src/main.rs\n")
-        (scenarios / "gamma.jsonl").write_text(json.dumps({"scenario": "gamma", "mutation": None}) + "\n")
+        (scenarios / "test_example" / "gamma.jsonl").write_text(json.dumps({"scenario": "gamma", "mutation": None}) + "\n")
         self.shards = root / "shards"
         for name, value in (("SCENARIOS", scenarios), ("MUTATIONS", mutations),
                             ("OUTPUT", root / "untouched"), ("CI_SHARDS", 3)):

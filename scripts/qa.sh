@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the `--qa` scenarios in tests/qa/scenarios inside the pinned E2E image.
+# Runs the `--qa` scenarios in tests/qa/scenarios/<twin test file>/ inside the pinned E2E image.
 #   ./scripts/qa.sh                          every scenario, every mode
 #   ./scripts/qa.sh arrow-keys-move-focus    one scenario (hyphens or underscores)
 set -euo pipefail
@@ -58,9 +58,9 @@ while (($#)); do
       ;;
     *)
       name="${1//_/-}"
-      if [[ ! -f "$scenarios/$name.jsonl" ]]; then
+      if ! compgen -G "$scenarios/*/$name.jsonl" >/dev/null; then
         echo "No QA scenario named $1 in tests/qa/scenarios:" >&2
-        basename -a -s .jsonl "$scenarios"/*.jsonl >&2
+        basename -a -s .jsonl "$scenarios"/*/*.jsonl | sort >&2
         exit 2
       fi
       arguments+=("${name//-/_}")

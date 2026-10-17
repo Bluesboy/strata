@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 """Proves the `--qa` scenarios and their Python twins agree.
 
-For every scenario in tests/qa/scenarios (or the ones named, each by its
+For every scenario in tests/qa/scenarios/<twin test file>/ (or the ones named, each by its
 `mutation` patch or by its own name), inside the pinned container runners and
 one after the other:
 
@@ -89,7 +89,7 @@ class Scenario:
 
 def scenarios() -> list[Scenario]:
     found = []
-    for path in sorted(SCENARIOS.glob("*.jsonl")):
+    for path in sorted(SCENARIOS.glob("*/*.jsonl")):
         header = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
         try:
             ignored = state_parity_ignore(header)
