@@ -398,20 +398,62 @@ class InstallerTests(unittest.TestCase):
             self.assertFalse(any(call.startswith(("xdg-mime", "gdbus")) for call in fixture.recorded_calls()))
 
     def test_file_manager_service_uses_the_installed_binary(self) -> None:
-        with tempfile.TemporaryDirectory() as home:
-            result = bash(
-                'TEMP_DIR="$HOME/tmp"; mkdir -p "$TEMP_DIR"; '
-                'BIN_PATH="$HOME/.local/bin/strata"; '
-                'install_file_manager_service "$(dirname "$1")/data"',
-                env={"HOME": home, "XDG_DATA_HOME": f"{home}/data"},
-            )
-            service = (
-                pathlib.Path(home)
-                / "data/dbus-1/services/io.github.lgse.Strata.FileManager1.service"
-            )
-            contents = service.read_text()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(f"Exec={home}/.local/bin/strata --gapplication-service", contents)
+        for reload_status in (0, 1, None):
+            with self.subTest(reload_status=reload_status), tempfile.TemporaryDirectory() as home:
+                root = pathlib.Path(home)
+                commands = root / "commands"
+                commands.mkdir()
+                for name in ("mkdir", "dirname", "install", "sed", "grep", "head"):
+                    (commands / name).symlink_to(shutil.which(name))
+                if reload_status is not None:
+                    gdbus = commands / "gdbus"
+                    gdbus.write_text(
+                        '#!/bin/sh\nprintf "%s\\n" "$@" > "$CALLS"\n'
+                        '[ -r "$XDG_DATA_HOME/dbus-1/services/"'
+                        '"io.github.lgse.Strata.FileManager1.service" ] || exit 91\n'
+                        f"exit {reload_status}\n",
+                        encoding="utf-8",
+                    )
+                    gdbus.chmod(0o755)
+                calls = root / "calls"
+                result = bash(
+                    'TEMP_DIR="$HOME/tmp"; mkdir -p "$TEMP_DIR"; '
+                    'BIN_PATH="$HOME/.local/bin/strata"; '
+                    'install_file_manager_service "$(dirname "$1")/data"; '
+                    'printf "installer continued\\n"',
+                    env={
+                        "HOME": home,
+                        "XDG_DATA_HOME": f"{home}/data",
+                        "PATH": str(commands),
+                        "CALLS": str(calls),
+                    },
+                )
+                service = root / "data/dbus-1/services/io.github.lgse.Strata.FileManager1.service"
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(
+                    f"Exec={home}/.local/bin/strata --gapplication-service", service.read_text()
+                )
+                self.assertIn("installer continued", result.stdout)
+                if reload_status is not None:
+                    self.assertTrue(calls.exists(), "The installed service must be reloaded")
+                    self.assertEqual(
+                        calls.read_text().splitlines(),
+                        [
+                            "call", "--session", "--timeout", "5",
+                            "--dest", "org.freedesktop.DBus",
+                            "--object-path", "/org/freedesktop/DBus",
+                            "--method", "org.freedesktop.DBus.ReloadConfig",
+                        ],
+                    )
+                else:
+                    self.assertFalse(calls.exists())
+                active_message = 'Strata now handles "Open file location" requests.'
+                if reload_status == 0:
+                    self.assertIn(active_message, result.stdout)
+                    self.assertEqual(result.stderr, "")
+                else:
+                    self.assertNotIn(active_message, result.stdout)
+                    self.assertIn("Log out and back in", result.stderr)
 
     def test_file_manager_service_refuses_another_per_user_provider(self) -> None:
         with tempfile.TemporaryDirectory() as home:
@@ -426,6 +468,7 @@ class InstallerTests(unittest.TestCase):
             result = bash(
                 'TEMP_DIR="$HOME/tmp"; mkdir -p "$TEMP_DIR"; '
                 'BIN_PATH="$HOME/.local/bin/strata"; '
+                'gdbus() { printf "unexpected reload\\n" >&2; return 1; }; '
                 'install_file_manager_service "$(dirname "$1")/data"',
                 env={"HOME": home, "XDG_DATA_HOME": f"{home}/data"},
             )
@@ -433,6 +476,23 @@ class InstallerTests(unittest.TestCase):
             self.assertFalse(target.exists())
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Another per-user FileManager1 provider", result.stderr)
+        self.assertNotIn("unexpected reload", result.stderr)
+
+    def test_file_manager_service_does_not_reload_after_a_failed_write(self) -> None:
+        with tempfile.TemporaryDirectory() as home:
+            result = bash(
+                'TEMP_DIR="$HOME/tmp"; mkdir -p "$TEMP_DIR"; '
+                'BIN_PATH="$HOME/.local/bin/strata"; '
+                'install() { if [[ $1 == -Dm644 ]]; then return 9; else command install "$@"; fi; }; '
+                'gdbus() { printf "unexpected reload\\n" >&2; }; '
+                'install_file_manager_service "$(dirname "$1")/data"',
+                env={"HOME": home, "XDG_DATA_HOME": f"{home}/data"},
+            )
+            target = pathlib.Path(home) / "data/dbus-1/services/io.github.lgse.Strata.FileManager1.service"
+            self.assertFalse(target.exists())
+        self.assertEqual(result.returncode, 9, result.stderr)
+        self.assertNotIn("unexpected reload", result.stderr)
+        self.assertNotIn('Strata now handles "Open file location" requests.', result.stdout)
 
     def test_non_interactive_pacman_disables_sudo_and_pacman_prompts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

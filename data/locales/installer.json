@@ -338,6 +338,32 @@
     "ru": "Показывать файлы из других приложений, не меняя обработчик папок.",
     "zh-CN": "显示其他应用中的文件位置，不更改默认文件夹处理程序。"
   },
+  "installer.reveal_ready": {
+    "en": "Strata now handles \"Open file location\" requests.",
+    "fr": "Strata gère désormais les demandes « Ouvrir l’emplacement du fichier ».",
+    "de": "Strata verarbeitet jetzt Anfragen für „Dateispeicherort öffnen“.",
+    "es": "Strata ahora gestiona las solicitudes de «Abrir ubicación del archivo».",
+    "ja": "Strata が「ファイルの場所を開く」要求を処理するようになりました。",
+    "pt-BR": "O Strata agora atende às solicitações de “Abrir local do arquivo”.",
+    "ko": "이제 Strata가 \"파일 위치 열기\" 요청을 처리합니다.",
+    "vi": "Strata giờ xử lý các yêu cầu “Mở vị trí tệp”.",
+    "it": "Strata ora gestisce le richieste «Apri percorso del file».",
+    "ru": "Теперь Strata обрабатывает запросы «Открытие расположения файла».",
+    "zh-CN": "Strata 现在会处理“打开文件位置”请求。"
+  },
+  "installer.reveal_relogin": {
+    "en": "Installed the FileManager1 service, but could not reload the session bus. Log out and back in to use Strata for \"Open file location\" requests.",
+    "fr": "Le service FileManager1 est installé, mais le bus de session n’a pas pu être rechargé. Déconnectez-vous puis reconnectez-vous pour utiliser Strata pour les demandes « Ouvrir l’emplacement du fichier ».",
+    "de": "Der FileManager1-Dienst wurde installiert, aber der Sitzungsbus konnte nicht neu geladen werden. Melden Sie sich ab und wieder an, um Strata für „Dateispeicherort öffnen“ zu verwenden.",
+    "es": "Se instaló el servicio FileManager1, pero no se pudo recargar el bus de sesión. Cierra sesión y vuelve a iniciarla para usar Strata en las solicitudes de «Abrir ubicación del archivo».",
+    "ja": "FileManager1 サービスをインストールしましたが、セッションバスを再読み込みできませんでした。「ファイルの場所を開く」要求に Strata を使うには、ログアウトして再度ログインしてください。",
+    "pt-BR": "O serviço FileManager1 foi instalado, mas não foi possível recarregar o barramento de sessão. Saia e entre novamente para usar o Strata nas solicitações de “Abrir local do arquivo”.",
+    "ko": "FileManager1 서비스를 설치했지만 세션 버스를 다시 불러오지 못했습니다. \"파일 위치 열기\" 요청에 Strata를 사용하려면 로그아웃한 후 다시 로그인하세요.",
+    "vi": "Đã cài dịch vụ FileManager1 nhưng không thể tải lại bus phiên. Hãy đăng xuất rồi đăng nhập lại để dùng Strata cho các yêu cầu “Mở vị trí tệp”.",
+    "it": "Il servizio FileManager1 è stato installato, ma non è stato possibile ricaricare il bus di sessione. Esci e accedi di nuovo per usare Strata con le richieste «Apri percorso del file».",
+    "ru": "Служба FileManager1 установлена, но перезагрузить сеансовую шину не удалось. Выйдите из системы и войдите снова, чтобы Strata обрабатывала запросы «Открытие расположения файла».",
+    "zh-CN": "已安装 FileManager1 服务，但无法重新加载会话总线。请注销并重新登录，以便使用 Strata 处理“打开文件位置”请求。"
+  },
   "installer.chooser_hint": {
     "en": "Use Strata for portal dialogs. Restarts the portal service; close file dialogs first.",
     "fr": "Utilisez Strata pour les dialogues de portail. Redémarre le service ; fermez d’abord les dialogues de fichiers.",

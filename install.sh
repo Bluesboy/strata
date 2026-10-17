@@ -89,6 +89,8 @@ case "$(installer_locale)" in
     [launcher_hint]='Add Strata to your application menu.'
     [folders_hint]='Use Strata for folders and Open file location. Includes the launcher.'
     [reveal_hint]='Reveal files from other apps without changing folder defaults.'
+    [reveal_ready]='Strata now handles "Open file location" requests.'
+    [reveal_relogin]='Installed the FileManager1 service, but could not reload the session bus. Log out and back in to use Strata for "Open file location" requests.'
     [chooser_hint]='Use Strata for portal dialogs. Restarts the portal service; close file dialogs first.'
     [smb]='Windows network shares'
     [smb_hint]='Install optional SMB support for browsing network shares.'
@@ -149,6 +151,8 @@ case "$(installer_locale)" in
     [launcher_hint]='Ajoutez Strata au menu des applications.'
     [folders_hint]='Utilisez Strata pour les dossiers et leur ouverture depuis d’autres applications. Lanceur inclus.'
     [reveal_hint]='Affichez les fichiers depuis d’autres applications sans changer le gestionnaire de dossiers.'
+    [reveal_ready]='Strata gère désormais les demandes « Ouvrir l’emplacement du fichier ».'
+    [reveal_relogin]='Le service FileManager1 est installé, mais le bus de session n’a pas pu être rechargé. Déconnectez-vous puis reconnectez-vous pour utiliser Strata pour les demandes « Ouvrir l’emplacement du fichier ».'
     [chooser_hint]='Utilisez Strata pour les dialogues de portail. Redémarre le service ; fermez d’abord les dialogues de fichiers.'
     [smb]='Partages réseau Windows'
     [smb_hint]='Installez la prise en charge SMB pour parcourir les partages réseau.'
@@ -209,6 +213,8 @@ case "$(installer_locale)" in
     [launcher_hint]='Strata zum Anwendungsmenü hinzufügen.'
     [folders_hint]='Strata für Ordner und das Öffnen von Dateispeicherorten verwenden. Starter inklusive.'
     [reveal_hint]='Dateien aus anderen Anwendungen anzeigen, ohne den Standard für Ordner zu ändern.'
+    [reveal_ready]='Strata verarbeitet jetzt Anfragen für „Dateispeicherort öffnen“.'
+    [reveal_relogin]='Der FileManager1-Dienst wurde installiert, aber der Sitzungsbus konnte nicht neu geladen werden. Melden Sie sich ab und wieder an, um Strata für „Dateispeicherort öffnen“ zu verwenden.'
     [chooser_hint]='Strata für Portal-Dialoge verwenden. Startet den Portal-Dienst neu; Dateidialoge vorher schließen.'
     [smb]=Windows-Netzwerkfreigaben
     [smb_hint]='Optionale SMB-Unterstützung zum Durchsuchen von Netzwerkfreigaben installieren.'
@@ -269,6 +275,8 @@ case "$(installer_locale)" in
     [launcher_hint]='Añade Strata al menú de aplicaciones.'
     [folders_hint]='Usa Strata para carpetas y para abrir la ubicación de archivos. Incluye el lanzador.'
     [reveal_hint]='Muestra archivos desde otras aplicaciones sin cambiar el gestor de carpetas predeterminado.'
+    [reveal_ready]='Strata ahora gestiona las solicitudes de «Abrir ubicación del archivo».'
+    [reveal_relogin]='Se instaló el servicio FileManager1, pero no se pudo recargar el bus de sesión. Cierra sesión y vuelve a iniciarla para usar Strata en las solicitudes de «Abrir ubicación del archivo».'
     [chooser_hint]='Usa Strata para los diálogos del portal. Reinicia el servicio; cierra antes los diálogos de archivos.'
     [smb]='Recursos compartidos de Windows'
     [smb_hint]='Instala el soporte SMB opcional para explorar recursos compartidos de red.'
@@ -329,6 +337,8 @@ case "$(installer_locale)" in
     [launcher_hint]='アプリケーションメニューに Strata を追加します。'
     [folders_hint]='フォルダーやファイルの場所を Strata で開きます。ランチャーも追加します。'
     [reveal_hint]='フォルダーの既定設定を変えずに、他のアプリからファイルの場所を表示します。'
+    [reveal_ready]='Strata が「ファイルの場所を開く」要求を処理するようになりました。'
+    [reveal_relogin]='FileManager1 サービスをインストールしましたが、セッションバスを再読み込みできませんでした。「ファイルの場所を開く」要求に Strata を使うには、ログアウトして再度ログインしてください。'
     [chooser_hint]='ポータルのダイアログに Strata を使用します。サービスを再起動するため、先にファイルダイアログを閉じてください。'
     [smb]='Windows ネットワーク共有'
     [smb_hint]='ネットワーク共有を参照するための SMB サポートを追加します。'
@@ -389,6 +399,8 @@ case "$(installer_locale)" in
     [launcher_hint]='Adicione o Strata ao menu de aplicativos.'
     [folders_hint]='Use o Strata para pastas e para abrir locais de arquivos. Inclui o lançador.'
     [reveal_hint]='Mostre arquivos de outros aplicativos sem mudar o padrão para pastas.'
+    [reveal_ready]='O Strata agora atende às solicitações de “Abrir local do arquivo”.'
+    [reveal_relogin]='O serviço FileManager1 foi instalado, mas não foi possível recarregar o barramento de sessão. Saia e entre novamente para usar o Strata nas solicitações de “Abrir local do arquivo”.'
     [chooser_hint]='Use o Strata nos diálogos do portal. Reinicia o serviço; feche os diálogos de arquivos antes.'
     [smb]='Compartilhamentos de rede Windows'
     [smb_hint]='Instale o suporte SMB opcional para navegar em compartilhamentos de rede.'
@@ -449,6 +461,8 @@ case "$(installer_locale)" in
     [launcher_hint]='앱 메뉴에 Strata를 추가합니다.'
     [folders_hint]='폴더와 파일 위치를 Strata로 엽니다. 실행 아이콘도 추가합니다.'
     [reveal_hint]='폴더 기본 설정을 바꾸지 않고 다른 앱에서 파일 위치를 표시합니다.'
+    [reveal_ready]='이제 Strata가 "파일 위치 열기" 요청을 처리합니다.'
+    [reveal_relogin]='FileManager1 서비스를 설치했지만 세션 버스를 다시 불러오지 못했습니다. "파일 위치 열기" 요청에 Strata를 사용하려면 로그아웃한 후 다시 로그인하세요.'
     [chooser_hint]='포털 대화상자에 Strata를 사용합니다. 포털 서비스가 재시작되므로 파일 대화상자를 먼저 닫으세요.'
     [smb]='Windows 네트워크 공유'
     [smb_hint]='네트워크 공유 탐색을 위한 SMB 지원을 추가합니다.'
@@ -509,6 +523,8 @@ case "$(installer_locale)" in
     [launcher_hint]='Thêm Strata vào menu ứng dụng.'
     [folders_hint]='Dùng Strata để mở thư mục và vị trí tệp. Bao gồm biểu tượng khởi chạy.'
     [reveal_hint]='Hiện tệp từ ứng dụng khác mà không đổi ứng dụng mở thư mục mặc định.'
+    [reveal_ready]='Strata giờ xử lý các yêu cầu “Mở vị trí tệp”.'
+    [reveal_relogin]='Đã cài dịch vụ FileManager1 nhưng không thể tải lại bus phiên. Hãy đăng xuất rồi đăng nhập lại để dùng Strata cho các yêu cầu “Mở vị trí tệp”.'
     [chooser_hint]='Dùng Strata cho hộp thoại portal. Sẽ khởi động lại dịch vụ; hãy đóng các hộp thoại tệp trước.'
     [smb]='Chia sẻ mạng Windows'
     [smb_hint]='Cài hỗ trợ SMB tùy chọn để duyệt các thư mục chia sẻ mạng.'
@@ -569,6 +585,8 @@ case "$(installer_locale)" in
     [launcher_hint]='Aggiungi Strata al menu delle applicazioni.'
     [folders_hint]='Usa Strata per cartelle e percorsi dei file. Include il lanciatore.'
     [reveal_hint]='Mostra file da altre applicazioni senza cambiare il gestore predefinito delle cartelle.'
+    [reveal_ready]='Strata ora gestisce le richieste «Apri percorso del file».'
+    [reveal_relogin]='Il servizio FileManager1 è stato installato, ma non è stato possibile ricaricare il bus di sessione. Esci e accedi di nuovo per usare Strata con le richieste «Apri percorso del file».'
     [chooser_hint]='Usa Strata per le finestre del portale. Riavvia il servizio; chiudi prima le finestre dei file.'
     [smb]='Condivisioni di rete Windows'
     [smb_hint]='Installa il supporto SMB opzionale per esplorare le condivisioni di rete.'
@@ -629,6 +647,8 @@ case "$(installer_locale)" in
     [launcher_hint]='Добавить Strata в меню приложений.'
     [folders_hint]='Открывать папки и расположение файлов в Strata. Включает ярлык запуска.'
     [reveal_hint]='Показывать файлы из других приложений, не меняя обработчик папок.'
+    [reveal_ready]='Теперь Strata обрабатывает запросы «Открытие расположения файла».'
+    [reveal_relogin]='Служба FileManager1 установлена, но перезагрузить сеансовую шину не удалось. Выйдите из системы и войдите снова, чтобы Strata обрабатывала запросы «Открытие расположения файла».'
     [chooser_hint]='Использовать Strata для диалогов портала. Служба будет перезапущена; сначала закройте файловые диалоги.'
     [smb]='Сетевые ресурсы Windows'
     [smb_hint]='Установить поддержку SMB для просмотра сетевых ресурсов.'
@@ -689,6 +709,8 @@ case "$(installer_locale)" in
     [launcher_hint]='将 Strata 添加到应用菜单。'
     [folders_hint]='使用 Strata 打开文件夹和文件位置，并添加启动图标。'
     [reveal_hint]='显示其他应用中的文件位置，不更改默认文件夹处理程序。'
+    [reveal_ready]='Strata 现在会处理“打开文件位置”请求。'
+    [reveal_relogin]='已安装 FileManager1 服务，但无法重新加载会话总线。请注销并重新登录，以便使用 Strata 处理“打开文件位置”请求。'
     [chooser_hint]='使用 Strata 的门户对话框。此操作会重启门户服务，请先关闭文件对话框。'
     [smb]='Windows 网络共享'
     [smb_hint]='安装可选的 SMB 支持，以浏览网络共享。'
@@ -1340,7 +1362,14 @@ install_file_manager_service() {
   sed "s|^Exec=/usr/bin/strata |Exec=$escaped_bin |" \
     "$extracted/$APP_ID.FileManager1.service" >"$staged"
   install -Dm644 "$staged" "$target"
-  info 'Strata now handles "Open file location" requests.'
+  if gdbus call --session --timeout 5 \
+    --dest org.freedesktop.DBus \
+    --object-path /org/freedesktop/DBus \
+    --method org.freedesktop.DBus.ReloadConfig >/dev/null 2>&1; then
+    info "$(text reveal_ready)"
+  else
+    warn "$(text reveal_relogin)"
+  fi
 }
 
 configure_omarchy_bindings() {
