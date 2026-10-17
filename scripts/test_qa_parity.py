@@ -25,6 +25,7 @@ from qa_parity import (
     qa_signature,
     shard_units,
     signature_parity,
+    state_parity_ignore,
     touches_parity,
 )
 
@@ -168,6 +169,68 @@ class InputParityTests(unittest.TestCase):
         ]:
             with self.subTest(python=python):
                 self.assertFalse(compare_input(python, self.QA).agree)
+
+    def test_a_motion_only_run_compares_its_motion_and_an_empty_one_disagrees(self):
+        hover = "motion 1190 750\nmotion 1196 756\nmotion 267 152\nmotion 273 158"
+        self.assertTrue(compare_input(hover, hover.replace("273 158", "274 157")).agree)
+        self.assertFalse(compare_input(hover, hover.replace("273 158", "276 158")).agree)
+        self.assertFalse(compare_input(hover, hover.rsplit("\n", 1)[0]).agree)
+        self.assertFalse(compare_input("", "").agree)
+
+
+class StateParityIgnoreTests(unittest.TestCase):
+    PYTHON = {
+        "view_mode": "Columns",
+        "directory": "root",
+        "panes": [{"name": "root", "selected": [], "focused": "todo.txt"}],
+        "focused": "todo.txt",
+        "focused_pane": "root",
+        "dialog": None,
+    }
+
+    def test_ignored_focus_is_left_out_and_everything_else_still_compared(self):
+        qa = {
+            **self.PYTHON,
+            "panes": [{"name": "root", "selected": [], "focused": "readme.md"}],
+            "focused": "readme.md",
+        }
+        ignore = ("focused", "panes.focused")
+        self.assertFalse(compare_state(self.PYTHON, qa).agree)
+        self.assertTrue(compare_state(self.PYTHON, qa, ignore).agree)
+        self.assertFalse(compare_state(self.PYTHON, {**qa, "directory": "home"}, ignore).agree)
+        moved = {**qa, "panes": [{"name": "root", "selected": ["a"], "focused": None}]}
+        self.assertFalse(compare_state(self.PYTHON, moved, ignore).agree)
+
+    def test_only_distinct_compared_keys_may_be_ignored(self):
+        self.assertEqual(state_parity_ignore({}), ())
+        self.assertEqual(
+            state_parity_ignore({"state_parity_ignore": ["focused", "panes.focused"]}),
+            ("focused", "panes.focused"),
+        )
+        for bad in [["menu"], ["panes.name"], ["focused", "focused"], "focused", [1]]:
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    state_parity_ignore({"state_parity_ignore": bad})
+
+    def test_a_mutation_scenario_or_ignoring_every_key_is_rejected(self):
+        self.assertEqual(state_parity_ignore({"mutation": "clipboard"}), ())
+        with self.assertRaises(ValueError):
+            state_parity_ignore({"mutation": "clipboard", "state_parity_ignore": ["focused"]})
+        with self.assertRaises(ValueError):
+            state_parity_ignore({"state_parity_ignore": list(qa_parity.COMPARED_STATE)})
+        everything_but_pane_names = [
+            key for key in qa_parity.IGNORABLE_STATE if key != "panes"
+        ]
+        self.assertEqual(
+            state_parity_ignore({"state_parity_ignore": everything_but_pane_names}),
+            tuple(everything_but_pane_names),
+        )
+
+    def test_the_note_names_the_ignored_keys(self):
+        qa = {**self.PYTHON, "focused": "readme.md"}
+        self.assertEqual(
+            compare_state(self.PYTHON, qa, ("focused",)).note, "ignoring focused"
+        )
 
 
 class StateParityTests(unittest.TestCase):

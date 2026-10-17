@@ -642,7 +642,14 @@ absolute path), `$home` and `$data` (the run's HOME and XDG data directory),
 a manifest tree or writes one out, where a name such as `{000..199}.txt` stands
 for one zero-padded file per number whose text has `{}` replaced by the number;
 `images` (`{"beta/thumb.png":{"width":64,"height":64,"rgb":[230,40,60]}}`)
-then adds solid-colour PNGs, as a fixture saves a PIL image.
+then adds solid-colour PNGs, as a fixture saves a PIL image, and `gtk_settings`
+(`{"gtk-enable-animations":"true"}`) rewrites those lines of the manifest's
+GTK `settings.ini`, as a twin's `test_environment` override does.
+`state_parity_ignore` (`["focused","panes.focused"]`) leaves compared keys,
+or a compared key of each pane, out of the scenario's final-state parity; it
+is only for a scenario whose app state ends nondeterministically under both
+harnesses (see "QA parity"), and `tests/qa.rs` and `scripts/qa_parity.py`
+both reject any other key.
 Every later line is one step; a step with `"modes":["icons","list"]` runs only
 in those views, which is how a scenario mirrors a twin's `if mode == ...`; a step
 with `"variants":["row-space"]` runs only in those header variants, as a twin's
@@ -667,17 +674,25 @@ fails the scenario before it runs.
 | `{"activate":{"role":"toggle button","name":"..."},"message":"..."}` | process | `Node.activate`: the default action, no pointer input; the control may be scrolled away |
 | `{"holds":PREDICATE}` | process | `true` or `false` in `result`, never a failure |
 | `{"remember":{"field":true},"as":"filter"}` | process | keeps the focused field, as a twin keeps `field = strata.editable_field()`; any other target keeps its box, for `left_bound` and `moved` |
-| `{"note":"entries","dir":"$root","as":"names"}` | process | an accessor's value for later `$names`: `directory`, `pane`, `panes`, `entries`, `selected`, `all_selected`, `matches`, `focused`, `focused_pane`; `from`/`through` slice a list as `names[names.index(a):names.index(b) + 1]`; `"until_found":true` (with `message`, `timeout_ms`) polls until it is not null, as `strata.wait(accessor)` returns it; `middle_visible` with `unless_first` is the reversing-scroll scenario's `middle_entry` |
+| `{"note":"entries","dir":"$root","as":"names"}` | process | an accessor's value for later `$names`: `directory`, `pane`, `panes`, `entries`, `selected`, `all_selected`, `matches`, `focused`, `focused_pane`, `visible` (the rows wholly inside the pane's scroll viewport, `_visible_entries`); `from`/`through` slice a list as `names[names.index(a):names.index(b) + 1]`, then `"middle":3` keeps `names[len // 2:len // 2 + 3]`, `"plus":["todo.txt"]` makes it `sorted(set(names) \| {...})`, `"sorted":true` sorts it, and `"pick":-1` keeps one name, `names[-1]`; `bounds` with `"of":TARGET` is its box as Python prints `screen_bounds()`, for a message; `"until_found":true` (with `message`, `timeout_ms`) polls until it is not null, as `strata.wait(accessor)` returns it; `middle_visible` with `unless_first` is the reversing-scroll scenario's `middle_entry`; `scroll_target` with `"of":TARGET` is the pane's scroll value plus `max(of.y + of.height - viewport.y + 1, 1)` |
 | `{"increment":"first","as":"next"}` | runner | a noted name with its trailing number one higher, `f"folder-{n + 1:03}"` |
+| `{"slice":"rows","middle":3,"pick":-1,"as":"last"}` | runner | part of a noted list, so one snapshot serves several values as a twin reuses `rows`: `middle` then `pick`, as a note shapes a list |
+| `{"keys_until":PREDICATE,"keys":["Home","Left"],"times":2}` | process | presses the keys in turn for at most `times` rounds, stopping once the predicate holds right after a round, as `for _ in range(2): ...; if node.has_state(...): break` |
 | `{"move":TARGET,"at":[...]}` | process | `pointer.move_to` |
 | `{"move_by":[2,0]}` | process | `pointer.move_to` the pointer's own position plus an offset |
 | `{"wheel":TARGET,"clicks":3,"direction":"down","at":[...]}` | process | `pointer.scroll` |
+| `{"wheel":TARGET,"clicks":10,"until":PREDICATE,"tries":40}` | process | turns the wheel only while the predicate does not hold, checking before each turn: at most `tries` turns with no pause, as a twin's `for _ in range(40)` loop, or else (with `message`, `timeout_ms`) polling as a `strata.wait` whose condition scrolls, failing on timeout |
+| `{"key_down":"ctrl"}`, `{"key_up":"Escape"}` | process | `connection.key(keysym, True/False)`: one modifier or key, no tap and no pause |
+| `{"during":PREDICATE,"ms":1200,"every_ms":50,"message":"..."}` | process | checks every `every_ms` (default 50) for `ms` and fails as soon as the predicate does not hold, as a twin asserts through a sustained hover |
+| `{"capture":TARGET,"inset":3,"as":"before"}` | process | keeps the screen's pixels in the target's box, inset on every side, as a twin crops a screenshot for `repainted`; any part off the screen is black, as PIL's `crop` pads it, and so it is for `repainted` |
+| `{"measure_text":"label","as":"resting"}` | process | `text_position` over a kept box from a fresh screen grab: the luma-weighted mean row of the ink and its contrast; fails as `the source label disappeared` when there is no ink, and is an error when the box leaves the screen, as indexing the twin's screenshot past its edge raises (so for `drop_samples`) |
+| `{"drop_samples":"label","resting":"resting","dragging":"dragging","escape":true,"as":"released"}` | process | the drag-completion release: Escape down and up when asked, then button 1 up, with no pauses, then grabs of the kept box 60, 120, and 180 ms later; each must come within 240 ms (failing with the samples printed as the twin's `assert ..., samples` prints them), sit within 1.5 pixels of `resting`, and the last must have 1.25 times `dragging`'s contrast; the release instant is kept for `elapsed` |
 | `{"drag":{"from":TARGET,"to":TARGET},"steps":16,"release":true,"mods":[]}` | process | `pointer.drag`; an entry `from` starts on its icon (`drag_origin`); `release:false` keeps the button held |
-| `{"drag":{"from":TARGET,"from_at":[...],"to":TARGET,"to_at":[...]},"after_press":PREDICATE,"message":"..."}` | process | `drag_points(start, end, after_press=...)`: the predicate is checked once after the press; a mismatch lets go and fails the step |
+| `{"drag":{"from":TARGET,"from_at":[...],"to":TARGET,"to_at":[...]},"after_press":PREDICATE,"message":"..."}` | process | `drag_points(start, end, after_press=...)`: the predicate is checked once after the press; a mismatch lets go and fails the step; `after_press` may instead list `{"wait":PREDICATE,"message":...}` and `{"expect":PREDICATE,"message":...}` steps, run in order, as a callback that waits and then asserts. Without `from_at`, the target is read before the source, as `Pointer.drag` reads both boxes once both lookups returned |
 | `{"button_down":1}`, `{"button_up":1}` | process | `connection.button(n, True/False)` where the pointer is; `button_up` also ends `abandon_drag` |
 | `{"set_scrollbar":"horizontal","value":0}` | process | `Atspi.Value.set_current_value` on the first scroll bar with that orientation; no pointer input |
 | `{"sleep":600}` | process | `time.sleep(0.6)`; the main loop keeps running |
-| `{"resize":{"width":420,"height":300}}` | process | `resize_surface` on the main window |
+| `{"resize":{"width":420,"height":300}}` | process | `resize_surface` on the main window; without `height`, its current height |
 | `{"settle":TARGET,"timeout_ms":15000,"as":"entered"}` | process | `strata.settle`: waits for the bounds to repeat three polls and remembers them, under `as` too when given |
 | `{"wait":PREDICATE,"timeout_ms":15000,"message":"...","samples":10}` | process | stops the run on timeout, with the widget tree; `samples` polls in a row must hold, as a twin's steady-sample condition (both poll about every 50 ms, `tree.POLL_INTERVAL`) |
 | `{"expect":[PREDICATE,...],"message":"..."}` | process | reports mismatches and continues; `message` names the twin's assertion message |
@@ -685,7 +700,12 @@ fails the scenario before it runs.
 | `{"layout":"ru"}` | runner | `setxkbmap` and a group lock on the run's Xvfb |
 | `{"fs":{"path":"archive/todo.txt","exists":true},"timeout_ms":15000,"message":"..."}` | runner | waits for `exists`, `text`, `names`, `is` (`file`, `dir`, `symlink`), `empty`, or `unchanged` (equal to a remembered listing); `timeout_ms` 0 is a plain assertion |
 | `{"fs":{"path":"archive/todo.txt","write":"existing\n"}}`, `{"fs":{"path":".","remember":"original"}}` | runner | acts at once: writes a file, or keeps `fixture.listing()` under a name |
-| `{"fs":{"path":"archive/folder-{000..159}","mkdir":true}}`, `{"fs":{"path":".","populate":TREE}}` | runner | `Path.mkdir()`, once per number of a range in the last component; `FixtureTree.populate`, which also pins the times below `path` |
+| `{"fs":{"path":"archive/folder-{000..159}","mkdir":true}}`, `{"fs":{"path":".","populate":TREE}}` | runner | `Path.mkdir()` (`"parents":true` for `mkdir(parents=True)`), once per number of a range in the last component; `FixtureTree.populate`, which also pins the times below `path` |
+| `{"fs":{"path":"full/{000..179}.txt","write":"{}\n"}}`, `{"fs":{"path":"archive","chmod":"555"}}` | runner | one `write_text` per number of a range, `{}` in the text standing for it; `Path.chmod(0o555)` |
+| `{"fs":{"path":"archive/report.md","copy_of":"documents/report.md"}}`, `"size_of"` | runner | waits until the file has the other file's bytes, or its size |
+| `{"fs":{"path":".","remember_names":"original"}}`, `{"fs":{"path":".","names_from":"original","minus":["todo.txt"],"plus":[...]}}` | runner | keeps `set(fixture.names(path))`; waits until the names are that set less `minus` plus `plus` |
+| `{"fs":{"path":"drop-volume","volume":"/dev/shm"}}` | runner | the cross-volume fixture: a fresh `strata-drop-volume-*` directory in `/dev/shm`, which must lie on another device than the fixture, linked at `path` and removed when the run ends |
+| `{"screenshot":"hover.png"}` | runner | captures the Xvfb root, as a twin's artifact screenshot; saved with the run's artifacts when it keeps them |
 | `{"fs":{"path":"photo.png","image":{"width":1600,"height":900,"rgb":[0,128,0]}}}`, `{"fs":{"path":"sound.wav","ffmpeg":["-f","lavfi",...]}}` | runner | a solid-colour PNG, written in place in one write as PIL's buffered save writes it (written in pieces, the listing would see it grow and replace its row), or `ffmpeg -v error -y <ffmpeg...> <path>` |
 
 `fs` paths are relative to the fixture directory unless absolute, so
@@ -719,11 +739,22 @@ allocation lands, which the slower Python lookups never see.
 | `{"entry":"todo.txt","part":"label"}`, `"part":"icon"` | `entry.find(role="label", name=name)`, `entry.find(role="image")` |
 | `{"window":true}`, `{"window":true,"y_of":TARGET}` | `strata.window`; with `y_of`, the point's height is that target's centre, as `(window.x + window.width - 40, pane.center[1])` |
 | `{"preview":true}` | `strata.preview()`, the quick preview drawer |
+| `{"search_result":"todo.txt"}` | `search_result(name)`: a `Search results` row by name, or else any list item with it |
+| `{"named":"Apply to All","within":{"dialog":true}}`, `{"dialog":true}` | `dialog.find(name=...)`: any role, inside another target; `dialog()` |
+| `{"container":"archive"}` | `entry_container(directory)`: the list or grid inside a pane |
+| `{"parent":TARGET}`, `{"ancestor":"scroll pane","of":TARGET}` | `node.parent`; the nearest ancestor with the role, as `node.ancestors()` is walked |
+| `{"kept":"edge"}` | a box `settle` or `remember` kept, or a point `remember` kept, as a twin keeps `bounds` before the window changes |
+| `{"point":[X,Y]}` | a point put together from targets, as `(pane.x + 2, container.y + 2)`; each coordinate is `{"of":TARGET,"at":OFFSET}` (its centre without `at`), `{"mid":[A,B]}` (`(a + b) // 2`), `{"max":[A,B]}`, or `{"extent":TARGET}` (its width or height taken as a screen coordinate, as `park_pointer` moves to `(width - 4, height - 4)`), each with an optional `"plus":40`, in whole pixels |
+| `{"entry":"todo.txt","part":"metadata"}` | the row's first named label other than its name, as `metadata_drag_origin` finds it |
 
 `at` is `[x, y]` from the target's top-left corner, each in pixels (negative
 counts back from the far edge), a share such as `"80%"` or `"2/3"` (rounded
-down, as `width * 2 // 3`), or `"start-6"` for pixels from the near edge that
-may lie outside the target; without it the pointer aims at the centre. Role names are AT-SPI's, with `push button` spelled
+down, as `width * 2 // 3`), a share plus pixels such as `"2/3+3"`,
+`"start-6"` or `"end+60"` for pixels from the near or far edge that may lie
+outside the target, or `"end-1/6"` for a share back from the far edge; without
+it the pointer aims at the centre. A share has no lower bound: the row-padding
+twin's `max(1, height // 6)` equals `"1/6"` for every row at least 6 pixels
+tall, and the scenarios only aim at rows taller than that. Role names are AT-SPI's, with `push button` spelled
 `button`; names are the labels `src/ui/accessibility.rs` records (an entry row's
 is its list item's, and `set_labelled_by` joins its labels' names), a label's
 own text, or children's names for buttons and menu items; a menu button's inner
@@ -760,9 +791,24 @@ Predicates mirror the page object's accessors:
 | `{"preview":true}`, `{"peek":true}` | `preview() is not None`, `peek() is not None` |
 | `{"on_screen":TARGET}` | `on_screen(node)`: within the window's height |
 | `{"blank":{"target":TARGET,"at":[...]}}` | `_blank_preview_point`: the point lands on nothing inside the target but panels and fillers |
+| `{"visible":NAMES,"dir":...}` | `_visible_entries`: the rows wholly inside the pane's scroll viewport |
+| `{"scroll_value":{"at_least":N},"dir":...}` | the first scroll bar showing in the pane's viewport, `scroll_bar.numeric_value >= N` |
+| `{"band_selected":{"from":"start","to":"end"}}` | `visible_band_is_selected`: the visible rows whose name box ends above the kept point `to` and overlaps the band from kept `from` are all selected, and there is one |
+| `{"focus_within":TARGET}` | `any(node.has_state("focused") for node in target.walk())` |
+| `{"resized":{"target":TARGET,"since":"sidebar","width":0}}` | the width against a kept box: exactly that much wider, or `{"min":30}` |
+| `{"contains_point":{"target":TARGET,"point":TARGET,"axis":"x"}}` | `bounds.x <= x < bounds.x + bounds.width` for the point's coordinate |
+| `{"footer_fill":{"ends":["001.txt","011.txt"],"total":180}}` | `footer_counts_the_remaining_fill`: both ends listed, cleared, and on screen, and a label described as `"<total - cleared> of <total> items selected"` |
+| `{"repainted":{"since":"before"}}` | `visibly_hovered`: a fresh grab of a capture's box differs from it outside the pointer's square, 2 pixels before the box's centre to 32 after |
+| `{"contrast_below":{"of":"dragging","to":"resting","share":0.8}}` | `dragging_contrast < resting_contrast * 0.8` for two `measure_text` results |
+| `{"elapsed":{"since":"released","ms":600}}` | `time.monotonic() - released >= 0.6` |
+| `{"diagnostics_mention":["could not","permission denied"]}` | any of them in `strata.diagnostics().lower()`: the accessible names and descriptions of every application window |
 
 `NAMES` is an exact list in visual order or
-`{"contains":[...],"excludes":[...],"count":4,"at_least":2,"ends_with":[...]}`;
+`{"contains":[...],"excludes":[...],"count":4,"at_least":2,"ends_with":[...]}`,
+with `"first"` (`names[0] == ...`), `"first_above"` (`names[0] > "010.txt"`),
+`"any_from"` (some name `>= "040.txt"`), and
+`"toggled":{"names":[...],"against":[...]}` (each listed exactly when
+`against` does not list it), comparing names as Python compares strings;
 `panes` takes one too. `moved` takes `"since":"entered"` to compare with a box
 `settle` or `remember` kept under that name, and with direction `none`,
 `"y_within":2` allows that much vertical drift and ignores the rest, as
@@ -803,7 +849,9 @@ warning or critical in `criticals` fails the run. `app` has exactly these keys:
   `List`), or null with no pane on screen.
 - `directory`: `current_directory()`; `focused_pane`: `focused_pane().name`.
 - `panes`: `containers()` left to right; per pane its name, `selected_names` in
-  visual order, and the name of its entry holding focus or null.
+  visual order, and the name of its entry holding focus or null. As through
+  AT-SPI, a focused widget that is not mapped, such as a row a list keeps
+  while it is scrolled away, holds no focus.
 - `focused`: `focused_name()`.
 - `dialog`: `dialog().name`, or null.
 - `menu`: `menu_items()` of the open menu, or null when none is open.
@@ -899,8 +947,8 @@ status its results do not account for is a disagreement. A scenario with a
 | pass | both sides pass on the unmodified tree |
 | fail | under the scenario's `mutation` patch each run fails on both sides or on neither, at least one fails on both, and neither side has an infrastructure error |
 | signature | where both fail, the Python wait message (or assertion message) equals the `message` of the QA step that failed; an empty message on either side disagrees |
-| input | the unmodified runs' `key` and `pointer` lines agree in order, positions within one pixel; any line other than these and `motion` disagrees |
-| state | the unmodified runs' final snapshots both have the compared keys and agree on them |
+| input | the unmodified runs' `key` and `pointer` lines agree in order, positions within one pixel, or, in a run that only moves the pointer, its `motion` lines do; any other line disagrees, and so do two empty logs |
+| state | the unmodified runs' final snapshots both have the compared keys and agree on them, less the scenario's `state_parity_ignore` |
 
 Everything lands in `target/qa-parity`: `baseline/` and `mutations/<patch>/`
 hold each side's log, the QA artifacts, and the Python JUnit report, input logs,
@@ -926,6 +974,34 @@ twin; see "QA in CI".
 The Python scenarios are being given QA twins side by side, file by file. A
 test stays Python-only only for a concrete technical reason, such as checking
 the AT-SPI surface itself, and is listed here with that reason. None are so far.
+
+### QA-only waits
+
+A QA run sends input faster than its twin, whose AT-SPI lookups take tens of
+milliseconds. Where that pace lets the app's own timers fire in another order
+than they always do under the twin, the QA scenario waits for what the twin's
+pace guarantees, and is listed here:
+
+- `same-folder-copy-numbered-duplicate` (folder): waits for the documents
+  column the keyboard cursor mirrors after 75 ms before Ctrl+D. Over 24
+  sequential twin runs the duplicate always ends selected in the root column
+  alone.
+- `paste-targets-selected-directory` (Columns): waits for the archive column
+  the cursor mirrors before Ctrl+V. Over 24 twin runs the pasted file always
+  ends selected and focused in that column.
+
+Both expose an app race: Ctrl+D or Ctrl+V within 75 ms of the arrow key that
+moved the cursor onto a folder leaves a stale mirrored column, and a paste
+then leaves the pasted file neither selected nor focused.
+
+### Nondeterministic final state
+
+`sidebar-destinations-accept-three-files` sets `state_parity_ignore` to
+`["focused","panes.focused"]`: after three selected files are dropped on Home,
+the app moves focus to `todo.txt` or `readme.md` depending on how the removals
+arrive. Over 24 sequential twin runs of `[Home-columns]` it ended on
+`todo.txt` 16 times and `readme.md` 8 times; QA runs vary alike. The test
+asserts no focus, and the rest of the state is still compared.
 
 ## In CI
 

@@ -1,0 +1,15 @@
+{"scenario":"paste-availability-follows-clipboard","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_clipboard.py::test_paste_availability_follows_the_clipboard","mutation":null,"known_bug":null}
+{"click":{"background":true},"button":3}
+{"wait":{"menu_items":{}},"message":"the pane context menu"}
+{"wait":{"present":{"menu_item":"Paste"}},"message":"the menu item 'Paste'"}
+{"expect":{"state":{"target":{"menu_item":"Paste"},"sensitive":false}},"message":"Paste should be offered but disabled while the clipboard is empty"}
+{"key":"Escape"}
+{"wait":{"menu_items":null},"message":"the menu to close"}
+{"select":{"entry":"todo.txt"}}
+{"key":"ctrl+c"}
+{"click":{"background":true},"button":3}
+{"wait":{"menu_items":{}},"message":"the pane context menu"}
+{"wait":{"present":{"menu_item":"Paste"}},"message":"the menu item 'Paste'"}
+{"expect":{"state":{"target":{"menu_item":"Paste"},"sensitive":true}},"message":"copying should enable Paste"}
+{"key":"Escape"}
+{"wait":{"menu_items":null},"message":"the menu to close"}

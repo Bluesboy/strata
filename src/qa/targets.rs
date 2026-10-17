@@ -10,13 +10,16 @@ use gtk::{glib, prelude::*};
 
 use super::{
     input::Injector,
-    protocol::{At, EntryPart, FieldRef, Target},
+    protocol::{At, Axis, EntryPart, FieldRef, Target},
     state::{self, Scene},
 };
 use crate::ui::accessibility_qa as names;
 
 /// Widgets a `remember` kept, by the name it gave them.
 pub(crate) type Memory = HashMap<String, glib::WeakRef<gtk::Widget>>;
+
+/// Boxes and points `settle` and `remember` kept, by name.
+pub(crate) type Boxes = HashMap<String, Rect>;
 
 /// A box on the X screen, in root window coordinates.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -88,15 +91,30 @@ pub(crate) enum Aim {
     DragOrigin,
 }
 
+/// What a lookup may refer back to: kept widgets and kept boxes.
+#[derive(Clone, Copy)]
+pub(crate) struct Kept<'a> {
+    pub(crate) memory: &'a Memory,
+    pub(crate) boxes: &'a Boxes,
+}
+
+/// The first rendered image at or below `widget`, `source.find(role="image")`.
+fn icon(widget: &gtk::Widget) -> Option<gtk::Widget> {
+    presented(widget)
+        .into_iter()
+        .find(|widget| role_name(widget) == "image" && state::rendered_bounds(widget).is_some())
+}
+
 /// Finds `target` now; callers poll, as the Python lookups wait.
 pub(crate) fn locate(
     window: &gtk::Window,
     injector: &Injector,
-    memory: &Memory,
+    kept: Kept<'_>,
     target: &Target,
     at: Option<&At>,
     aim: Aim,
 ) -> Result<Located, LookupError> {
+    let memory = kept.memory;
     let scene = state::scan(window);
     let root = window.upcast_ref::<gtk::Widget>();
     let widget = match target {
@@ -115,37 +133,89 @@ pub(crate) fn locate(
                             .unwrap_or_default()
                     ))
                 })?;
-            let icon = || {
-                presented(&row).into_iter().find(|widget| {
-                    role_name(widget) == "image" && state::rendered_bounds(widget).is_some()
-                })
-            };
             match entry.part {
                 Some(EntryPart::Label) => first_rendered(&row, |widget| {
                     role_name(widget) == "label" && accessible_name(widget) == entry.entry
                 })
                 .ok_or_else(|| missing(format!("no name label on {:?}", entry.entry)))?,
                 Some(EntryPart::Icon) => {
-                    icon().ok_or_else(|| missing(format!("no icon on {:?}", entry.entry)))?
+                    icon(&row).ok_or_else(|| missing(format!("no icon on {:?}", entry.entry)))?
                 }
-                None if aim == Aim::DragOrigin => {
-                    let rect = screen_rect(icon().as_ref().unwrap_or(&row), injector)?;
-                    return Ok(Located {
-                        widget: row,
-                        rect,
-                        point: rect.centre(),
-                    });
-                }
+                Some(EntryPart::Metadata) => first_rendered(&row, |widget| {
+                    role_name(widget) == "label" && {
+                        let name = accessible_name(widget);
+                        !name.is_empty() && name != entry.entry
+                    }
+                })
+                .ok_or_else(|| missing(format!("no metadata label on {:?}", entry.entry)))?,
+                None if aim == Aim::DragOrigin => return drag_origin(row, injector),
                 None => row,
             }
+        }
+        Target::SearchResult(name) => {
+            let everything = presented(root);
+            let result = match search_results(&everything) {
+                Some((results, row_role)) => find(&results, row_role, name),
+                None => find(root, "list item", name),
+            }?;
+            if aim == Aim::DragOrigin {
+                return drag_origin(result, injector);
+            }
+            result
         }
         Target::Role { role, name, within } => match within {
             None => find(root, role, name)?,
             Some(within) => {
-                let scope = locate(window, injector, memory, within, None, Aim::Point)?.widget;
+                let scope = locate(window, injector, kept, within, None, Aim::Point)?.widget;
                 find(&scope, role, name)?
             }
         },
+        Target::Named { name, within } => {
+            let scope = locate(window, injector, kept, within, None, Aim::Point)?.widget;
+            first_rendered(&scope, |widget| accessible_name(widget) == *name)
+                .ok_or_else(|| missing(format!("nothing named {name:?} on screen")))?
+        }
+        Target::Container { dir } => pane(&scene, dir.as_deref())?
+            .container
+            .clone()
+            .ok_or_else(|| missing("the pane has no entry list"))?,
+        Target::Dialog => {
+            open_dialog(&presented(root)).ok_or_else(|| missing("no dialog is open"))?
+        }
+        Target::Parent(of) => locate(window, injector, kept, of, None, Aim::Point)?
+            .widget
+            .parent()
+            .ok_or_else(|| missing("the target has no parent"))?,
+        Target::Ancestor { role, of } => {
+            let child = locate(window, injector, kept, of, None, Aim::Point)?.widget;
+            std::iter::successors(child.parent(), WidgetExt::parent)
+                .find(|widget| role_name(widget) == role)
+                .ok_or_else(|| missing(format!("the target has no {role} around it")))?
+        }
+        Target::Kept(name) => {
+            let rect = kept.boxes.get(name).copied().ok_or_else(|| {
+                LookupError::Broken(format!("no box or point was kept as {name:?}"))
+            })?;
+            return Ok(Located {
+                widget: root.clone(),
+                rect,
+                point: rect.point(at),
+            });
+        }
+        Target::Point(axes) => {
+            let [x, y] = &**axes;
+            let rect = Rect {
+                x: coordinate(window, injector, kept, x, Along::X)? as f64,
+                y: coordinate(window, injector, kept, y, Along::Y)? as f64,
+                width: 0.0,
+                height: 0.0,
+            };
+            return Ok(Located {
+                widget: root.clone(),
+                rect,
+                point: rect.point(at),
+            });
+        }
         Target::Sidebar(name) | Target::Header(name) => find(root, "button", name)?,
         Target::MenuItem(label) => {
             let menu = first_rendered(root, |widget| role_name(widget) == "menu");
@@ -195,7 +265,7 @@ pub(crate) fn locate(
             let rect = screen_rect(root, injector)?;
             let (x, mut y) = rect.point(at);
             if let Some(other) = y_of {
-                y = locate(window, injector, memory, other, None, Aim::Point)?
+                y = locate(window, injector, kept, other, None, Aim::Point)?
                     .rect
                     .centre()
                     .1;
@@ -226,6 +296,77 @@ pub(crate) fn locate(
         rect,
         point: rect.point(at),
         widget,
+    })
+}
+
+/// `Pointer.drag_origin`: a file drag starts on the row's icon, not on the
+/// inert space in a wide row.
+fn drag_origin(row: gtk::Widget, injector: &Injector) -> Result<Located, LookupError> {
+    let rect = screen_rect(icon(&row).as_ref().unwrap_or(&row), injector)?;
+    Ok(Located {
+        widget: row,
+        rect,
+        point: rect.centre(),
+    })
+}
+
+#[derive(Clone, Copy)]
+enum Along {
+    X,
+    Y,
+}
+
+/// One coordinate of a point target, in whole pixels as AT-SPI reports a
+/// box, so the arithmetic is the twin's integer arithmetic.
+fn coordinate(
+    window: &gtk::Window,
+    injector: &Injector,
+    kept: Kept<'_>,
+    axis: &Axis,
+    along: Along,
+) -> Result<i64, LookupError> {
+    Ok(match axis {
+        Axis::Of { target, at, plus } => {
+            let [x, y, width, height] = locate(window, injector, kept, target, None, Aim::Point)?
+                .rect
+                .pixels();
+            let (start, extent) = match along {
+                Along::X => (x, width),
+                Along::Y => (y, height),
+            };
+            let value = match at {
+                None => start + extent.div_euclid(2),
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "an offset from whole pixels is a whole pixel"
+                )]
+                Some(at) => at.resolve(start as f64, extent as f64).floor() as i64,
+            };
+            value + i64::from(*plus)
+        }
+        Axis::Mid { pair, plus } => {
+            let [first, second] = &**pair;
+            (coordinate(window, injector, kept, first, along)?
+                + coordinate(window, injector, kept, second, along)?)
+            .div_euclid(2)
+                + i64::from(*plus)
+        }
+        Axis::Extent { target, plus } => {
+            let [_, _, width, height] = locate(window, injector, kept, target, None, Aim::Point)?
+                .rect
+                .pixels();
+            let extent = match along {
+                Along::X => width,
+                Along::Y => height,
+            };
+            extent + i64::from(*plus)
+        }
+        Axis::Max { pair, plus } => {
+            let [first, second] = &**pair;
+            coordinate(window, injector, kept, first, along)?
+                .max(coordinate(window, injector, kept, second, along)?)
+                + i64::from(*plus)
+        }
     })
 }
 

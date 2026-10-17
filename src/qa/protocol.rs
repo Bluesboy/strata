@@ -87,6 +87,17 @@ pub(crate) enum Command {
         through: Option<String>,
         /// For `middle_visible`: no answer while the first visible entry is this one.
         unless_first: Option<String>,
+        /// For `scroll_target`, the box the scroll must carry above the
+        /// viewport; for `bounds`, the box to print.
+        of: Option<Target>,
+        /// For a list: `names[len(names) // 2:len(names) // 2 + middle]`.
+        middle: Option<usize>,
+        /// For a list: `sorted(set(names) | set(plus))`.
+        plus: Vec<String>,
+        /// For a list: `sorted(names)`.
+        sorted: bool,
+        /// For a list: one name, `names[pick]`, counting back when negative.
+        pick: Option<i64>,
     },
     Move {
         target: Target,
@@ -104,6 +115,54 @@ pub(crate) enum Command {
         clicks: u32,
         down: bool,
         modifiers: Vec<Modifier>,
+        /// Turns the wheel only while this does not hold, checking before
+        /// each turn: up to `tries` turns, as a twin's bounded loop does, or
+        /// else until the timeout, polling as `strata.wait` does.
+        until: Option<Repeat>,
+    },
+    /// Presses `keys` in turn up to `times` rounds, stopping after a round
+    /// once the predicate holds, checked right after the last key, as a
+    /// twin's `for _ in range(2): press(...); if node.has_state(...): break`.
+    KeysUntil {
+        predicate: Predicate,
+        keys: Vec<Chord>,
+        times: u32,
+    },
+    /// Presses or releases one key with no pause, as `connection.key(keysym,
+    /// True)` does: a modifier name (`ctrl`) or a key name (`Escape`).
+    KeyDown(String),
+    KeyUp(String),
+    /// Checks a predicate every `every` for `duration` and fails as soon as
+    /// it does not hold, as a twin asserts through a sustained hover.
+    During {
+        predicate: Predicate,
+        duration: Duration,
+        every: Duration,
+        message: Option<String>,
+    },
+    /// Keeps the screen's pixels in a target's box, inset on every side, as a
+    /// twin crops a screenshot to compare with a later one.
+    Capture {
+        target: Target,
+        inset: u16,
+        name: String,
+    },
+    /// The glyph position and contrast in a kept box, from a fresh screen
+    /// grab, as `test_drag_animation.text_position` measures a label.
+    MeasureText {
+        kept: String,
+        name: String,
+    },
+    /// Lets go of a held drag, after an Escape press when asked, and samples
+    /// a kept box 60, 120, and 180 ms later, checking each sample as
+    /// `test_drag_completion_keeps_the_source_label_in_place` does; the
+    /// release instant is kept under `name` for `elapsed`.
+    DropSamples {
+        kept: String,
+        resting: String,
+        dragging: String,
+        escape: bool,
+        name: String,
     },
     Drag {
         from: Target,
@@ -113,10 +172,9 @@ pub(crate) enum Command {
         steps: u32,
         release: bool,
         modifiers: Vec<Modifier>,
-        /// `drag_points(after_press=...)`: checked once right after the press;
-        /// a mismatch lets go of the button and fails the step.
-        after_press: Option<Predicate>,
-        message: Option<String>,
+        /// `drag_points(after_press=...)`: checked right after the press, in
+        /// order; a mismatch lets go of the button and fails the step.
+        after_press: Vec<PressCheck>,
     },
     /// Presses a button where the pointer is, as `connection.button(n, True)`.
     ButtonDown(u8),
@@ -130,9 +188,11 @@ pub(crate) enum Command {
     },
     /// `time.sleep`: the main loop keeps running.
     Sleep(Duration),
+    /// The main window's X size; without a height, its current one, as
+    /// `resize_surface(width, height, 600, height)` keeps it.
     Resize {
         width: u16,
-        height: u16,
+        height: Option<u16>,
     },
     /// Waits for a target to stop moving and remembers where it came to rest,
     /// under `name` when given.
@@ -156,8 +216,15 @@ pub(crate) enum Command {
     Query(Query),
 }
 
-pub(crate) const COMMANDS: [&str; 23] = [
+pub(crate) const COMMANDS: [&str; 30] = [
     "key",
+    "keys_until",
+    "key_down",
+    "key_up",
+    "during",
+    "capture",
+    "measure_text",
+    "drop_samples",
     "type",
     "click",
     "select",
@@ -181,6 +248,95 @@ pub(crate) const COMMANDS: [&str; 23] = [
     "expect",
     "query",
 ];
+
+/// A wheel's `until`: the predicate checked before each turn.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Repeat {
+    pub(crate) predicate: Predicate,
+    /// A loop of at most this many turns with no pause, after which the
+    /// step simply ends; without it, a poll that fails on timeout.
+    pub(crate) tries: Option<u32>,
+    pub(crate) timeout: Duration,
+    pub(crate) message: Option<String>,
+}
+
+/// One check right after a drag's press: polled until `wait` runs out, as
+/// `strata.wait` does, or else checked once, as an `assert`.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct PressCheck {
+    pub(crate) predicate: Predicate,
+    pub(crate) wait: Option<Duration>,
+    pub(crate) message: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PressStepFields {
+    wait: Option<Predicate>,
+    expect: Option<Predicate>,
+    timeout_ms: Option<u64>,
+    message: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KeysUntilFields {
+    keys_until: Predicate,
+    keys: Vec<String>,
+    times: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KeyDownFields {
+    key_down: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KeyUpFields {
+    key_up: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DuringFields {
+    during: Predicate,
+    ms: u64,
+    #[serde(default = "poll_ms")]
+    every_ms: u64,
+    message: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CaptureFields {
+    capture: Target,
+    #[serde(default)]
+    inset: u16,
+    #[serde(rename = "as")]
+    name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MeasureTextFields {
+    measure_text: String,
+    #[serde(rename = "as")]
+    name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DropSamplesFields {
+    drop_samples: String,
+    resting: String,
+    dragging: String,
+    #[serde(default)]
+    escape: bool,
+    #[serde(rename = "as")]
+    name: String,
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -248,6 +404,13 @@ struct NoteFields {
     from: Option<String>,
     through: Option<String>,
     unless_first: Option<String>,
+    of: Option<Target>,
+    middle: Option<usize>,
+    #[serde(default)]
+    plus: Vec<String>,
+    #[serde(default)]
+    sorted: bool,
+    pick: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -326,6 +489,10 @@ struct WheelFields {
     direction: WheelDirection,
     #[serde(default)]
     mods: Vec<String>,
+    until: Option<Predicate>,
+    tries: Option<u32>,
+    timeout_ms: Option<u64>,
+    message: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize)]
@@ -346,7 +513,7 @@ struct DragFields {
     release: bool,
     #[serde(default)]
     mods: Vec<String>,
-    after_press: Option<Predicate>,
+    after_press: Option<Value>,
     message: Option<String>,
 }
 
@@ -377,7 +544,7 @@ struct ResizeFields {
 #[serde(deny_unknown_fields)]
 struct Size {
     width: u16,
-    height: u16,
+    height: Option<u16>,
 }
 
 #[derive(Deserialize)]
@@ -418,6 +585,11 @@ fn one() -> u32 {
 
 fn one_sample() -> usize {
     1
+}
+
+/// `tree.POLL_INTERVAL`, in milliseconds.
+fn poll_ms() -> u64 {
+    50
 }
 
 fn first_button() -> u8 {
@@ -467,6 +639,86 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
     let fields = Value::Object(object.clone());
     let invalid = |error: serde_json::Error| format!("invalid {name} command: {error}");
     match *name {
+        "key_down" | "key_up" => {
+            let key = if *name == "key_down" {
+                serde_json::from_value::<KeyDownFields>(fields)
+                    .map_err(invalid)?
+                    .key_down
+            } else {
+                serde_json::from_value::<KeyUpFields>(fields)
+                    .map_err(invalid)?
+                    .key_up
+            };
+            if key.is_empty() || key.contains('+') && key != "+" {
+                return Err(format!("{name} takes one key name, not {key:?}"));
+            }
+            Ok(if *name == "key_down" {
+                Command::KeyDown(key)
+            } else {
+                Command::KeyUp(key)
+            })
+        }
+        "keys_until" => {
+            let fields: KeysUntilFields = serde_json::from_value(fields).map_err(invalid)?;
+            if fields.keys.is_empty() || fields.times == 0 {
+                return Err("keys_until needs keys and at least one round".to_owned());
+            }
+            Ok(Command::KeysUntil {
+                predicate: fields.keys_until,
+                keys: fields
+                    .keys
+                    .iter()
+                    .map(|key| Chord::parse(key))
+                    .collect::<Result<_, _>>()?,
+                times: fields.times,
+            })
+        }
+        "during" => {
+            let fields: DuringFields = serde_json::from_value(fields).map_err(invalid)?;
+            if fields.ms == 0 || fields.every_ms == 0 {
+                return Err("during needs a positive ms and every_ms".to_owned());
+            }
+            Ok(Command::During {
+                predicate: fields.during,
+                duration: Duration::from_millis(fields.ms),
+                every: Duration::from_millis(fields.every_ms),
+                message: fields.message,
+            })
+        }
+        "capture" => {
+            let fields: CaptureFields = serde_json::from_value(fields).map_err(invalid)?;
+            if fields.name.is_empty() {
+                return Err("capture needs a name in as".to_owned());
+            }
+            Ok(Command::Capture {
+                target: fields.capture,
+                inset: fields.inset,
+                name: fields.name,
+            })
+        }
+        "measure_text" => {
+            let fields: MeasureTextFields = serde_json::from_value(fields).map_err(invalid)?;
+            if fields.name.is_empty() {
+                return Err("measure_text needs a name in as".to_owned());
+            }
+            Ok(Command::MeasureText {
+                kept: fields.measure_text,
+                name: fields.name,
+            })
+        }
+        "drop_samples" => {
+            let fields: DropSamplesFields = serde_json::from_value(fields).map_err(invalid)?;
+            if fields.name.is_empty() {
+                return Err("drop_samples needs a name in as".to_owned());
+            }
+            Ok(Command::DropSamples {
+                kept: fields.drop_samples,
+                resting: fields.resting,
+                dragging: fields.dragging,
+                escape: fields.escape,
+                name: fields.name,
+            })
+        }
         "key" => {
             let fields: KeyFields = serde_json::from_value(fields).map_err(invalid)?;
             Ok(Command::Key {
@@ -547,6 +799,19 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
             if !fields.until_found && (fields.timeout_ms.is_some() || fields.message.is_some()) {
                 return Err("timeout_ms and message apply to a note with until_found".to_owned());
             }
+            if fields.of.is_some()
+                != matches!(fields.note, Accessor::ScrollTarget | Accessor::Bounds)
+            {
+                return Err("of belongs to, and is needed by, scroll_target and bounds".to_owned());
+            }
+            if (fields.middle.is_some()
+                || !fields.plus.is_empty()
+                || fields.sorted
+                || fields.pick.is_some())
+                && !fields.note.is_list()
+            {
+                return Err("middle, plus, sorted, and pick take a list".to_owned());
+            }
             Ok(Command::Note {
                 value: fields.note,
                 dir: fields.dir,
@@ -559,6 +824,11 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
                 from: fields.from,
                 through: fields.through,
                 unless_first: fields.unless_first,
+                of: fields.of,
+                middle: fields.middle,
+                plus: fields.plus,
+                sorted: fields.sorted,
+                pick: fields.pick,
             })
         }
         "click" => {
@@ -622,21 +892,41 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
                 return Err("wheel needs at least one click".to_owned());
             }
             fields.wheel.accepts(fields.at.as_ref())?;
+            if fields.until.is_none()
+                && (fields.tries.is_some()
+                    || fields.timeout_ms.is_some()
+                    || fields.message.is_some())
+            {
+                return Err("tries, timeout_ms, and message belong to a wheel's until".to_owned());
+            }
+            if fields.tries.is_some() && (fields.timeout_ms.is_some() || fields.message.is_some()) {
+                return Err(
+                    "a wheel repeats up to tries times or until a timeout, not both".to_owned(),
+                );
+            }
+            if fields.tries == Some(0) {
+                return Err("tries must be at least one".to_owned());
+            }
             Ok(Command::Wheel {
                 target: fields.wheel,
                 at: fields.at,
                 clicks: fields.clicks,
                 down: matches!(fields.direction, WheelDirection::Down),
                 modifiers: modifiers(&fields.mods)?,
+                until: fields.until.map(|predicate| Repeat {
+                    predicate,
+                    tries: fields.tries,
+                    timeout: fields
+                        .timeout_ms
+                        .map_or(DEFAULT_WAIT, Duration::from_millis),
+                    message: fields.message,
+                }),
             })
         }
         "drag" => {
             let fields: DragFields = serde_json::from_value(fields).map_err(invalid)?;
             if fields.steps == 0 {
                 return Err("drag needs at least one step".to_owned());
-            }
-            if fields.message.is_some() && fields.after_press.is_none() {
-                return Err("a drag's message names its after_press check".to_owned());
             }
             fields.drag.from.accepts(fields.drag.from_at.as_ref())?;
             fields.drag.to.accepts(fields.drag.to_at.as_ref())?;
@@ -648,8 +938,7 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
                 steps: fields.steps,
                 release: fields.release,
                 modifiers: modifiers(&fields.mods)?,
-                after_press: fields.after_press,
-                message: fields.message,
+                after_press: press_checks(fields.after_press, fields.message)?,
             })
         }
         "button_up" => {
@@ -661,7 +950,7 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
         }
         "resize" => {
             let fields: ResizeFields = serde_json::from_value(fields).map_err(invalid)?;
-            if fields.resize.width == 0 || fields.resize.height == 0 {
+            if fields.resize.width == 0 || fields.resize.height == Some(0) {
                 return Err("resize needs a positive width and height".to_owned());
             }
             Ok(Command::Resize {
@@ -718,11 +1007,61 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
     }
 }
 
+/// A drag's `after_press`: one predicate checked once, named by the drag's
+/// `message`, or a list of `{"wait":...}` and `{"expect":...}` steps, each
+/// with its own `message`, as a twin's `after_press` callback runs them.
+fn press_checks(
+    after_press: Option<Value>,
+    message: Option<String>,
+) -> Result<Vec<PressCheck>, String> {
+    let invalid = |error: serde_json::Error| format!("invalid after_press: {error}");
+    match after_press {
+        None if message.is_some() => Err("a drag's message names its after_press check".to_owned()),
+        None => Ok(Vec::new()),
+        Some(Value::Array(steps)) => {
+            if message.is_some() {
+                return Err("each after_press step carries its own message".to_owned());
+            }
+            if steps.is_empty() {
+                return Err("after_press needs a step".to_owned());
+            }
+            steps
+                .into_iter()
+                .map(|step| {
+                    let fields: PressStepFields = serde_json::from_value(step).map_err(invalid)?;
+                    match (fields.wait, fields.expect) {
+                        (Some(predicate), None) => Ok(PressCheck {
+                            predicate,
+                            wait: Some(fields.timeout_ms.map_or(DEFAULT_WAIT, Duration::from_millis)),
+                            message: fields.message,
+                        }),
+                        (None, Some(predicate)) if fields.timeout_ms.is_none() => Ok(PressCheck {
+                            predicate,
+                            wait: None,
+                            message: fields.message,
+                        }),
+                        _ => Err(
+                            "an after_press step is a wait (with an optional timeout_ms) or an expect"
+                                .to_owned(),
+                        ),
+                    }
+                })
+                .collect()
+        }
+        Some(predicate) => Ok(vec![PressCheck {
+            predicate: serde_json::from_value(predicate).map_err(invalid)?,
+            wait: None,
+            message,
+        }]),
+    }
+}
+
 /// Where on a target a pointer event lands: `[x, y]` from the target's
 /// top-left corner, each a pixel offset (negative counts back from the far
-/// edge), a share of the extent such as `"80%"` or `"2/3"`, or `"start-6"`
-/// for a pixel offset from the near edge that may lie outside the box.
-/// Without it, the centre.
+/// edge), a share of the extent such as `"80%"` or `"2/3"` (optionally plus
+/// pixels, `"2/3+3"`), `"start-6"` or `"end+60"` for a pixel offset from the
+/// near or far edge that may lie outside the box, or `"end-1/6"` for a share
+/// back from the far edge. Without it, the centre.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct At {
     pub(crate) x: Offset,
@@ -737,10 +1076,16 @@ pub(crate) enum Offset {
     Fraction(u16, u16),
     /// Pixels from the near edge, either way: `bounds.x - 6`.
     FromStart(i32),
+    /// A share plus pixels: `bounds.x + bounds.width * 2 // 3 + 3`.
+    FractionPlus(u16, u16, i32),
+    /// Pixels from the far edge, either way: `bounds.x + bounds.width + 60`.
+    FromEnd(i32),
+    /// A share back from the far edge: `bounds.y + bounds.height - bounds.height // 6`.
+    EndLessFraction(u16, u16),
 }
 
 impl Offset {
-    fn parse(value: &Value) -> Result<Self, String> {
+    pub(crate) fn parse(value: &Value) -> Result<Self, String> {
         if let Some(pixels) = value.as_i64() {
             return i32::try_from(pixels)
                 .map(Self::Pixels)
@@ -752,27 +1097,52 @@ impl Offset {
             .and_then(|number| number.parse::<u8>().ok())
             .filter(|percent| *percent <= 100)
             .map(Self::Percent);
-        let fraction = text
-            .split_once('/')
-            .and_then(|(numerator, denominator)| {
-                Some((
-                    numerator.parse::<u16>().ok()?,
-                    denominator.parse::<u16>().ok()?,
-                ))
-            })
-            .filter(|(numerator, denominator)| *denominator > 0 && numerator <= denominator)
-            .map(|(numerator, denominator)| Self::Fraction(numerator, denominator));
+        let fraction = |text: &str| {
+            text.split_once('/')
+                .and_then(|(numerator, denominator)| {
+                    Some((
+                        numerator.parse::<u16>().ok()?,
+                        denominator.parse::<u16>().ok()?,
+                    ))
+                })
+                .filter(|(numerator, denominator)| *denominator > 0 && numerator <= denominator)
+        };
+        let share =
+            fraction(text).map(|(numerator, denominator)| Self::Fraction(numerator, denominator));
+        let share_plus = text
+            .rfind(['+', '-'])
+            .filter(|position| *position > 0)
+            .and_then(|position| {
+                let (numerator, denominator) = fraction(&text[..position])?;
+                let pixels = text[position..].parse::<i32>().ok()?;
+                Some(Self::FractionPlus(numerator, denominator, pixels))
+            });
         let from_start = text
             .strip_prefix("start")
             .filter(|offset| offset.starts_with(['+', '-']))
             .and_then(|offset| offset.parse::<i32>().ok())
             .map(Self::FromStart);
-        percent.or(fraction).or(from_start).ok_or_else(|| {
-            format!(
-                "an offset is whole pixels, a share like \"80%\" or \"2/3\", \
-                 or \"start-6\", not {value}"
-            )
-        })
+        let from_end = text.strip_prefix("end").and_then(|offset| {
+            if let Some((numerator, denominator)) = offset.strip_prefix('-').and_then(fraction) {
+                return Some(Self::EndLessFraction(numerator, denominator));
+            }
+            offset
+                .starts_with(['+', '-'])
+                .then(|| offset.parse::<i32>().ok())
+                .flatten()
+                .map(Self::FromEnd)
+        });
+        percent
+            .or(share)
+            .or(share_plus)
+            .or(from_start)
+            .or(from_end)
+            .ok_or_else(|| {
+                format!(
+                    "an offset is whole pixels, a share like \"80%\", \"2/3\", or \"2/3+3\", \
+                     \"start-6\", \"end+60\", or \"end-1/6\", not {value}"
+                )
+            })
     }
 
     /// From a box starting at `start` and `extent` long.
@@ -783,6 +1153,13 @@ impl Offset {
             Self::Percent(percent) => start + (extent * f64::from(percent) / 100.0).floor(),
             Self::Fraction(numerator, denominator) => {
                 start + (extent * f64::from(numerator) / f64::from(denominator)).floor()
+            }
+            Self::FractionPlus(numerator, denominator, pixels) => {
+                Self::Fraction(numerator, denominator).resolve(start, extent) + f64::from(pixels)
+            }
+            Self::FromEnd(pixels) => start + extent + f64::from(pixels),
+            Self::EndLessFraction(numerator, denominator) => {
+                start + extent - (extent * f64::from(numerator) / f64::from(denominator)).floor()
             }
         }
     }
@@ -795,6 +1172,13 @@ impl Offset {
             Self::Percent(percent) => json!(format!("{percent}%")),
             Self::Fraction(numerator, denominator) => json!(format!("{numerator}/{denominator}")),
             Self::FromStart(pixels) => json!(format!("start{pixels:+}")),
+            Self::FractionPlus(numerator, denominator, pixels) => {
+                json!(format!("{numerator}/{denominator}{pixels:+}"))
+            }
+            Self::FromEnd(pixels) => json!(format!("end{pixels:+}")),
+            Self::EndLessFraction(numerator, denominator) => {
+                json!(format!("end-{numerator}/{denominator}"))
+            }
         }
     }
 }
@@ -822,20 +1206,28 @@ impl<'de> Deserialize<'de> for At {
 }
 
 /// The target kinds, each named by the one key that selects it.
-pub(crate) const TARGET_KINDS: [&str; 13] = [
+pub(crate) const TARGET_KINDS: [&str; 21] = [
     "entry",
     "result",
+    "search_result",
     "role",
+    "named",
     "background",
     "pane",
     "viewport",
+    "container",
     "field",
     "sidebar",
     "header",
     "menu_item",
     "dialog_button",
+    "dialog",
     "window",
     "preview",
+    "parent",
+    "ancestor",
+    "kept",
+    "point",
 ];
 
 /// Names a widget the way a person sees it, never by screen position. Each
@@ -876,6 +1268,152 @@ pub(crate) enum Target {
     Window { y_of: Option<Box<Target>> },
     /// The quick preview drawer, `strata.preview()`.
     Preview,
+    /// `search_result(name)`: a row of the `Search results` collection by
+    /// name, or else any list item with the name.
+    SearchResult(String),
+    /// The first showing widget with this accessible name, whatever its
+    /// role, inside `within`: `dialog.find(name=...)`.
+    Named { name: String, within: Box<Target> },
+    /// The list or grid inside a pane, `entry_container(directory)`.
+    Container { dir: Option<String> },
+    /// The open dialog, `dialog()`.
+    Dialog,
+    /// A widget's parent, `node.parent`.
+    Parent(Box<Target>),
+    /// The nearest ancestor with this role, as `node.ancestors()` is walked.
+    Ancestor { role: String, of: Box<Target> },
+    /// A box `remember` or `settle` kept, or a point `remember` kept, as a
+    /// twin keeps `bounds = node.screen_bounds()` for later.
+    Kept(String),
+    /// A point whose coordinates come from other targets, as a twin writes
+    /// `(pane.x + 2, container.y + 2)`.
+    Point(Box<[Axis; 2]>),
+}
+
+/// One coordinate of a [`Target::Point`], in whole pixels as AT-SPI reports
+/// them: a target's `at` offset along the axis (its centre without one), the
+/// floored middle of two, the larger of two, or a target's extent along the
+/// axis taken as a coordinate, each plus `plus` pixels.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Axis {
+    Of {
+        target: Box<Target>,
+        at: Option<Offset>,
+        plus: i32,
+    },
+    Mid {
+        pair: Box<[Axis; 2]>,
+        plus: i32,
+    },
+    Max {
+        pair: Box<[Axis; 2]>,
+        plus: i32,
+    },
+    /// The target's width or height as a screen coordinate, as
+    /// `park_pointer` moves to `(bounds.width - 4, bounds.height - 4)`.
+    Extent {
+        target: Box<Target>,
+        plus: i32,
+    },
+}
+
+impl Axis {
+    fn from_value(value: &Value) -> Result<Self, String> {
+        let Value::Object(object) = value else {
+            return Err(format!("a point coordinate is an object, not {value}"));
+        };
+        let plus = match object.get("plus") {
+            None => 0,
+            Some(plus) => plus
+                .as_i64()
+                .and_then(|plus| i32::try_from(plus).ok())
+                .ok_or_else(|| format!("plus is whole pixels, not {plus}"))?,
+        };
+        let pair = |value: &Value| -> Result<Box<[Axis; 2]>, String> {
+            match value.as_array().map(Vec::as_slice) {
+                Some([first, second]) => Ok(Box::new([
+                    Self::from_value(first)?,
+                    Self::from_value(second)?,
+                ])),
+                _ => Err(format!("mid and max take two coordinates, not {value}")),
+            }
+        };
+        let known = ["of", "at", "plus", "mid", "max", "extent"];
+        if let Some(key) = object.keys().find(|key| !known.contains(&key.as_str())) {
+            return Err(format!("a point coordinate has no field {key:?}"));
+        }
+        if let Some(target) = object.get("extent") {
+            if ["of", "at", "mid", "max"]
+                .iter()
+                .any(|key| object.contains_key(*key))
+            {
+                return Err("extent takes only a target and plus".to_owned());
+            }
+            return Ok(Self::Extent {
+                target: Box::new(
+                    serde_json::from_value(target.clone()).map_err(|error| error.to_string())?,
+                ),
+                plus,
+            });
+        }
+        match (object.get("of"), object.get("mid"), object.get("max")) {
+            (Some(target), None, None) => Ok(Self::Of {
+                target: Box::new(
+                    serde_json::from_value(target.clone()).map_err(|error| error.to_string())?,
+                ),
+                at: object.get("at").map(Offset::parse).transpose()?,
+                plus,
+            }),
+            (None, Some(both), None) if !object.contains_key("at") => Ok(Self::Mid {
+                pair: pair(both)?,
+                plus,
+            }),
+            (None, None, Some(both)) if !object.contains_key("at") => Ok(Self::Max {
+                pair: pair(both)?,
+                plus,
+            }),
+            _ => Err(
+                "a point coordinate is {\"of\":TARGET,\"at\":OFFSET}, {\"mid\":[A,B]}, or \
+                 {\"max\":[A,B]}, each with an optional plus"
+                    .to_owned(),
+            ),
+        }
+    }
+
+    fn to_json(&self) -> Value {
+        let (mut object, plus) = match self {
+            Self::Of { target, at, plus } => {
+                let mut object = Map::new();
+                object.insert("of".to_owned(), target.to_json());
+                if let Some(at) = at {
+                    object.insert("at".to_owned(), at.to_json());
+                }
+                (object, *plus)
+            }
+            Self::Mid { pair, plus } | Self::Max { pair, plus } => {
+                let key = if matches!(self, Self::Mid { .. }) {
+                    "mid"
+                } else {
+                    "max"
+                };
+                let mut object = Map::new();
+                object.insert(
+                    key.to_owned(),
+                    json!([pair[0].to_json(), pair[1].to_json()]),
+                );
+                (object, *plus)
+            }
+            Self::Extent { target, plus } => {
+                let mut object = Map::new();
+                object.insert("extent".to_owned(), target.to_json());
+                (object, *plus)
+            }
+        };
+        if plus != 0 {
+            object.insert("plus".to_owned(), json!(plus));
+        }
+        Value::Object(object)
+    }
 }
 
 impl Target {
@@ -921,6 +1459,23 @@ impl Target {
         #[serde(deny_unknown_fields)]
         struct PreviewFields {
             preview: bool,
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct DialogFields {
+            dialog: bool,
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct NamedFields {
+            named: String,
+            within: Target,
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct AncestorFields {
+            ancestor: String,
+            of: Target,
         }
         let directory = |value: Value| -> Result<Option<String>, String> {
             let mut object = value.as_object().cloned().unwrap_or_default();
@@ -985,6 +1540,54 @@ impl Target {
                 }
                 Ok(Self::Preview)
             }
+            "dialog" => {
+                let fields: DialogFields = serde_json::from_value(value).map_err(invalid)?;
+                if !fields.dialog {
+                    return Err("invalid dialog target: dialog must be true".to_owned());
+                }
+                Ok(Self::Dialog)
+            }
+            "search_result" => label(value).map(Self::SearchResult),
+            "named" => {
+                let fields: NamedFields = serde_json::from_value(value).map_err(invalid)?;
+                Ok(Self::Named {
+                    name: fields.named,
+                    within: Box::new(fields.within),
+                })
+            }
+            "container" => directory(value).map(|dir| Self::Container { dir }),
+            "parent" => {
+                let object = value.as_object().cloned().unwrap_or_default();
+                if object.len() != 1 {
+                    return Err("invalid parent target: it takes only parent".to_owned());
+                }
+                serde_json::from_value(object["parent"].clone())
+                    .map(|of| Self::Parent(Box::new(of)))
+                    .map_err(invalid)
+            }
+            "ancestor" => {
+                let fields: AncestorFields = serde_json::from_value(value).map_err(invalid)?;
+                Ok(Self::Ancestor {
+                    role: fields.ancestor,
+                    of: Box::new(fields.of),
+                })
+            }
+            "kept" => label(value).map(Self::Kept),
+            "point" => {
+                let object = value.as_object().cloned().unwrap_or_default();
+                if object.len() != 1 {
+                    return Err("invalid point target: it takes only point".to_owned());
+                }
+                match object["point"].as_array().map(Vec::as_slice) {
+                    Some([x, y]) => Ok(Self::Point(Box::new([
+                        Axis::from_value(x)
+                            .map_err(|error| format!("invalid point target: x: {error}"))?,
+                        Axis::from_value(y)
+                            .map_err(|error| format!("invalid point target: y: {error}"))?,
+                    ]))),
+                    _ => Err("invalid point target: point is [x, y]".to_owned()),
+                }
+            }
             _ => label(value).map(Self::DialogButton),
         }
     }
@@ -1018,6 +1621,14 @@ impl Target {
                 json!({ "window": true, "y_of": target.to_json() })
             }
             Self::Preview => json!({ "preview": true }),
+            Self::SearchResult(name) => json!({ "search_result": name }),
+            Self::Named { name, within } => json!({ "named": name, "within": within.to_json() }),
+            Self::Container { dir } => json!({ "container": dir }),
+            Self::Dialog => json!({ "dialog": true }),
+            Self::Parent(of) => json!({ "parent": of.to_json() }),
+            Self::Ancestor { role, of } => json!({ "ancestor": role, "of": of.to_json() }),
+            Self::Kept(name) => json!({ "kept": name }),
+            Self::Point(axes) => json!({ "point": [axes[0].to_json(), axes[1].to_json()] }),
         }
     }
 }
@@ -1041,8 +1652,8 @@ impl Serialize for Target {
 }
 
 /// An entry row by name, in the named pane or in any pane on screen; with
-/// `part`, its name label (`entry.find(role="label", name=name)`) or its
-/// icon (`entry.find(role="image")`).
+/// `part`, its name label (`entry.find(role="label", name=name)`), its icon
+/// (`entry.find(role="image")`), or its first other named label (`metadata`).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct EntryTarget {
@@ -1058,6 +1669,9 @@ pub(crate) struct EntryTarget {
 pub(crate) enum EntryPart {
     Label,
     Icon,
+    /// The first named label that is not the entry's own name, as
+    /// `metadata_drag_origin` finds a List row's size or type.
+    Metadata,
 }
 
 /// What a `note` reads, each a page-object accessor.
@@ -1086,6 +1700,15 @@ pub(crate) enum Accessor {
     /// first visible entry is no longer `unless_first`; the reversing-scroll
     /// scenario's `middle_entry`.
     MiddleVisible,
+    /// The entries lying wholly inside the pane's scroll viewport, in visual
+    /// order, as the scrolling scenarios' `_visible_entries` list them.
+    Visible,
+    /// The value of the first scroll bar showing in the pane's viewport that carries `of` above it:
+    /// `value + max(of.y + of.height - viewport.y + 1, 1)`.
+    ScrollTarget,
+    /// `of`'s box as Python prints `node.screen_bounds()`, for a message:
+    /// `Bounds(x=0, y=0, width=10, height=10)`.
+    Bounds,
 }
 
 impl Accessor {
@@ -1097,14 +1720,22 @@ impl Accessor {
     }
 
     pub(crate) fn takes_directory(self) -> bool {
-        matches!(self, Self::Entries | Self::Selected | Self::Matches)
+        matches!(
+            self,
+            Self::Entries | Self::Selected | Self::Matches | Self::Visible | Self::ScrollTarget
+        )
     }
 
-    /// Lists of names; the rest are one name or null.
+    /// Lists of names; the rest are one name, a number, or null.
     pub(crate) fn is_list(self) -> bool {
         matches!(
             self,
-            Self::Panes | Self::Entries | Self::Selected | Self::AllSelected | Self::Matches
+            Self::Panes
+                | Self::Entries
+                | Self::Selected
+                | Self::AllSelected
+                | Self::Matches
+                | Self::Visible
         )
     }
 }
@@ -1176,6 +1807,124 @@ pub(crate) enum Check {
     Blank(BlankCheck),
     /// Holds when the predicate does not.
     Not(Box<Predicate>),
+    /// The entries wholly inside the pane's scroll viewport, in visual order.
+    Visible(Names),
+    /// The first scroll bar showing in the pane's viewport, `scroll_bar.numeric_value`.
+    ScrollValue(ScrollCheck),
+    /// Every visible row whose name box ends above the kept point `to` and
+    /// overlaps the band from `from` is selected, and there is one; the
+    /// scrolling scenario's `visible_band_is_selected`.
+    BandSelected(BandCheck),
+    /// The focused widget is the target or inside it; `any(node.has_state("focused") ...)`.
+    FocusWithin(Target),
+    /// A target's width against the box `remember` kept for it.
+    Resized(Resized),
+    /// A target's box spans a point along one axis, `bounds.x <= x < bounds.x + bounds.width`.
+    ContainsPoint(ContainsPoint),
+    /// The footer counts the selection a marquee left after a select-all;
+    /// the pointer-intent scenario's `footer_counts_the_remaining_fill`.
+    FooterFill(FooterFill),
+    /// A captured box now looks different, the pointer's square left out;
+    /// the hover scenario's `visibly_hovered`.
+    Repainted(Repainted),
+    /// A measured contrast is below a share of another, `dragging < resting * 0.8`.
+    ContrastBelow(ContrastBelow),
+    /// At least this long has passed since a kept instant.
+    Elapsed(Elapsed),
+    /// Any accessible name or description of any application window
+    /// mentions one of these, lower-cased, as `strata.diagnostics().lower()`.
+    DiagnosticsMention(Vec<String>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ScrollCheck {
+    pub(crate) at_least: serde_json::Number,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct BandCheck {
+    pub(crate) from: String,
+    pub(crate) to: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Resized {
+    pub(crate) target: Target,
+    pub(crate) since: String,
+    /// The change in width: exact, or `{"min":30}`.
+    pub(crate) width: Change,
+}
+
+/// A whole-pixel change, exact or bounded.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(untagged)]
+pub(crate) enum Change {
+    Exactly(i64),
+    Bounded {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max: Option<i64>,
+    },
+}
+
+impl Change {
+    pub(crate) fn matches(&self, change: i64) -> bool {
+        match self {
+            Self::Exactly(expected) => *expected == change,
+            Self::Bounded { min, max } => {
+                min.is_none_or(|min| change >= min) && max.is_none_or(|max| change <= max)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ContainsPoint {
+    pub(crate) target: Target,
+    pub(crate) point: Target,
+    pub(crate) axis: PointAxis,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PointAxis {
+    X,
+    Y,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FooterFill {
+    /// The marquee's two end entries, which it cleared.
+    pub(crate) ends: Vec<String>,
+    /// How many entries the select-all selected.
+    pub(crate) total: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Repainted {
+    pub(crate) since: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ContrastBelow {
+    pub(crate) of: String,
+    pub(crate) to: String,
+    pub(crate) share: serde_json::Number,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Elapsed {
+    pub(crate) since: String,
+    pub(crate) ms: u64,
 }
 
 impl Check {
@@ -1187,6 +1936,9 @@ impl Check {
                 | Self::Entry(_)
                 | Self::EntryGone(_)
                 | Self::Matches(_)
+                | Self::Visible(_)
+                | Self::ScrollValue(_)
+                | Self::BandSelected(_)
         )
     }
 
@@ -1201,7 +1953,18 @@ impl Check {
             | Self::EditorWithinViewport(_)
             | Self::State(_)
             | Self::OnScreen(_)
-            | Self::Blank(_) => true,
+            | Self::Blank(_)
+            | Self::Visible(_)
+            | Self::ScrollValue(_)
+            | Self::BandSelected(_)
+            | Self::FocusWithin(_)
+            | Self::Resized(_)
+            | Self::ContainsPoint(_)
+            | Self::FooterFill(_)
+            | Self::Repainted(_)
+            | Self::ContrastBelow(_)
+            | Self::Elapsed(_)
+            | Self::DiagnosticsMention(_) => true,
             Self::Any(predicates) => predicates.iter().any(|predicate| predicate.check.is_live()),
             Self::Not(predicate) => predicate.check.is_live(),
             _ => false,
@@ -1465,6 +2228,26 @@ pub(crate) struct NameFilter {
     /// The last names, in order, as `pane_names()[-2:] == [...]`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) ends_with: Vec<String>,
+    /// The first name, as `names[0] == ...`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) first: Option<String>,
+    /// A first name that sorts after this one, as `names[0] > "010.txt"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) first_above: Option<String>,
+    /// Some name sorts at or after this one, as `any(name >= "040.txt" ...)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) any_from: Option<String>,
+    /// Each of `names` is listed exactly when `against` does not list it, as
+    /// `(name in selected) == (name not in initial)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) toggled: Option<Toggled>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Toggled {
+    pub(crate) names: Vec<String>,
+    pub(crate) against: Vec<String>,
 }
 
 impl Names {
@@ -1477,6 +2260,24 @@ impl Names {
                     && filter.count.is_none_or(|count| count == actual.len())
                     && filter.at_least.is_none_or(|least| actual.len() >= least)
                     && actual.ends_with(&filter.ends_with)
+                    && filter
+                        .first
+                        .as_ref()
+                        .is_none_or(|first| actual.first() == Some(first))
+                    && filter
+                        .first_above
+                        .as_ref()
+                        .is_none_or(|bound| actual.first().is_some_and(|first| first > bound))
+                    && filter
+                        .any_from
+                        .as_ref()
+                        .is_none_or(|bound| actual.iter().any(|name| name >= bound))
+                    && filter.toggled.as_ref().is_none_or(|toggled| {
+                        toggled
+                            .names
+                            .iter()
+                            .all(|name| actual.contains(name) != toggled.against.contains(name))
+                    })
             }
         }
     }
@@ -1514,7 +2315,8 @@ impl<'de> Deserialize<'de> for Predicate {
         }
         if dir.is_some() && !check.takes_directory() {
             return Err(serde::de::Error::custom(
-                "dir applies only to entries, entry, entry_gone, selected, and matches",
+                "dir applies only to entries, entry, entry_gone, selected, matches, visible, \
+                 scroll_value, and band_selected",
             ));
         }
         Ok(Self { check, dir })
@@ -1530,7 +2332,7 @@ pub(crate) enum Modifier {
 }
 
 impl Modifier {
-    fn parse(name: &str) -> Result<Self, String> {
+    pub(crate) fn parse(name: &str) -> Result<Self, String> {
         match name.to_ascii_lowercase().as_str() {
             "ctrl" => Ok(Self::Ctrl),
             "shift" => Ok(Self::Shift),

@@ -50,6 +50,9 @@ QA_ARTIFACTS = REPOSITORY / "target/qa-artifacts"
 PIXEL_TOLERANCE = 1
 # "Replies and the state snapshot" in docs/e2e-testing.md.
 COMPARED_STATE = ("view_mode", "directory", "panes", "focused", "focused_pane", "dialog")
+# What a scenario's `state_parity_ignore` may name: a compared key, or a
+# compared key of each pane.
+IGNORABLE_STATE = COMPARED_STATE + ("panes.selected", "panes.focused")
 # Both runners then name each fixture directory after the twin's node id.
 PARITY_FIXTURES = {"STRATA_PARITY_FIXTURES": "1"}
 # Same file naming as `node_file_name` in tests/e2e/conftest.py.
@@ -66,7 +69,7 @@ WAITING_FOR = re.compile(r"timed out after \d+s waiting for (?P<message>.+)")
 EXCEPTION_PREFIX = re.compile(r"^(?:[A-Za-z_][\w.]*(?:Error|Timeout|Exception)): ")
 INPUT_KEY = re.compile(r"^key (\d+) (down|up)$")
 INPUT_POINTER = re.compile(r"^pointer (-?\d+) (-?\d+) button (\d+) (down|up)$")
-INPUT_MOTION = re.compile(r"^motion -?\d+ -?\d+$")
+INPUT_MOTION = re.compile(r"^motion (-?\d+) (-?\d+)$")
 
 
 # ------------------------------------------------------------------ scenarios
@@ -75,6 +78,7 @@ INPUT_MOTION = re.compile(r"^motion -?\d+ -?\d+$")
 class Scenario:
     name: str
     mutation: str | None
+    state_parity_ignore: tuple[str, ...] = ()
 
     @property
     def unit(self) -> str:
@@ -87,8 +91,35 @@ def scenarios() -> list[Scenario]:
     found = []
     for path in sorted(SCENARIOS.glob("*.jsonl")):
         header = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
-        found.append(Scenario(path.stem, header.get("mutation")))
+        try:
+            ignored = state_parity_ignore(header)
+        except ValueError as error:
+            raise SystemExit(f"{path}: {error}") from None
+        found.append(Scenario(path.stem, header.get("mutation"), ignored))
     return found
+
+
+def state_parity_ignore(header: dict) -> tuple[str, ...]:
+    """The compared state a scenario's final-state parity leaves out.
+
+    `tests/qa.rs` rejects the same values when it loads the scenario.
+    """
+
+    ignored = header.get("state_parity_ignore", [])
+    if not isinstance(ignored, list) or not all(isinstance(key, str) for key in ignored):
+        raise ValueError("state_parity_ignore is a list of compared state keys")
+    unknown = [key for key in ignored if key not in IGNORABLE_STATE]
+    if unknown or len(set(ignored)) != len(ignored):
+        raise ValueError(
+            f"state_parity_ignore takes distinct keys of {IGNORABLE_STATE}, not {unknown or ignored}"
+        )
+    if ignored and header.get("mutation") is not None:
+        raise ValueError(
+            "state_parity_ignore is for baseline parity; a scenario with a mutation keeps every check"
+        )
+    if set(COMPARED_STATE) <= set(ignored):
+        raise ValueError("state_parity_ignore must leave a compared key")
+    return tuple(ignored)
 
 
 def scenario_for(patch: str) -> Scenario:
@@ -250,32 +281,40 @@ class Comparison:
 
 
 def compare_input(python: str, qa: str) -> Comparison:
-    """Key and pointer-button lines in order; pointer positions within a pixel."""
+    """Key and pointer-button lines in order; pointer positions within a pixel.
 
-    def events(text: str, side: str) -> list[tuple]:
-        found = []
+    A run that only moves the pointer, as a hover does, compares its motion
+    lines the same way instead.
+    """
+
+    def events(text: str, side: str) -> tuple[list[tuple], list[tuple]]:
+        found, motion = [], []
         for line in text.splitlines():
             line = line.strip()
             if match := INPUT_KEY.match(line):
                 found.append(("key", int(match[1]), match[2]))
             elif match := INPUT_POINTER.match(line):
                 found.append(("pointer", int(match[1]), int(match[2]), int(match[3]), match[4]))
-            elif line and not INPUT_MOTION.match(line):
+            elif match := INPUT_MOTION.match(line):
+                motion.append(("motion", int(match[1]), int(match[2])))
+            elif line:
                 raise ValueError(f"{side} logged an unrecognised line: {line!r}")
-        return found
+        return found, motion
 
     try:
-        left, right = events(python, "Python"), events(qa, "QA")
+        (left, left_motion), (right, right_motion) = events(python, "Python"), events(qa, "QA")
     except ValueError as error:
         return Comparison(False, str(error))
     if not left and not right:
-        return Comparison(False, "neither side logged input")
+        if not left_motion and not right_motion:
+            return Comparison(False, "neither side logged input")
+        left, right = left_motion, right_motion
     for index, (one, other) in enumerate(zip(left, right)):
         if one[0] != other[0]:
             return Comparison(False, f"event {index + 1}: Python {one}, QA {other}")
         if one[0] == "key" and one != other:
             return Comparison(False, f"event {index + 1}: Python {one}, QA {other}")
-        if one[0] == "pointer" and (
+        if one[0] in ("pointer", "motion") and (
             one[3:] != other[3:]
             or abs(one[1] - other[1]) > PIXEL_TOLERANCE
             or abs(one[2] - other[2]) > PIXEL_TOLERANCE
@@ -286,7 +325,7 @@ def compare_input(python: str, qa: str) -> Comparison:
     return Comparison(True, f"{len(left)} events")
 
 
-def compare_state(python: dict | None, qa: dict | None) -> Comparison:
+def compare_state(python: dict | None, qa: dict | None, ignore: tuple[str, ...] = ()) -> Comparison:
     if not python or "error" in python:
         return Comparison(False, f"no Python state: {(python or {}).get('error', 'missing')}")
     if not qa:
@@ -295,13 +334,29 @@ def compare_state(python: dict | None, qa: dict | None) -> Comparison:
         absent = [key for key in COMPARED_STATE if key not in state]
         if absent:
             return Comparison(False, f"the {side} state lacks {', '.join(absent)}")
-    differing = [key for key in COMPARED_STATE if python.get(key) != qa.get(key)]
+
+    def compared(state: dict, key: str):
+        value = state.get(key)
+        pane_keys = [name.split(".", 1)[1] for name in ignore if name.startswith(f"{key}.")]
+        if pane_keys and isinstance(value, list):
+            value = [
+                {field: item for field, item in pane.items() if field not in pane_keys}
+                for pane in value
+            ]
+        return value
+
+    differing = [
+        key for key in COMPARED_STATE
+        if key not in ignore and compared(python, key) != compared(qa, key)
+    ]
+    ignoring = f"; ignoring {', '.join(ignore)}" if ignore else ""
     if differing:
         return Comparison(
             False,
-            "; ".join(f"{key}: Python {python.get(key)!r}, QA {qa.get(key)!r}" for key in differing),
+            "; ".join(f"{key}: Python {python.get(key)!r}, QA {qa.get(key)!r}" for key in differing)
+            + ignoring,
         )
-    return Comparison(True)
+    return Comparison(True, ignoring.removeprefix("; "))
 
 
 # ------------------------------------------------------------------- verdicts
@@ -538,6 +593,7 @@ class PairReport:
 def compare_baseline(report: PairReport, destination: Path) -> None:
     artifacts = destination / "qa"
     python = destination / "python"
+    ignored = {scenario.name: scenario.state_parity_ignore for scenario in scenarios()}
     for pair in report.baseline:
         if pair.label == "(no QA run)":
             continue
@@ -555,6 +611,7 @@ def compare_baseline(report: PairReport, destination: Path) -> None:
         report.states[pair.label] = compare_state(
             json.loads(python_state.read_text())["app"] if python_state.is_file() else None,
             json.loads(qa_state.read_text()) if qa_state.is_file() else None,
+            ignored.get(scenario, ()),
         )
 
     def combined(comparisons: dict[str, Comparison]) -> Comparison:

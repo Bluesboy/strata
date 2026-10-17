@@ -1,0 +1,8 @@
+{"scenario":"paste-targets-selected-directory","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_clipboard.py::test_paste_targets_a_single_selected_directory[$mode]","mutation":null,"known_bug":null}
+{"select":{"entry":"todo.txt"}}
+{"key":"ctrl+c"}
+{"select_with_keyboard":"archive"}
+{"wait":{"panes":{"contains":["archive"]}},"message":"the keyboard cursor's archive column to open","modes":["columns"]}
+{"key":"ctrl+v"}
+{"fs":{"path":"archive/todo.txt","exists":true},"message":"the copy to land in the selected folder"}
+{"fs":{"path":"todo.txt","exists":true},"timeout_ms":0}

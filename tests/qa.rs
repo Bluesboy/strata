@@ -63,57 +63,108 @@ scenarios! {
     click_mode_preference_live,
     click_then_double_click_no_rename,
     clicking_open_folder_focuses_column,
+    column_edge_scrolls_listing,
     columns_home_end_mirror,
+    columns_never_hover_peek,
     columns_return_selects_source_folder,
+    context_menu_copy_and_paste,
+    context_menu_cut_and_paste,
     control_click_toggles,
     copy_leaves_source,
+    copying_directory_copies_contents,
+    cross_volume_enter_choice,
+    cross_volume_plain_copy,
+    ctrl_drag_copies_keeps_selection,
     cut_moves_only_after_paste,
+    delete_animation_keeps_survivors,
     delete_to_trash,
     disabled_transport_click,
+    dismissing_conflict_preserves_both,
     double_click_leaves_folder_open_focused,
+    drag_cancels_folder_peek,
+    drag_completion_keeps_source_label,
     drag_file_onto_folder,
+    drag_from_clipped_column_narrow_window,
+    drag_onto_pane_background,
+    drop_file_on_itself,
+    drop_folder_into_itself,
+    drop_keeps_selection_at_destination,
+    drop_on_parent_breadcrumb,
+    drop_on_partially_visible_column,
     empty_column_clears_other_columns,
+    empty_name_space_drag_starts_marquee,
     enter_after_escape_opens_folder,
     escape_clears_selection_no_navigation,
     escape_dismisses_transient,
     escape_only_clears_active_column,
     escape_preserves_name,
+    file_drag_does_not_open_preview,
     filter_updates_retain_state,
+    filtered_result_to_sidebar_folder,
     focus_usable_after_view_change,
+    folder_into_another_folder,
+    keep_both_applies_to_all_mixed_paste,
     keep_both_then_undo,
+    keep_both_then_undo_remaining,
     keyboard_only_copy_paste,
     keyboard_open_selects_first_child,
     keyboard_selection_in_single_click_mode,
     leftover_click_honors_modifiers,
     list_typed_file_path,
     long_rename_keeps_caret,
+    marquee_beside_content_full_pane,
+    merge_combines_folder_contents,
     modifier_click_focuses_target,
+    modifier_clicks_inert_space_select,
+    multi_selection_drag_moves_every_entry,
     new_file_collision_dialog,
     one_click_only_selects,
+    opening_child_keeps_paste_under_pointer,
+    pane_corner_marquee_keeps_sidebar,
     panel_wheel_routing,
     parent_pane_anchors_first_entry,
+    paste_availability_follows_clipboard,
+    paste_into_explicit_selection,
+    paste_into_parent_current_directory,
+    paste_targets_selected_directory,
+    preselected_entry_hover,
     preview_blank_click_keeps_selection,
     refresh_keeps_cursor_and_viewport,
     refresh_keeps_filter_focus,
+    release_outside_cancels_drag,
     rename_commits_on_click_away,
     rename_commits_on_enter,
     rename_onto_existing_rejected,
+    replace_restores_original_on_undo,
+    replacing_duplicate_name_overwrites,
     return_restores_nested_scroll,
     right_click_keeps_multi_selection,
     right_click_selects_entry,
+    row_padding_drag_view_policy,
+    same_folder_copy_numbered_duplicate,
+    scrolling_extends_marquee,
     second_selection_replaces_first,
     select_all_selects_every_entry,
+    selected_blank_space_starts_file_drag,
     shift_after_escape_starts_on_focused,
     shift_arrow_extends_selection,
     shift_click_range,
     shift_click_range_keyboard_entry,
     shift_click_revisits_after_folder,
+    shift_drag_moves_file,
+    sidebar_destinations_accept_three_files,
+    sidebar_marquee_keeps_scrolled_list,
+    sidebar_marquee_reaches_leading_pane,
     sidebar_navigation_range_anchor,
     sidebar_selection_depends_on_activation,
+    simple_click_opens_preview,
     single_click_clipped_parent_column,
     single_click_opens_directory,
     single_click_opens_directory_group,
+    skipping_one_collision_pastes_rest,
     space_previews_filtered_result,
+    spring_navigation_keeps_drag,
+    strip_edge_scrolls_columns_in,
     tenxer_escape_closes_peek,
     tenxer_escape_filter_preview_fill,
     tenxer_icons_edges_search_peek,
@@ -145,7 +196,7 @@ const DEFAULT_LAYOUT: &str = "us";
 const ALL_MODIFIERS: u16 = 0xff;
 /// The error `strata --qa` replies with before it exits on a harness bug.
 const CONTROLLER_PANIC: &str = "the QA controller panicked";
-const RUNNER_COMMANDS: [&str; 3] = ["layout", "fs", "increment"];
+const RUNNER_COMMANDS: [&str; 5] = ["layout", "fs", "increment", "slice", "screenshot"];
 /// What a run-time note stands for while steps are checked before the launch.
 const NOTED_PLACEHOLDER: &str = "noted";
 /// `ffmpeg` writing a generated media file, as a twin's `subprocess.run(..., timeout=30)`.
@@ -161,6 +212,17 @@ const STEP_VARIANTS: &str = "variants";
 const STEP_WHEN: &str = "when";
 const MODES: [(&str, &str); 3] = [("columns", "Columns"), ("icons", "Icons"), ("list", "List")];
 const DEFAULT_TREE: &str = "canonical";
+/// What `state_parity_ignore` may name: `IGNORABLE_STATE` in `scripts/qa_parity.py`.
+const IGNORABLE_STATE: [&str; 8] = [
+    "view_mode",
+    "directory",
+    "panes",
+    "focused",
+    "focused_pane",
+    "dialog",
+    "panes.selected",
+    "panes.focused",
+];
 /// Synthetic input the process sent, in the format `docs/e2e-testing.md` defines.
 const INPUT_LOG: &str = "input.log";
 /// The `app` snapshot after the last step, compared with the twin's final state.
@@ -397,6 +459,15 @@ struct Header {
     /// a Python fixture saves a PIL image after `FixtureTree.create`.
     #[serde(default)]
     images: BTreeMap<String, Image>,
+    /// Lines of the manifest's GTK `settings.ini` given another value, as a
+    /// twin's `test_environment` override rewrites them.
+    #[serde(default)]
+    gtk_settings: BTreeMap<String, String>,
+    /// Compared state keys final-state parity leaves out for this scenario,
+    /// where the app itself ends nondeterministically; `scripts/qa_parity.py`
+    /// reads them.
+    #[serde(default)]
+    state_parity_ignore: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -467,6 +538,37 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
     }
     if let Some(tree) = &header.tree {
         expand_tree(tree, &manifest())?;
+    }
+    gtk_settings(&manifest().gtk_settings, &header.gtk_settings)?;
+    for (index, key) in header.state_parity_ignore.iter().enumerate() {
+        if !IGNORABLE_STATE.contains(&key.as_str())
+            || header.state_parity_ignore[..index].contains(key)
+        {
+            return Err(format!(
+                "state_parity_ignore takes distinct keys of {IGNORABLE_STATE:?}, not {key:?}"
+            ));
+        }
+    }
+    if !header.state_parity_ignore.is_empty() {
+        if header.mutation.is_some() {
+            return Err(
+                "state_parity_ignore is for baseline parity; a scenario with a mutation keeps every check"
+                    .to_owned(),
+            );
+        }
+        // The top-level keys alone; ignoring all of them would compare nothing.
+        if IGNORABLE_STATE
+            .iter()
+            .filter(|key| !key.contains('.'))
+            .all(|key| {
+                header
+                    .state_parity_ignore
+                    .iter()
+                    .any(|ignored| ignored == key)
+            })
+        {
+            return Err("state_parity_ignore must leave a compared key".to_owned());
+        }
     }
     let mut steps = Vec::new();
     for (index, line) in lines {
@@ -607,7 +709,13 @@ fn kept_note(step: &Value, notes: &[(String, Value)]) -> Result<Option<(String, 
         else {
             return Err("invalid note step".to_owned());
         };
-        let placeholder = if value.is_list() {
+        let Ok(protocol::Command::Note { pick, .. }) = protocol::parse_command(&step.to_string())
+        else {
+            return Err("invalid note step".to_owned());
+        };
+        let placeholder = if value == protocol::Accessor::ScrollTarget {
+            json!(0.0)
+        } else if value.is_list() && pick.is_none() {
             json!([NOTED_PLACEHOLDER])
         } else {
             json!(NOTED_PLACEHOLDER)
@@ -626,7 +734,41 @@ fn kept_note(step: &Value, notes: &[(String, Value)]) -> Result<Option<(String, 
         }
         return Ok(Some((name(), json!(NOTED_PLACEHOLDER))));
     }
+    if let Some(source) = step.get("slice") {
+        let source = source.as_str().unwrap_or_default();
+        if !notes
+            .iter()
+            .any(|(note, value)| note == source && value.is_array())
+        {
+            return Err(format!("slice needs an earlier note of a list, {source:?}"));
+        }
+        let placeholder = if step.get("pick").is_some() {
+            json!(NOTED_PLACEHOLDER)
+        } else {
+            json!([NOTED_PLACEHOLDER])
+        };
+        return Ok(Some((name(), placeholder)));
+    }
     Ok(None)
+}
+
+/// A `slice` step: `names[len(names) // 2:len(names) // 2 + middle]`, then
+/// `names[pick]`, of a list a note kept, as a twin reuses one `rows` list.
+fn slice(names: &[Value], middle: Option<u64>, pick: Option<i64>) -> Result<Value, String> {
+    let mut names = names.to_vec();
+    if let Some(count) = middle.map(|count| usize::try_from(count).unwrap_or(usize::MAX)) {
+        let start = names.len() / 2;
+        names = names[start..start.saturating_add(count).min(names.len())].to_vec();
+    }
+    let Some(pick) = pick else {
+        return Ok(Value::Array(names));
+    };
+    let length = i64::try_from(names.len()).map_err(|error| error.to_string())?;
+    let index = if pick < 0 { length + pick } else { pick };
+    usize::try_from(index)
+        .ok()
+        .and_then(|index| names.get(index).cloned())
+        .ok_or_else(|| format!("index {pick} is outside {names:?}"))
 }
 
 /// A `$name` left in any string once variables and notes were replaced.
@@ -727,9 +869,45 @@ fn check_step(step: &Value) -> Result<(), String> {
     if step.get("holds").is_some() {
         return Err("holds is the runner's own check; a step uses when".to_owned());
     }
+    if step.get("slice").is_some() {
+        let object = step.as_object().ok_or("a step must be an object")?;
+        let valid = step["slice"].is_string()
+            && step["as"].as_str().is_some_and(|name| !name.is_empty())
+            && object
+                .keys()
+                .all(|key| matches!(key.as_str(), "slice" | "as" | "middle" | "pick"))
+            && object.get("middle").is_none_or(Value::is_u64)
+            && object.get("pick").is_none_or(Value::is_i64)
+            && (object.contains_key("middle") || object.contains_key("pick"));
+        return if valid {
+            Ok(())
+        } else {
+            Err(
+                "slice names a list note, the name to keep the result as, and middle or pick"
+                    .to_owned(),
+            )
+        };
+    }
+    if let Some(name) = step.get("screenshot") {
+        let valid = step.as_object().is_some_and(|object| object.len() == 1)
+            && name.as_str().is_some_and(|name| {
+                !name.is_empty() && !name.contains('/') && name.ends_with(".png")
+            });
+        return if valid {
+            Ok(())
+        } else {
+            Err(
+                "screenshot names a .png file in the run's artifacts and takes nothing else"
+                    .to_owned(),
+            )
+        };
+    }
     if let Some(condition) = step.get(STEP_WHEN) {
-        if step.get("note").is_some() || step.get("increment").is_some() {
-            return Err("a note or increment always runs; it takes no when".to_owned());
+        if ["note", "increment", "slice"]
+            .iter()
+            .any(|key| step.get(*key).is_some())
+        {
+            return Err("a note, increment, or slice always runs; it takes no when".to_owned());
         }
         protocol::parse_command(&json!({ "holds": condition }).to_string())
             .map_err(|error| format!("when: {error}"))?;
@@ -1264,12 +1442,17 @@ struct FsStep {
 
 /// One check or action about `path`, relative to the fixture root unless
 /// absolute: wait for `exists`, `text`, `names`, `is` (`file`, `dir`, or
-/// `symlink`), or `empty`; compare with an earlier listing (`unchanged`); or
-/// act at once: `write` text, `remember` the tree's listing under a name,
-/// `mkdir` (`Path.mkdir()`; a last component like `folder-{000..159}` makes
-/// one directory per number), `populate` a tree there and pin its times as
-/// `FixtureTree.populate` does, save a solid-colour PNG (`image`), or run
-/// `ffmpeg -v error -y <ffmpeg...> <path>`, both in place as the twins write.
+/// `symlink`), `empty`, the same bytes (`copy_of`) or size (`size_of`) as
+/// another file; compare with an earlier listing (`unchanged`); or act at
+/// once: `write` text (a last component like `{000..179}.txt` writes one file
+/// per number, with `{}` in the text replaced by it), `remember` the tree's
+/// listing under a name, `mkdir` (`Path.mkdir()`, with `parents` as
+/// `mkdir(parents=True)`; a last component like `folder-{000..159}` makes one
+/// directory per number), `chmod` to an octal mode, `populate` a tree there
+/// and pin its times as `FixtureTree.populate` does, save a solid-colour PNG
+/// (`image`), run `ffmpeg -v error -y <ffmpeg...> <path>`, both in place as
+/// the twins write, or link a fresh directory on another file system there
+/// (`volume`, the directory to make it in), removed when the run ends.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FsCheck {
@@ -1280,12 +1463,23 @@ struct FsCheck {
     is: Option<String>,
     empty: Option<bool>,
     unchanged: Option<String>,
+    copy_of: Option<String>,
+    size_of: Option<String>,
     write: Option<String>,
     remember: Option<String>,
     mkdir: Option<bool>,
+    parents: Option<bool>,
+    chmod: Option<String>,
     populate: Option<Value>,
     image: Option<Image>,
     ffmpeg: Option<Vec<String>>,
+    volume: Option<String>,
+    remember_names: Option<String>,
+    names_from: Option<String>,
+    #[serde(default)]
+    minus: Vec<String>,
+    #[serde(default)]
+    plus: Vec<String>,
 }
 
 enum FsKind<'a> {
@@ -1295,16 +1489,29 @@ enum FsKind<'a> {
     Is(&'a str),
     Empty(bool),
     Unchanged(&'a str),
+    CopyOf(&'a str),
+    SizeOf(&'a str),
     Write(&'a str),
     Remember(&'a str),
-    Mkdir,
+    Mkdir { parents: bool },
+    Chmod(u32),
     Populate(&'a Value),
     Image(&'a Image),
     Ffmpeg(&'a [String]),
+    Volume(&'a str),
+    RememberNames(&'a str),
+    NamesFrom(&'a str),
 }
 
-/// `fixture.listing()` taken by `remember`, by name.
-type Listings = BTreeMap<String, String>;
+/// What fs steps keep while a run goes: `fixture.listing()` taken by
+/// `remember`, by name, and the directories `volume` made, removed with it.
+#[derive(Default)]
+struct FsState {
+    listings: BTreeMap<String, String>,
+    /// `set(fixture.names(path))` taken by `remember_names`, by name.
+    names: BTreeMap<String, Vec<String>>,
+    volumes: Vec<tempfile::TempDir>,
+}
 
 impl FsCheck {
     fn kind(&self) -> Result<FsKind<'_>, String> {
@@ -1330,16 +1537,50 @@ impl FsCheck {
         if let Some(name) = &self.unchanged {
             kinds.push(FsKind::Unchanged(name));
         }
+        if let Some(other) = &self.copy_of {
+            kinds.push(FsKind::CopyOf(other));
+        }
+        if let Some(other) = &self.size_of {
+            kinds.push(FsKind::SizeOf(other));
+        }
+        if let Some(mode) = &self.chmod {
+            let mode = u32::from_str_radix(mode, 8)
+                .ok()
+                .filter(|mode| *mode <= 0o7777)
+                .ok_or_else(|| {
+                    format!("chmod takes an octal mode such as \"755\", not {mode:?}")
+                })?;
+            kinds.push(FsKind::Chmod(mode));
+        }
+        if let Some(name) = &self.remember_names {
+            kinds.push(FsKind::RememberNames(name));
+        }
+        if let Some(name) = &self.names_from {
+            kinds.push(FsKind::NamesFrom(name));
+        } else if !self.minus.is_empty() || !self.plus.is_empty() {
+            return Err("minus and plus belong to names_from".to_owned());
+        }
+        if let Some(directory) = &self.volume {
+            if !Path::new(directory).is_absolute() {
+                return Err(format!(
+                    "volume makes its directory in an absolute path, not {directory:?}"
+                ));
+            }
+            kinds.push(FsKind::Volume(directory));
+        }
         if let Some(text) = &self.write {
             kinds.push(FsKind::Write(text));
         }
         if let Some(name) = &self.remember {
             kinds.push(FsKind::Remember(name));
         }
-        match self.mkdir {
-            Some(true) => kinds.push(FsKind::Mkdir),
-            Some(false) => return Err("mkdir is true or left out".to_owned()),
-            None => {}
+        match (self.mkdir, self.parents) {
+            (Some(true), parents) => kinds.push(FsKind::Mkdir {
+                parents: parents == Some(true),
+            }),
+            (Some(false), _) => return Err("mkdir is true or left out".to_owned()),
+            (None, Some(_)) => return Err("parents belongs to mkdir".to_owned()),
+            (None, None) => {}
         }
         if let Some(tree) = &self.populate {
             expand_directory(tree)?;
@@ -1355,7 +1596,8 @@ impl FsCheck {
             1 => Ok(kinds.remove(0)),
             _ => Err(
                 "fs needs a path and exactly one of exists, text, names, is, empty, \
-                 unchanged, write, remember, mkdir, populate, image, or ffmpeg"
+                 unchanged, copy_of, size_of, names_from, write, remember, remember_names, \
+                 mkdir, chmod, populate, image, ffmpeg, or volume"
                     .to_owned(),
             ),
         }
@@ -1366,10 +1608,13 @@ impl FsCheck {
             self.kind(),
             Ok(FsKind::Write(_)
                 | FsKind::Remember(_)
-                | FsKind::Mkdir
+                | FsKind::Mkdir { .. }
+                | FsKind::Chmod(_)
                 | FsKind::Populate(_)
                 | FsKind::Image(_)
-                | FsKind::Ffmpeg(_))
+                | FsKind::Ffmpeg(_)
+                | FsKind::Volume(_)
+                | FsKind::RememberNames(_))
         )
     }
 
@@ -1377,9 +1622,11 @@ impl FsCheck {
         &self,
         root: &Path,
         fixture_time: SystemTime,
-        listings: &mut Listings,
+        state: &mut FsState,
     ) -> Result<(), String> {
         let path = root.join(&self.path);
+        let listings = &mut state.listings;
+        let other = |name: &str| root.join(name);
         match self.kind()? {
             FsKind::Exists(exists) => {
                 let actual = path.symlink_metadata().is_ok();
@@ -1393,16 +1640,32 @@ impl FsCheck {
                 Err(error) => Err(error.to_string()),
             },
             FsKind::Names(names) => {
-                // Sorted with hidden files, as `FixtureTree.names` lists them.
-                let mut actual: Vec<String> = fs::read_dir(&path)
-                    .map_err(|error| error.to_string())?
-                    .flatten()
-                    .map(|entry| entry.file_name().to_string_lossy().into_owned())
-                    .collect();
-                actual.sort();
+                let actual = sorted_names(&path)?;
                 (actual == names)
                     .then_some(())
                     .ok_or(format!("names are {actual:?}"))
+            }
+            FsKind::RememberNames(name) => {
+                state.names.insert(name.to_owned(), sorted_names(&path)?);
+                Ok(())
+            }
+            // `set(fixture.names()) == original - {...} | {...}`.
+            FsKind::NamesFrom(name) => {
+                let mut expected: Vec<String> = state
+                    .names
+                    .get(name)
+                    .ok_or_else(|| format!("no names were remembered as {name:?}"))?
+                    .iter()
+                    .filter(|entry| !self.minus.contains(entry))
+                    .chain(&self.plus)
+                    .cloned()
+                    .collect();
+                expected.sort();
+                expected.dedup();
+                let actual = sorted_names(&path)?;
+                (actual == expected)
+                    .then_some(())
+                    .ok_or(format!("names are {actual:?}, not {expected:?}"))
             }
             // `Path.is_file()` and `is_dir()` follow links; `is_symlink()` does not.
             FsKind::Is(kind) => {
@@ -1433,20 +1696,82 @@ impl FsCheck {
                     .then_some(())
                     .ok_or(format!("the listing changed to:\n{now}"))
             }
-            FsKind::Write(text) => fs::write(&path, text).map_err(|error| error.to_string()),
+            FsKind::CopyOf(source) => {
+                let read = |path: &Path| {
+                    fs::read(path).map_err(|error| format!("{}: {error}", path.display()))
+                };
+                let (copy, source) = (read(&path)?, read(&other(source))?);
+                (path.is_file() && copy == source)
+                    .then_some(())
+                    .ok_or(format!("the bytes differ: {copy:?}"))
+            }
+            FsKind::SizeOf(source) => {
+                let size = |path: &Path| {
+                    fs::metadata(path)
+                        .map(|metadata| metadata.len())
+                        .map_err(|error| format!("{}: {error}", path.display()))
+                };
+                let (copy, source) = (size(&path)?, size(&other(source))?);
+                (copy == source)
+                    .then_some(())
+                    .ok_or(format!("the size is {copy}, not {source}"))
+            }
+            // `path.write_text(...)` per name, as a twin's loop writes numbered files.
+            FsKind::Write(text) => {
+                let parent = path.parent().unwrap_or(root);
+                let name = path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                for (name, number) in numbered(&name)? {
+                    let text = match number {
+                        Some(number) => text.replace("{}", &number.to_string()),
+                        None => (*text).to_owned(),
+                    };
+                    fs::write(parent.join(&name), text)
+                        .map_err(|error| format!("{name}: {error}"))?;
+                }
+                Ok(())
+            }
+            FsKind::Chmod(mode) => fs::set_permissions(&path, fs::Permissions::from_mode(mode))
+                .map_err(|error| error.to_string()),
+            // `tempfile.TemporaryDirectory(prefix="strata-drop-volume-", dir=...)`,
+            // which must lie on another device than the fixture, then linked in.
+            FsKind::Volume(directory) => {
+                let volume = tempfile::Builder::new()
+                    .prefix("strata-drop-volume-")
+                    .tempdir_in(directory)
+                    .map_err(|error| format!("cannot make a directory in {directory}: {error}"))?;
+                let device = |path: &Path| {
+                    fs::metadata(path)
+                        .map(|metadata| std::os::unix::fs::MetadataExt::dev(&metadata))
+                        .map_err(|error| format!("{}: {error}", path.display()))
+                };
+                if device(volume.path())? == device(root)? {
+                    return Err(format!("{directory} is on the fixture's own device"));
+                }
+                std::os::unix::fs::symlink(volume.path(), &path)
+                    .map_err(|error| error.to_string())?;
+                state.volumes.push(volume);
+                Ok(())
+            }
             FsKind::Remember(name) => {
                 listings.insert(name.to_owned(), listing(&path));
                 Ok(())
             }
-            FsKind::Mkdir => {
+            FsKind::Mkdir { parents } => {
                 let parent = path.parent().unwrap_or(root);
                 let name = path
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned())
                     .unwrap_or_default();
                 for name in expand_name(&name)? {
-                    fs::create_dir(parent.join(&name))
-                        .map_err(|error| format!("{name}: {error}"))?;
+                    let made = if parents {
+                        fs::create_dir_all(parent.join(&name))
+                    } else {
+                        fs::create_dir(parent.join(&name))
+                    };
+                    made.map_err(|error| format!("{name}: {error}"))?;
                 }
                 Ok(())
             }
@@ -1468,6 +1793,17 @@ impl FsCheck {
             FsKind::Ffmpeg(arguments) => ffmpeg(arguments, &path),
         }
     }
+}
+
+/// Sorted with hidden files, as `FixtureTree.names` lists them.
+fn sorted_names(path: &Path) -> Result<Vec<String>, String> {
+    let mut names: Vec<String> = fs::read_dir(path)
+        .map_err(|error| error.to_string())?
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    Ok(names)
 }
 
 fn ffmpeg(arguments: &[String], output: &Path) -> Result<(), String> {
@@ -1667,6 +2003,7 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
             display: &display,
             fixture: fixture.path(),
             fixture_time: fixture_time(manifest),
+            screens: &scratch.path().join("screenshots"),
         },
         &mut layout,
     );
@@ -1732,6 +2069,13 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
         }
         for (file, contents) in files {
             let _ = fs::write(artifacts.join(file), contents);
+        }
+        for screen in fs::read_dir(scratch.path().join("screenshots"))
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            let _ = fs::copy(screen.path(), artifacts.join(screen.file_name()));
         }
         if failed {
             outcome.artifacts = Some(artifacts);
@@ -1818,7 +2162,11 @@ fn seed(
     fs::set_permissions(runtime, fs::Permissions::from_mode(0o700)).map_err(io)?;
     let gtk = home.join("config/gtk-4.0");
     fs::create_dir_all(&gtk).map_err(io)?;
-    fs::write(gtk.join("settings.ini"), &manifest.gtk_settings).map_err(io)?;
+    fs::write(
+        gtk.join("settings.ini"),
+        gtk_settings(&manifest.gtk_settings, &scenario.header.gtk_settings)?,
+    )
+    .map_err(io)?;
     let strata = home.join("config/strata");
     fs::create_dir_all(&strata).map_err(io)?;
     // Pre-answers the first-run portal offer, which would cover every scenario.
@@ -1847,6 +2195,24 @@ fn seed(
             .map_err(|error| format!("cannot write {path}: {error}"))?;
     }
     Ok(())
+}
+
+/// The manifest's `settings.ini` with each named key's line rewritten, as
+/// `settings.write_text(settings.read_text().replace("key=old", "key=new"))`.
+fn gtk_settings(base: &str, changes: &BTreeMap<String, String>) -> Result<String, String> {
+    let mut lines: Vec<String> = base.lines().map(str::to_owned).collect();
+    for (key, value) in changes {
+        let line = lines
+            .iter_mut()
+            .find(|line| line.split_once('=').is_some_and(|(name, _)| name == key))
+            .ok_or_else(|| format!("the manifest's GTK settings have no {key}"))?;
+        *line = format!("{key}={value}");
+    }
+    let mut text = lines.join("\n");
+    if base.ends_with('\n') {
+        text.push('\n');
+    }
+    Ok(text)
 }
 
 /// A header `tree`: a manifest tree's name, or a tree in the manifest's
@@ -1948,11 +2314,13 @@ struct Context<'a> {
     fixture: &'a Path,
     /// The manifest's pinned time, which an fs `populate` gives its tree.
     fixture_time: SystemTime,
+    /// Where `screenshot` steps save, copied into the artifacts when a run keeps them.
+    screens: &'a Path,
 }
 
 fn drive(application: &mut Application, context: &Context, layout: &mut String) -> Outcome {
     let mut outcome = Outcome::default();
-    let mut listings = Listings::new();
+    let mut fs_state = FsState::default();
     let hello = application.receive(LAUNCH_TIMEOUT);
     if let Err(error) = hello.and_then(|hello| {
         record(
@@ -2013,6 +2381,43 @@ fn drive(application: &mut Application, context: &Context, layout: &mut String) 
             }
             continue;
         }
+        if let Some(name) = object.get("screenshot") {
+            let destination = context.screens.join(name.as_str().unwrap_or_default());
+            let taken = fs::create_dir_all(context.screens)
+                .map_err(|error| error.to_string())
+                .and_then(|()| context.display.screenshot(&destination));
+            if let Err(error) = taken {
+                outcome.errors.push(format!("{label}: {error}"));
+                return outcome;
+            }
+            continue;
+        }
+        if let Some(source) = object.get("slice") {
+            let name = object["as"].as_str().unwrap_or_default().to_owned();
+            let sliced = notes
+                .iter()
+                .find(|(note, _)| Some(note.as_str()) == source.as_str())
+                .and_then(|(_, value)| value.as_array())
+                .ok_or_else(|| format!("no note of a list called {source}"))
+                .and_then(|names| {
+                    slice(
+                        names,
+                        object.get("middle").and_then(Value::as_u64),
+                        object.get("pick").and_then(Value::as_i64),
+                    )
+                });
+            match sliced {
+                Ok(value) => {
+                    notes.retain(|(note, _)| *note != name);
+                    notes.push((name, value));
+                    continue;
+                }
+                Err(error) => {
+                    file_failure(&mut outcome, *line, &label, &error);
+                    return outcome;
+                }
+            }
+        }
         if let Some(source) = object.get("increment") {
             let name = object["as"].as_str().unwrap_or_default().to_owned();
             let noted = notes
@@ -2034,7 +2439,7 @@ fn drive(application: &mut Application, context: &Context, layout: &mut String) 
             }
         }
         let result = if object.contains_key("fs") {
-            wait_for_fs(step, context.fixture, context.fixture_time, &mut listings)
+            wait_for_fs(step, context.fixture, context.fixture_time, &mut fs_state)
         } else {
             let timeout = match object.get("timeout_ms").and_then(Value::as_u64) {
                 Some(ms) => (Duration::from_millis(ms) + WAIT_MARGIN).max(COMMAND_TIMEOUT),
@@ -2142,19 +2547,19 @@ fn wait_for_fs(
     step: &Value,
     fixture: &Path,
     fixture_time: SystemTime,
-    listings: &mut Listings,
+    state: &mut FsState,
 ) -> Result<(), String> {
     let step: FsStep = serde_json::from_value(step.clone())
         .map_err(|error| format!("invalid fs step: {error}"))?;
     if step.fs.acts() {
         return step
             .fs
-            .observe(fixture, fixture_time, listings)
+            .observe(fixture, fixture_time, state)
             .map_err(|error| format!("{}: {error}", step.fs.path));
     }
     let deadline = Instant::now() + step.timeout_ms.map_or(DEFAULT_WAIT, Duration::from_millis);
     loop {
-        match step.fs.observe(fixture, fixture_time, listings) {
+        match step.fs.observe(fixture, fixture_time, state) {
             Ok(()) => return Ok(()),
             Err(actual) if Instant::now() >= deadline => {
                 return Err(format!(
@@ -2413,7 +2818,7 @@ fn fs_actions_make_numbered_directories_and_pin_a_populated_tree() {
         step.fs.observe(
             root.path(),
             SystemTime::UNIX_EPOCH + Duration::from_secs(1_000),
-            &mut Listings::new(),
+            &mut FsState::default(),
         )
     };
     fs::create_dir(root.path().join("archive")).expect("the directory should be created");
@@ -2497,6 +2902,63 @@ fn a_known_bug_must_name_a_step_line_that_can_fail() {
 }
 
 #[test]
+fn a_slice_keeps_the_middle_band_or_one_name_of_a_noted_list() {
+    let rows: Vec<Value> = (0..7).map(|row| json!(format!("{row:03}.txt"))).collect();
+    assert_eq!(
+        slice(&rows, Some(3), None),
+        Ok(json!(["003.txt", "004.txt", "005.txt"]))
+    );
+    assert_eq!(slice(&rows, Some(3), Some(-1)), Ok(json!("005.txt")));
+    assert_eq!(slice(&rows, None, Some(0)), Ok(json!("000.txt")));
+    assert!(slice(&rows, None, Some(7)).is_err());
+}
+
+#[test]
+fn state_parity_may_ignore_only_distinct_compared_keys() {
+    let directory = tempfile::tempdir().expect("a scratch directory");
+    let path = directory.path().join("example.jsonl");
+    let load_with = |mutation: &str, ignore: &str| {
+        fs::write(
+            &path,
+            format!(
+                "{{\"scenario\":\"example\",\"modes\":[\"columns\"],\"twin\":\"x\",\"mutation\":{mutation},\"known_bug\":null,\"state_parity_ignore\":{ignore}}}\n\
+                 {{\"wait\":{{\"focused\":\"a\"}}}}\n"
+            ),
+        )
+        .expect("the scenario should be written");
+        load_scenario(&path).map(|_| ())
+    };
+    let load = |ignore: &str| load_with("null", ignore);
+    assert!(load(r#"["focused","panes.focused"]"#).is_ok());
+    assert!(
+        load_with(r#""clipboard""#, r#"["focused"]"#).is_err(),
+        "a scenario with a mutation keeps every state check"
+    );
+    assert!(load_with(r#""clipboard""#, "[]").is_ok());
+    assert!(
+        load(r#"["view_mode","directory","panes","focused","focused_pane","dialog"]"#).is_err(),
+        "ignoring every compared key compares nothing"
+    );
+    assert!(load(r#"["view_mode","directory","panes.selected","panes.focused","focused","focused_pane","dialog"]"#).is_ok());
+    for bad in [
+        r#"["menu"]"#,
+        r#"["panes.name"]"#,
+        r#"["focused","focused"]"#,
+        r#""focused""#,
+    ] {
+        assert!(load(bad).is_err(), "{bad} should be rejected");
+    }
+    let python = fs::read_to_string(Path::new(REPOSITORY).join("scripts/qa_parity.py"))
+        .expect("qa_parity.py should be readable");
+    for key in IGNORABLE_STATE {
+        assert!(
+            python.contains(&format!("\"{key}\"")),
+            "qa_parity.py should accept {key} too"
+        );
+    }
+}
+
+#[test]
 fn an_empty_check_counts_a_missing_directory_as_empty() {
     let root = tempfile::tempdir().expect("a scratch directory");
     fs::create_dir(root.path().join("full")).expect("the directory should be created");
@@ -2506,7 +2968,7 @@ fn an_empty_check_counts_a_missing_directory_as_empty() {
             serde_json::from_value(json!({ "fs": { "path": path, "empty": empty } }))
                 .expect("the step should parse");
         step.fs
-            .observe(root.path(), SystemTime::UNIX_EPOCH, &mut Listings::new())
+            .observe(root.path(), SystemTime::UNIX_EPOCH, &mut FsState::default())
     };
     assert!(check("missing", true).is_ok());
     assert!(check("missing", false).is_err());

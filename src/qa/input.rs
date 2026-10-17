@@ -197,6 +197,94 @@ impl Injector {
         Ok((reply.dst_x, reply.dst_y))
     }
 
+    /// The X screen's width and height.
+    pub(crate) fn screen_size(&self) -> Result<(u16, u16), String> {
+        self.connection
+            .setup()
+            .roots
+            .iter()
+            .find(|screen| screen.root == self.root)
+            .map(|screen| (screen.width_in_pixels, screen.height_in_pixels))
+            .ok_or_else(|| "the X screen is unknown".to_owned())
+    }
+
+    /// The screen's pixels in a box, row by row, read from the root window as
+    /// a screenshot reads them (`XGetImage`), so what other windows cover
+    /// shows too.
+    pub(crate) fn grab(
+        &self,
+        x: i16,
+        y: i16,
+        width: u16,
+        height: u16,
+    ) -> Result<Vec<[u8; 3]>, String> {
+        let reply = self
+            .connection
+            .get_image(
+                xproto::ImageFormat::Z_PIXMAP,
+                self.root,
+                x,
+                y,
+                width,
+                height,
+                u32::MAX,
+            )
+            .map_err(|error| error.to_string())?
+            .reply()
+            .map_err(|error| {
+                format!("cannot read the screen at {x},{y} {width}x{height}: {error}")
+            })?;
+        let setup = self.connection.setup();
+        let visual = setup
+            .roots
+            .iter()
+            .flat_map(|screen| &screen.allowed_depths)
+            .flat_map(|depth| &depth.visuals)
+            .find(|visual| visual.visual_id == reply.visual)
+            .ok_or("the screen's visual is unknown")?;
+        let format = setup
+            .pixmap_formats
+            .iter()
+            .find(|format| format.depth == reply.depth)
+            .ok_or("the screen's pixel format is unknown")?;
+        let bytes = match format.bits_per_pixel {
+            24 => 3,
+            32 => 4,
+            other => return Err(format!("cannot read {other}-bit pixels")),
+        };
+        let pad = usize::from(format.scanline_pad) / 8;
+        let stride = (usize::from(width) * bytes).div_ceil(pad) * pad;
+        let little = setup.image_byte_order == xproto::ImageOrder::LSB_FIRST;
+        let channel = |pixel: u32, mask: u32| -> u8 {
+            if mask == 0 {
+                return 0;
+            }
+            let value = (pixel & mask) >> mask.trailing_zeros();
+            let maximum = mask >> mask.trailing_zeros();
+            u8::try_from(value * 255 / maximum).unwrap_or(u8::MAX)
+        };
+        let mut pixels = Vec::with_capacity(usize::from(width) * usize::from(height));
+        for row in 0..usize::from(height) {
+            for column in 0..usize::from(width) {
+                let start = row * stride + column * bytes;
+                let raw = reply
+                    .data
+                    .get(start..start + bytes)
+                    .ok_or("the screen image is shorter than its size")?;
+                let pixel = raw.iter().enumerate().fold(0u32, |pixel, (index, byte)| {
+                    let shift = if little { index } else { bytes - 1 - index };
+                    pixel | u32::from(*byte) << (8 * shift)
+                });
+                pixels.push([
+                    channel(pixel, visual.red_mask),
+                    channel(pixel, visual.green_mask),
+                    channel(pixel, visual.blue_mask),
+                ]);
+            }
+        }
+        Ok(pixels)
+    }
+
     /// Resizes a surface's X window, as `resize_surface` in `xtest.py` does.
     pub(crate) fn resize(
         &self,

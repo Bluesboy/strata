@@ -6,6 +6,7 @@
 
 mod criticals;
 mod input;
+mod pixels;
 mod protocol;
 mod state;
 mod targets;
@@ -28,12 +29,13 @@ use serde_json::{Value, json};
 
 use self::{
     input::{Event, Injector},
+    pixels::Capture,
     protocol::{
         Accessor, At, Check, Chord, Command, Direction, EntryTarget, Failure, FieldRef, Modifier,
-        Orientation, Predicate, Query, Reply, Target,
+        Orientation, PointAxis, Predicate, PressCheck, Query, Repeat, Reply, Target,
     },
     state::FieldState,
-    targets::{Aim, LookupError, Memory, Rect},
+    targets::{Aim, Boxes, Kept, LookupError, Memory, Rect},
 };
 
 /// Present in every `qa` build. The release workflow fails a binary containing its
@@ -75,6 +77,18 @@ const PANIC_EXIT: i32 = 70;
 const ARRIVAL_ATTEMPTS: usize = 5;
 /// Approach a point in two steps so GTK sees enter and motion, not a teleport.
 const APPROACH_OFFSET: i16 = 6;
+/// When `test_drag_completion_keeps_the_source_label_in_place` samples the
+/// source label after letting go, and the latest any sample may be taken.
+const DROP_SAMPLE_DELAYS: [Duration; 3] = [
+    Duration::from_millis(60),
+    Duration::from_millis(120),
+    Duration::from_millis(180),
+];
+const DROP_SAMPLE_LIMIT: Duration = Duration::from_millis(240);
+/// How far a sampled label may sit from where it rested, in pixels.
+const DROP_SAMPLE_DRIFT: f64 = 1.5;
+/// How much a sampled label's contrast must recover over the dragging one.
+const DROP_SAMPLE_RECOVERY: f64 = 1.25;
 
 pub(crate) struct Session {
     protocol: File,
@@ -137,6 +151,7 @@ impl Session {
             previous: None,
             settled: RefCell::default(),
             memory: RefCell::default(),
+            samples: RefCell::default(),
         };
         // GLib would keep a panic in the task's join handle and leave the
         // runner waiting; report it and exit instead.
@@ -179,8 +194,22 @@ struct Controller {
     previous: Option<Value>,
     /// Where each target came to rest in its last `settle`, keyed by its JSON,
     /// and the boxes `settle` and `remember` kept under a name.
-    settled: RefCell<HashMap<String, Rect>>,
+    settled: RefCell<Boxes>,
     memory: RefCell<Memory>,
+    /// Screen captures, text measurements, and instants, by the name a step
+    /// kept them under.
+    samples: RefCell<HashMap<String, Sample>>,
+}
+
+#[derive(Clone)]
+enum Sample {
+    Pixels(Capture),
+    /// `text_position`: the ink's mean row and its contrast.
+    Text {
+        position: f64,
+        contrast: u64,
+    },
+    Instant(Instant),
 }
 
 #[derive(Default)]
@@ -371,16 +400,53 @@ impl Controller {
                 from,
                 through,
                 unless_first,
+                of,
+                middle,
+                plus,
+                sorted,
+                pick,
             } => {
-                let read = || {
-                    note(
+                let shape = Shape {
+                    from: from.as_deref(),
+                    through: through.as_deref(),
+                    middle,
+                    plus: &plus,
+                    sorted,
+                    pick,
+                };
+                let read = || match value {
+                    Accessor::ScrollTarget => {
+                        let Some(of) = of.as_ref() else {
+                            return Err("scroll_target needs of".to_owned());
+                        };
+                        scroll_target(&input, of, dir.as_deref())
+                    }
+                    Accessor::Bounds => {
+                        let Some(of) = of.as_ref() else {
+                            return Err("bounds needs of".to_owned());
+                        };
+                        let [x, y, width, height] = input
+                            .locate_now(of, None, Aim::Point)
+                            .map_err(|error| error.message().to_owned())?
+                            .rect
+                            .pixels();
+                        Ok(json!(format!(
+                            "Bounds(x={x}, y={y}, width={width}, height={height})"
+                        )))
+                    }
+                    Accessor::Visible => shape.apply(
+                        visible_rows(&input, dir.as_deref())?
+                            .into_iter()
+                            .map(|row| row.name)
+                            .collect(),
+                    ),
+                    _ => note(
                         &window,
                         value,
                         dir.as_deref(),
-                        from.as_deref(),
-                        through.as_deref(),
+                        &shape,
                         unless_first.as_deref(),
-                    )
+                    ),
                 };
                 let Some(timeout) = wait else {
                     return read().map_or_else(Outcome::error, |result| Outcome {
@@ -460,11 +526,122 @@ impl Controller {
                 clicks,
                 down,
                 modifiers,
+                until: None,
             } => Outcome::from(
                 input
                     .wheel(&target, at.as_ref(), clicks, down, &modifiers)
                     .await,
             ),
+            Command::Wheel {
+                target,
+                at,
+                clicks,
+                down,
+                modifiers,
+                until: Some(repeat),
+            } => {
+                self.wheel_until(
+                    &input,
+                    &target,
+                    at.as_ref(),
+                    clicks,
+                    down,
+                    &modifiers,
+                    &repeat,
+                )
+                .await
+            }
+            Command::KeysUntil {
+                predicate,
+                keys,
+                times,
+            } => {
+                for _ in 0..times {
+                    for chord in &keys {
+                        if let Err(error) = input.press(chord).await {
+                            return Outcome::error(error);
+                        }
+                    }
+                    match self.check(&input, &predicate) {
+                        Err(error) => return Outcome::error(error),
+                        Ok(Ok(())) => break,
+                        Ok(Err(_)) => {}
+                    }
+                }
+                Outcome::default()
+            }
+            Command::KeyDown(key) => Outcome::from(input.raw_key(&key, true).await),
+            Command::KeyUp(key) => Outcome::from(input.raw_key(&key, false).await),
+            Command::During {
+                predicate,
+                duration,
+                every,
+                message,
+            } => {
+                let deadline = Instant::now() + duration;
+                loop {
+                    match self.check(&input, &predicate) {
+                        Err(error) => return Outcome::error(error),
+                        Ok(Err(mut failure)) => {
+                            failure.message = message;
+                            return Outcome {
+                                failures: vec![failure],
+                                error: Some("the predicate stopped holding".to_owned()),
+                                ..Outcome::default()
+                            };
+                        }
+                        Ok(Ok(())) if Instant::now() >= deadline => return Outcome::default(),
+                        Ok(Ok(())) => glib::timeout_future(every).await,
+                    }
+                }
+            }
+            Command::Capture {
+                target,
+                inset,
+                name,
+            } => match input
+                .find(&target, None, Aim::Point)
+                .await
+                .and_then(|located| {
+                    let [x, y, width, height] = located.rect.pixels();
+                    let inset = i64::from(inset);
+                    grab(
+                        injector,
+                        [x + inset, y + inset, width - 2 * inset, height - 2 * inset],
+                    )
+                }) {
+                Ok(capture) => {
+                    self.samples
+                        .borrow_mut()
+                        .insert(name, Sample::Pixels(capture));
+                    Outcome::default()
+                }
+                Err(error) => Outcome::error(error),
+            },
+            Command::MeasureText { kept, name } => match self.measure_text(injector, &kept) {
+                Ok(Ok((position, contrast))) => {
+                    self.samples
+                        .borrow_mut()
+                        .insert(name, Sample::Text { position, contrast });
+                    Outcome::default()
+                }
+                Ok(Err(failure)) => Outcome {
+                    failures: vec![failure],
+                    error: Some("the label has no ink".to_owned()),
+                    ..Outcome::default()
+                },
+                Err(error) => Outcome::error(error),
+            },
+            Command::DropSamples {
+                kept,
+                resting,
+                dragging,
+                escape,
+                name,
+            } => {
+                self.drop_samples(&input, &kept, &resting, &dragging, escape, name)
+                    .await
+            }
             Command::Drag {
                 from,
                 to,
@@ -474,29 +651,28 @@ impl Controller {
                 release,
                 modifiers,
                 after_press,
-                message,
             } => {
-                let check = || {
-                    after_press
-                        .as_ref()
-                        .map_or(Ok(Ok(())), |predicate| self.check(&input, predicate))
-                };
+                let check = |predicate: &Predicate| self.check(&input, predicate);
                 let ends = DragEnds {
                     from: &from,
                     to: &to,
                     from_at: from_at.as_ref(),
                     to_at: to_at.as_ref(),
                 };
-                match input.drag(&ends, steps, release, &modifiers, &check).await {
+                let pressed = AfterPress {
+                    checks: &after_press,
+                    check: &check,
+                };
+                match input
+                    .drag(&ends, steps, release, &modifiers, &pressed)
+                    .await
+                {
                     Ok(None) => Outcome::default(),
-                    Ok(Some(mut failure)) => {
-                        failure.message = message;
-                        Outcome {
-                            failures: vec![failure],
-                            error: Some("the check after the press failed".to_owned()),
-                            ..Outcome::default()
-                        }
-                    }
+                    Ok(Some(failure)) => Outcome {
+                        failures: vec![failure],
+                        error: Some("the check after the press failed".to_owned()),
+                        ..Outcome::default()
+                    },
                     Err(error) => Outcome::error(error),
                 }
             }
@@ -523,10 +699,14 @@ impl Controller {
                     .await,
             ),
             Command::Resize { width, height } => {
+                let height = height.map_or_else(
+                    || u16::try_from(window.height()).map_err(|error| error.to_string()),
+                    Ok,
+                );
                 let resized = window
                     .surface()
                     .ok_or_else(|| "the window has no surface".to_owned())
-                    .and_then(|surface| injector.resize(&surface, width, height));
+                    .and_then(|surface| injector.resize(&surface, width, height?));
                 settle(Some(&window)).await;
                 Outcome::from(resized)
             }
@@ -694,6 +874,174 @@ impl Controller {
             }
             glib::timeout_future(POLL_INTERVAL).await;
         }
+    }
+
+    /// A wheel's `until`: turns the wheel while the predicate does not hold,
+    /// checking first, as a twin's loop does.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "a wheel's own fields plus its repeat"
+    )]
+    async fn wheel_until(
+        &self,
+        input: &Input<'_>,
+        target: &Target,
+        at: Option<&At>,
+        clicks: u32,
+        down: bool,
+        modifiers: &[Modifier],
+        repeat: &Repeat,
+    ) -> Outcome {
+        let deadline = Instant::now() + repeat.timeout;
+        let mut turns = 0;
+        loop {
+            match self.check(input, &repeat.predicate) {
+                Err(error) => return Outcome::error(error),
+                Ok(Ok(())) => return Outcome::default(),
+                Ok(Err(_)) if repeat.tries.is_some_and(|tries| turns >= tries) => {
+                    return Outcome::default();
+                }
+                Ok(Err(mut failure)) if repeat.tries.is_none() && Instant::now() >= deadline => {
+                    failure.message.clone_from(&repeat.message);
+                    return Outcome::timed_out(input.window, failure, repeat.timeout);
+                }
+                Ok(Err(_)) => {}
+            }
+            if let Err(error) = input.wheel(target, at, clicks, down, modifiers).await {
+                return Outcome::error(error);
+            }
+            turns += 1;
+            if repeat.tries.is_none() {
+                glib::timeout_future(POLL_INTERVAL).await;
+            }
+        }
+    }
+
+    /// `text_position` over a kept box, from a fresh grab.
+    fn measure_text(
+        &self,
+        injector: &Injector,
+        kept: &str,
+    ) -> Result<Result<(f64, u64), Failure>, String> {
+        let rect = self.kept_box(kept)?;
+        let capture = grab_on_screen(injector, rect.pixels())?;
+        Ok(match pixels::text_position(&capture) {
+            (Some(position), contrast) => Ok((position, contrast)),
+            (None, _) => Err(Failure {
+                predicate: json!({ "measure_text": kept }),
+                actual: json!(0),
+                message: Some("the source label disappeared".to_owned()),
+            }),
+        })
+    }
+
+    fn kept_box(&self, name: &str) -> Result<Rect, String> {
+        self.settled
+            .borrow()
+            .get(name)
+            .copied()
+            .ok_or_else(|| format!("no box was kept as {name:?}"))
+    }
+
+    fn text_sample(&self, name: &str) -> Result<(f64, u64), String> {
+        match self.samples.borrow().get(name) {
+            Some(Sample::Text { position, contrast }) => Ok((*position, *contrast)),
+            _ => Err(format!("no text was measured as {name:?}")),
+        }
+    }
+
+    /// The drag-completion scenario's release: Escape first when asked, then
+    /// the button, with no pause, then a grab at each of the exact delays
+    /// rather than the 50 ms poll, each measured only after all are taken.
+    async fn drop_samples(
+        &self,
+        input: &Input<'_>,
+        kept: &str,
+        resting: &str,
+        dragging: &str,
+        escape: bool,
+        name: String,
+    ) -> Outcome {
+        let measured = (|| {
+            Ok::<_, String>((
+                self.kept_box(kept)?,
+                self.text_sample(resting)?.0,
+                self.text_sample(dragging)?.1,
+            ))
+        })();
+        let (rect, resting_position, dragging_contrast) = match measured {
+            Ok(measured) => measured,
+            Err(error) => return Outcome::error(error),
+        };
+        let released = Instant::now();
+        self.samples
+            .borrow_mut()
+            .insert(name, Sample::Instant(released));
+        let mut events = Vec::new();
+        if escape {
+            match input::keysym("Escape").and_then(|keysym| input.injector.keycode(keysym)) {
+                Ok((keycode, _)) => {
+                    events.push(Event::Key {
+                        keycode,
+                        pressed: true,
+                    });
+                    events.push(Event::Key {
+                        keycode,
+                        pressed: false,
+                    });
+                }
+                Err(error) => return Outcome::error(error),
+            }
+        }
+        events.push(Event::Button {
+            number: 1,
+            pressed: false,
+        });
+        for event in events {
+            if let Err(error) = input.injector.send(event) {
+                return Outcome::error(error);
+            }
+        }
+        let mut grabs = Vec::new();
+        for delay in DROP_SAMPLE_DELAYS {
+            if let Some(remaining) = (released + delay).checked_duration_since(Instant::now()) {
+                glib::timeout_future(remaining).await;
+            }
+            match grab_on_screen(input.injector, rect.pixels()) {
+                Ok(capture) => grabs.push((released.elapsed(), capture)),
+                Err(error) => return Outcome::error(error),
+            }
+        }
+        let mut samples = Vec::new();
+        for (elapsed, capture) in &grabs {
+            match pixels::text_position(capture) {
+                (Some(position), contrast) => samples.push((*elapsed, position, contrast)),
+                (None, _) => return drop_failure("the source label disappeared", &samples),
+            }
+        }
+        if samples
+            .iter()
+            .any(|(elapsed, _, _)| *elapsed >= DROP_SAMPLE_LIMIT)
+        {
+            return drop_failure(&python_samples(&samples), &samples);
+        }
+        if samples
+            .iter()
+            .any(|(_, position, _)| (position - resting_position).abs() >= DROP_SAMPLE_DRIFT)
+        {
+            return drop_failure("source label slid out after drag completion", &samples);
+        }
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "pixel sums stay far below 2^52, as Python's float arithmetic assumes"
+        )]
+        let recovered = samples.last().is_some_and(|(_, _, contrast)| {
+            *contrast as f64 > dragging_contrast as f64 * DROP_SAMPLE_RECOVERY
+        });
+        if !recovered {
+            return drop_failure("dragging opacity must recover", &samples);
+        }
+        Outcome::default()
     }
 
     /// A mismatch is the predicate not holding; the outer error is a lookup
@@ -871,9 +1219,383 @@ impl Controller {
                 Ok(()) => Err(mismatch(json!("the negated predicate holds"))),
                 Err(_) => Ok(()),
             },
+            Check::Visible(names) => {
+                let visible: Vec<String> = visible_rows(input, predicate.dir.as_deref())?
+                    .into_iter()
+                    .map(|row| row.name)
+                    .collect();
+                verdict(names.matches(&visible), json!(visible))
+            }
+            Check::ScrollValue(check) => {
+                let value = scroll_value(input, predicate.dir.as_deref())?;
+                let wanted = check.at_least.as_f64().unwrap_or(f64::INFINITY);
+                verdict(value.is_some_and(|value| value >= wanted), json!(value))
+            }
+            Check::BandSelected(band) => {
+                let (from, to) = (self.kept_box(&band.from)?, self.kept_box(&band.to)?);
+                let [from_x, ..] = from.pixels();
+                let [to_x, to_y, ..] = to.pixels();
+                let inside: Vec<(String, bool)> = visible_rows(input, predicate.dir.as_deref())?
+                    .into_iter()
+                    .filter(|row| {
+                        let [x, y, width, height] = row.name_box;
+                        y + height <= to_y && x < to_x && x + width > from_x
+                    })
+                    .map(|row| (row.name, row.selected))
+                    .collect();
+                verdict(
+                    !inside.is_empty() && inside.iter().all(|(_, selected)| *selected),
+                    json!(inside),
+                )
+            }
+            Check::FocusWithin(target) => match locate(target)? {
+                None => Err(mismatch(json!("not on screen"))),
+                Some(located) => {
+                    let focus = gtk::prelude::GtkWindowExt::focus(input.window)
+                        .filter(|focus| focus.has_focus() && focus.is_mapped());
+                    let within = focus.as_ref().is_some_and(|focus| {
+                        *focus == located.widget || focus.is_ancestor(&located.widget)
+                    });
+                    verdict(
+                        within,
+                        json!(focus.map(|focus| targets::accessible_name(&focus))),
+                    )
+                }
+            },
+            Check::Resized(resized) => {
+                let before = self.kept_box(&resized.since)?.pixels();
+                match locate(&resized.target)? {
+                    None => Err(mismatch(json!("not on screen"))),
+                    Some(now) => {
+                        let now = now.rect.pixels();
+                        verdict(
+                            resized.width.matches(now[2] - before[2]),
+                            json!({ "kept": before, "now": now }),
+                        )
+                    }
+                }
+            }
+            Check::ContainsPoint(contains) => {
+                match (locate(&contains.target)?, locate(&contains.point)?) {
+                    (Some(target), Some(point)) => {
+                        let [x, y, width, height] = target.rect.pixels();
+                        let (point_x, point_y) = point.point;
+                        let (start, extent, at) = match contains.axis {
+                            PointAxis::X => (x, width, point_x.floor() as i64),
+                            PointAxis::Y => (y, height, point_y.floor() as i64),
+                        };
+                        verdict(
+                            start <= at && at < start + extent,
+                            json!({ "bounds": target.rect.pixels(), "point": [point_x, point_y] }),
+                        )
+                    }
+                    _ => Err(mismatch(json!("not on screen"))),
+                }
+            }
+            Check::FooterFill(fill) => match footer_fill(input, fill)? {
+                Ok(()) => Ok(()),
+                Err(actual) => Err(mismatch(actual)),
+            },
+            Check::Repainted(repainted) => {
+                let Some(Sample::Pixels(before)) =
+                    self.samples.borrow().get(&repainted.since).cloned()
+                else {
+                    return Err(format!("no capture was kept as {:?}", repainted.since));
+                };
+                let width = i64::try_from(before.width).map_err(|error| error.to_string())?;
+                let height = i64::try_from(before.height).map_err(|error| error.to_string())?;
+                let after = grab(input.injector, [before.x, before.y, width, height])?;
+                let pointer = (before.x + width / 2, before.y + height / 2);
+                verdict(
+                    pixels::differs_beside_pointer(&before, &after, pointer),
+                    json!("no pixel changed beside the pointer"),
+                )
+            }
+            Check::ContrastBelow(below) => {
+                let (_, of) = self.text_sample(&below.of)?;
+                let (_, to) = self.text_sample(&below.to)?;
+                let share = below.share.as_f64().unwrap_or_default();
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "pixel sums stay far below 2^52, as Python's float arithmetic assumes"
+                )]
+                let holds = (of as f64) < to as f64 * share;
+                verdict(holds, json!({ "of": of, "to": to }))
+            }
+            Check::Elapsed(elapsed) => match self.samples.borrow().get(&elapsed.since) {
+                Some(Sample::Instant(since)) => {
+                    let passed = since.elapsed();
+                    verdict(
+                        passed >= Duration::from_millis(elapsed.ms),
+                        json!(passed.as_millis()),
+                    )
+                }
+                _ => return Err(format!("no instant was kept as {:?}", elapsed.since)),
+            },
+            Check::DiagnosticsMention(words) => {
+                let words: Vec<String> = words.iter().map(|word| word.to_lowercase()).collect();
+                let mentioned = self.application.windows().iter().any(|window| {
+                    targets::presented(window.upcast_ref())
+                        .iter()
+                        .any(|widget| {
+                            let name = targets::accessible_name(widget).to_lowercase();
+                            let description = crate::ui::accessibility_qa::naming(widget)
+                                .and_then(|naming| naming.description)
+                                .unwrap_or_default()
+                                .to_lowercase();
+                            words
+                                .iter()
+                                .any(|word| name.contains(word) || description.contains(word))
+                        })
+                });
+                verdict(mentioned, json!(false))
+            }
             _ => state::scan(input.window).observation.evaluate(predicate),
         })
     }
+}
+
+/// The samples as the twin's `assert ..., samples` prints them, its message:
+/// `[(elapsed, (position, contrast)), ...]` with seconds as Python floats.
+fn python_samples(samples: &[(Duration, f64, u64)]) -> String {
+    let items: Vec<String> = samples
+        .iter()
+        .map(|(elapsed, position, contrast)| {
+            format!("({:?}, ({position:?}, {contrast}))", elapsed.as_secs_f64())
+        })
+        .collect();
+    format!("[{}]", items.join(", "))
+}
+
+fn drop_failure(message: &str, samples: &[(Duration, f64, u64)]) -> Outcome {
+    let actual: Vec<Value> = samples
+        .iter()
+        .map(|(elapsed, position, contrast)| {
+            json!({ "elapsed_ms": elapsed.as_millis(), "position": position, "contrast": contrast })
+        })
+        .collect();
+    Outcome {
+        failures: vec![Failure {
+            predicate: json!({ "drop_samples": message }),
+            actual: json!(actual),
+            message: Some(message.to_owned()),
+        }],
+        error: Some(message.to_owned()),
+        ..Outcome::default()
+    }
+}
+
+/// The screen's pixels in a box that must lie wholly on the screen, as
+/// `text_position` indexes a screenshot's pixels and fails past its edge.
+fn grab_on_screen(injector: &Injector, rect: [i64; 4]) -> Result<Capture, String> {
+    let [x, y, width, height] = rect;
+    let (screen_width, screen_height) = injector.screen_size()?;
+    if x < 0
+        || y < 0
+        || x + width > i64::from(screen_width)
+        || y + height > i64::from(screen_height)
+    {
+        return Err(format!(
+            "the box {rect:?} leaves the {screen_width}x{screen_height} screen"
+        ));
+    }
+    grab(injector, rect)
+}
+
+/// The screen's pixels in a whole-pixel box `[x, y, width, height]`; any
+/// part off the screen is black, as PIL's `crop` pads a screenshot.
+fn grab(injector: &Injector, [x, y, width, height]: [i64; 4]) -> Result<Capture, String> {
+    let size = |value: i64| usize::try_from(value).map_err(|error| format!("{value}: {error}"));
+    if width <= 0 || height <= 0 {
+        return Err(format!("cannot grab an empty box {width}x{height}"));
+    }
+    let (screen_width, screen_height) = injector.screen_size()?;
+    let (left, top) = (x.max(0), y.max(0));
+    let right = (x + width).min(i64::from(screen_width));
+    let bottom = (y + height).min(i64::from(screen_height));
+    let mut pixels = vec![[0, 0, 0]; size(width)? * size(height)?];
+    if left < right && top < bottom {
+        let narrow = |value: i64| i16::try_from(value).map_err(|error| format!("{value}: {error}"));
+        let extent = |value: i64| u16::try_from(value).map_err(|error| format!("{value}: {error}"));
+        let visible = injector.grab(
+            narrow(left)?,
+            narrow(top)?,
+            extent(right - left)?,
+            extent(bottom - top)?,
+        )?;
+        let visible_width = size(right - left)?;
+        for (row, line) in visible.chunks(visible_width).enumerate() {
+            let start = (size(top - y)? + row) * size(width)? + size(left - x)?;
+            pixels[start..start + visible_width].copy_from_slice(line);
+        }
+    }
+    Ok(Capture {
+        x,
+        y,
+        width: size(width)?,
+        height: size(height)?,
+        pixels,
+    })
+}
+
+/// A row wholly inside its pane's scroll viewport.
+struct VisibleRow {
+    name: String,
+    selected: bool,
+    /// The row's first label's box, else the row's, on the X screen.
+    name_box: [i64; 4],
+}
+
+/// `_visible_entries`: the pane's rows whose boxes lie wholly inside the
+/// scroll viewport around its entry list, top to bottom.
+fn visible_rows(input: &Input<'_>, directory: Option<&str>) -> Result<Vec<VisibleRow>, String> {
+    let scene = state::scan(input.window);
+    let (Some(pane), Some(widgets)) = (
+        scene.observation.pane(directory),
+        scene.pane_widgets(directory),
+    ) else {
+        return Ok(Vec::new());
+    };
+    let Some(viewport) = widgets.container.as_ref().and_then(|container| {
+        std::iter::successors(container.parent(), WidgetExt::parent)
+            .find(|widget| widget.is::<gtk::ScrolledWindow>())
+    }) else {
+        return Ok(Vec::new());
+    };
+    let screen = |widget: &gtk::Widget| {
+        targets::screen_rect(widget, input.injector).map(|rect| rect.pixels())
+    };
+    let Ok([_, top, _, height]) = screen(&viewport) else {
+        return Ok(Vec::new());
+    };
+    let mut rows = Vec::new();
+    for (entry, widget) in pane.entries.iter().zip(&widgets.entries) {
+        let Ok([_, y, _, row_height]) = screen(widget) else {
+            continue;
+        };
+        if row_height <= 0 || y < top || y + row_height > top + height {
+            continue;
+        }
+        let label = targets::presented(widget)
+            .into_iter()
+            .find(|label| targets::role_name(label) == "label");
+        let name_box = label
+            .as_ref()
+            .and_then(|label| screen(label).ok())
+            .map_or_else(|| screen(widget), Ok)
+            .map_err(|error| error.message().to_owned())?;
+        rows.push(VisibleRow {
+            name: entry.name.clone(),
+            selected: entry.selected,
+            name_box,
+        });
+    }
+    Ok(rows)
+}
+
+/// The first scroll bar of any orientation showing in the pane's viewport,
+/// `viewport.find(role="scroll bar")`, and its value.
+fn scroll_value(input: &Input<'_>, directory: Option<&str>) -> Result<Option<f64>, String> {
+    Ok(pane_scroll(input, directory)?.map(|(_, scrollbar)| scrollbar.adjustment().value()))
+}
+
+fn pane_scroll(
+    input: &Input<'_>,
+    directory: Option<&str>,
+) -> Result<Option<(gtk::Widget, gtk::Scrollbar)>, String> {
+    let scene = state::scan(input.window);
+    let Some(viewport) = scene
+        .pane_widgets(directory)
+        .and_then(|widgets| widgets.container.clone())
+        .and_then(|container| {
+            std::iter::successors(container.parent(), WidgetExt::parent)
+                .find(|widget| widget.is::<gtk::ScrolledWindow>())
+        })
+    else {
+        return Ok(None);
+    };
+    let scrollbar = targets::presented(&viewport)
+        .into_iter()
+        .find_map(|widget| {
+            state::rendered_bounds(&widget)?;
+            widget.downcast::<gtk::Scrollbar>().ok()
+        });
+    Ok(scrollbar.map(|scrollbar| (viewport, scrollbar)))
+}
+
+/// `initial_scroll + max(anchor.y + anchor.height - viewport.y + 1, 1)`.
+fn scroll_target(input: &Input<'_>, of: &Target, directory: Option<&str>) -> Result<Value, String> {
+    let Some((viewport, scrollbar)) = pane_scroll(input, directory)? else {
+        return Err("the pane has no scroll bar showing".to_owned());
+    };
+    let anchor = input
+        .locate_now(of, None, Aim::Point)
+        .map_err(|error| error.message().to_owned())?
+        .rect
+        .pixels();
+    let [_, top, ..] = targets::screen_rect(&viewport, input.injector)
+        .map_err(|error| error.message().to_owned())?
+        .pixels();
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "screen coordinates are far below 2^52"
+    )]
+    let past = (anchor[1] + anchor[3] - top + 1).max(1) as f64;
+    Ok(json!(scrollbar.adjustment().value() + past))
+}
+
+/// `footer_counts_the_remaining_fill`: with both marquee ends listed,
+/// cleared, and on screen, a label whose description starts with the count
+/// the cleared rows leave, worded as the twin words it.
+fn footer_fill(
+    input: &Input<'_>,
+    fill: &protocol::FooterFill,
+) -> Result<Result<(), Value>, String> {
+    let scene = state::scan(input.window);
+    let (Some(pane), Some(widgets)) = (scene.observation.pane(None), scene.pane_widgets(None))
+    else {
+        return Ok(Err(json!("no pane")));
+    };
+    let window = targets::screen_rect(input.window.upcast_ref(), input.injector)
+        .map_err(|error| error.message().to_owned())?
+        .pixels();
+    let ends: Vec<(&state::EntryObservation, &gtk::Widget)> = pane
+        .entries
+        .iter()
+        .zip(&widgets.entries)
+        .filter(|(entry, _)| fill.ends.contains(&entry.name))
+        .collect();
+    let ends_ready = ends.len() == fill.ends.len()
+        && ends.iter().all(|(entry, widget)| {
+            !entry.selected
+                && targets::screen_rect(widget, input.injector)
+                    .is_ok_and(|rect| state::on_screen(rect.pixels(), window))
+        });
+    if !ends_ready {
+        return Ok(Err(
+            json!({ "ends": ends.iter().map(|(entry, _)| (&entry.name, entry.selected)).collect::<Vec<_>>() }),
+        ));
+    }
+    let cleared = pane.entries.iter().filter(|entry| !entry.selected).count();
+    let remaining = format!(
+        "{} of {} items selected",
+        fill.total.saturating_sub(cleared),
+        fill.total
+    );
+    let found = targets::presented(input.window.upcast_ref())
+        .iter()
+        .any(|widget| {
+            targets::role_name(widget) == "label"
+                && state::rendered_bounds(widget).is_some()
+                && crate::ui::accessibility_qa::naming(widget)
+                    .and_then(|naming| naming.description)
+                    .is_some_and(|description| description.starts_with(&remaining))
+        });
+    Ok(if found {
+        Ok(())
+    } else {
+        Err(json!({ "wanted": remaining }))
+    })
 }
 
 /// `settings.toml` as JSON, read from disk as `read_preferences` reads it;
@@ -890,32 +1612,73 @@ fn preferences() -> Result<Value, String> {
     serde_json::to_value(table).map_err(|error| error.to_string())
 }
 
-/// A page-object accessor's value now, for `note`; see [`Accessor`].
-fn note(
-    window: &gtk::Window,
-    value: Accessor,
-    directory: Option<&str>,
-    from: Option<&str>,
-    through: Option<&str>,
-    unless_first: Option<&str>,
-) -> Result<Value, String> {
-    let scene = state::scan(window);
-    let observation = &scene.observation;
-    // `names[names.index(from):names.index(through) + 1]`.
-    let list = |names: Vec<String>| -> Result<Value, String> {
+/// How a `note` reshapes a list it reads, applied in this order.
+struct Shape<'a> {
+    from: Option<&'a str>,
+    through: Option<&'a str>,
+    middle: Option<usize>,
+    plus: &'a [String],
+    sorted: bool,
+    pick: Option<i64>,
+}
+
+impl Shape<'_> {
+    fn apply(&self, names: Vec<String>) -> Result<Value, String> {
+        // `names[names.index(from):names.index(through) + 1]`.
         let index = |name: &str| {
             names
                 .iter()
                 .position(|candidate| candidate == name)
                 .ok_or_else(|| format!("{name:?} is not in {names:?}"))
         };
-        let start = from.map(index).transpose()?.unwrap_or(0);
-        let end = through
+        let start = self.from.map(index).transpose()?.unwrap_or(0);
+        let end = self
+            .through
             .map(index)
             .transpose()?
             .map_or(names.len(), |end| end + 1);
-        Ok(json!(names.get(start..end.max(start)).unwrap_or_default()))
-    };
+        let mut names: Vec<String> = names
+            .get(start..end.max(start))
+            .unwrap_or_default()
+            .to_vec();
+        if let Some(count) = self.middle {
+            let start = names.len() / 2;
+            names = names[start..(start + count).min(names.len())].to_vec();
+        }
+        if !self.plus.is_empty() {
+            names.extend(self.plus.iter().cloned());
+            names.sort();
+            names.dedup();
+        }
+        if self.sorted {
+            names.sort();
+        }
+        match self.pick {
+            None => Ok(json!(names)),
+            Some(pick) => {
+                let length = i64::try_from(names.len()).map_err(|error| error.to_string())?;
+                let index = if pick < 0 { length + pick } else { pick };
+                usize::try_from(index)
+                    .ok()
+                    .and_then(|index| names.get(index))
+                    .map(|name| json!(name))
+                    .ok_or_else(|| format!("index {pick} is outside {names:?}"))
+            }
+        }
+    }
+}
+
+/// A page-object accessor's value now, for `note`; see [`Accessor`].
+fn note(
+    window: &gtk::Window,
+    value: Accessor,
+    directory: Option<&str>,
+    shape: &Shape<'_>,
+    unless_first: Option<&str>,
+) -> Result<Value, String> {
+    let scene = state::scan(window);
+    let observation = &scene.observation;
+    let list = |names: Vec<String>| shape.apply(names);
     match value {
         Accessor::Directory => Ok(json!(observation.directory())),
         Accessor::Pane => Ok(json!(observation.panes.last().map(|pane| &pane.name))),
@@ -962,6 +1725,9 @@ fn note(
                 viewport,
                 unless_first.unwrap_or_default()
             )))
+        }
+        Accessor::Visible | Accessor::ScrollTarget | Accessor::Bounds => {
+            Err("visible, scroll_target, and bounds are read with the X screen".to_owned())
         }
     }
 }
@@ -1019,8 +1785,38 @@ struct DragEnds<'a> {
     to_at: Option<&'a At>,
 }
 
-/// A predicate checked once, for `drag`'s `after_press`.
-type PressCheck<'a> = dyn Fn() -> Result<Result<(), Failure>, String> + 'a;
+/// A predicate holding, a mismatch, or a lookup that broke.
+type Verdict = Result<Result<(), Failure>, String>;
+
+/// A drag's `after_press` checks, and how to check one predicate.
+struct AfterPress<'a> {
+    checks: &'a [PressCheck],
+    check: &'a dyn Fn(&Predicate) -> Verdict,
+}
+
+impl AfterPress<'_> {
+    /// Runs the checks in order, polling a wait as `strata.wait` does; the
+    /// first that fails comes back with its message.
+    async fn run(&self) -> Result<Option<Failure>, String> {
+        for press in self.checks {
+            let deadline = press.wait.map(|wait| Instant::now() + wait);
+            loop {
+                match (self.check)(&press.predicate)? {
+                    Ok(()) => break,
+                    Err(mut failure) => {
+                        if deadline.is_some_and(|deadline| Instant::now() < deadline) {
+                            glib::timeout_future(POLL_INTERVAL).await;
+                            continue;
+                        }
+                        failure.message.clone_from(&press.message);
+                        return Ok(Some(failure));
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+}
 
 /// Lets queued X events, the idle work they schedule, and the next frame's
 /// layout run before the next event or the reply.
@@ -1045,8 +1841,8 @@ struct Input<'a> {
     injector: &'a Injector,
     window: &'a gtk::Window,
     memory: &'a RefCell<Memory>,
-    /// Boxes `settle` and `remember` kept, for `left_bound`.
-    boxes: &'a RefCell<HashMap<String, Rect>>,
+    /// Boxes and points `settle` and `remember` kept, for `left_bound` and `kept` targets.
+    boxes: &'a RefCell<Boxes>,
 }
 
 impl Input<'_> {
@@ -1067,6 +1863,17 @@ impl Input<'_> {
 
     async fn key(&self, keycode: u8, pressed: bool) -> Result<(), String> {
         self.emit(Event::Key { keycode, pressed }, EVENT_GAP).await
+    }
+
+    /// `connection.key(keysym, pressed)`: a modifier's name or a key's, no tap.
+    async fn raw_key(&self, name: &str, pressed: bool) -> Result<(), String> {
+        let keysym = match Modifier::parse(name) {
+            Ok(modifier) => input::modifier_keysym(modifier)?,
+            Err(_) => input::keysym(name)?,
+        };
+        let (keycode, _) = self.injector.keycode(keysym)?;
+        self.emit(Event::Key { keycode, pressed }, Duration::ZERO)
+            .await
     }
 
     async fn hold(&self, modifiers: &[Modifier]) -> Result<Vec<u8>, String> {
@@ -1130,7 +1937,10 @@ impl Input<'_> {
         targets::locate(
             self.window,
             self.injector,
-            &self.memory.borrow(),
+            Kept {
+                memory: &self.memory.borrow(),
+                boxes: &self.boxes.borrow(),
+            },
             target,
             at,
             aim,
@@ -1490,15 +2300,19 @@ impl Input<'_> {
         steps: u32,
         release: bool,
         modifiers: &[Modifier],
-        after_press: &PressCheck<'_>,
+        after_press: &AfterPress<'_>,
     ) -> Result<Option<Failure>, String> {
-        let origin = if ends.from_at.is_some() {
-            Aim::Point
+        let (start, end) = if ends.from_at.is_some() {
+            let start = self.locate(ends.from, ends.from_at, Aim::Point).await?;
+            (start, self.locate(ends.to, ends.to_at, Aim::Point).await?)
         } else {
-            Aim::DragOrigin
+            // `Pointer.drag(source, target)` reads both boxes only once both
+            // lookups returned, the target's first: a row the wait for the
+            // target let a listing refresh move is aimed where it is now.
+            self.find(ends.from, None, Aim::DragOrigin).await?;
+            let end = self.locate(ends.to, ends.to_at, Aim::Point).await?;
+            (self.locate(ends.from, None, Aim::DragOrigin).await?, end)
         };
-        let start = self.locate(ends.from, ends.from_at, origin).await?;
-        let end = self.locate(ends.to, ends.to_at, Aim::Point).await?;
         let held = self.hold(modifiers).await?;
         let result = self
             .drag_between(start, end, steps, release, after_press)
@@ -1513,7 +2327,7 @@ impl Input<'_> {
         end: (i16, i16),
         steps: u32,
         release: bool,
-        after_press: &PressCheck<'_>,
+        after_press: &AfterPress<'_>,
     ) -> Result<Option<Failure>, String> {
         self.move_to(start.0, start.1).await?;
         if let Some(remaining) = self
@@ -1531,13 +2345,13 @@ impl Input<'_> {
             POINTER_GAP,
         )
         .await?;
-        let checked = after_press();
-        if !matches!(checked, Ok(Ok(()))) {
+        let checked = after_press.run().await;
+        if !matches!(checked, Ok(None)) {
             self.injector.send(Event::Button {
                 number: 1,
                 pressed: false,
             })?;
-            return checked.map(Result::err);
+            return checked;
         }
         let travel = async {
             for step in 1..=steps {

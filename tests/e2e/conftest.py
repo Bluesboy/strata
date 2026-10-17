@@ -266,13 +266,27 @@ def unreserved_columns(strata: Strata) -> None:
 
 
 def _settled_snapshot(window: Strata) -> dict[str, object]:
-    """The snapshot once two reads in a row agree, as the `--qa` runner takes it."""
+    """The snapshot once two reads in a row agree, as the `--qa` runner takes it.
+
+    A pane can vanish mid-read while the window is still changing, which only
+    means the state has not settled yet, as `tree.wait_until` treats it; once
+    the window or the process is gone, a failed read is final.
+    """
 
     deadline = time.monotonic() + STATE_SETTLE_TIMEOUT
     previous = None
     while True:
-        state = window.state_snapshot()
-        if state == previous or time.monotonic() >= deadline:
+        try:
+            state = window.state_snapshot()
+        except AssertionError:
+            # `Application.root` found no window or no application to read.
+            raise
+        except Exception:
+            process = window.application.process
+            if time.monotonic() >= deadline or process is None or process.exited():
+                raise
+            state = None
+        if state is not None and (state == previous or time.monotonic() >= deadline):
             return state
         previous = state
         time.sleep(STATE_SETTLE_INTERVAL)

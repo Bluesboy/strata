@@ -1,0 +1,13 @@
+{"scenario":"replacing-duplicate-name-overwrites","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_clipboard.py::test_replacing_on_a_duplicate_name_overwrites","mutation":null,"known_bug":null}
+{"fs":{"path":"archive/todo.txt","write":"existing\n"}}
+{"select":{"entry":"todo.txt"}}
+{"key":"ctrl+c"}
+{"select":{"entry":"archive"}}
+{"wait":{"directory":"archive"},"message":"the browser to be working in 'archive'"}
+{"settle":{"pane":"archive"}}
+{"move":{"pane":"archive"}}
+{"key":"ctrl+v"}
+{"wait":{"dialog":true},"message":"a dialog to appear"}
+{"click":{"dialog_button":"Replace"}}
+{"fs":{"path":"archive/todo.txt","text":"todo\n"},"message":"the replaced file to take the pasted contents"}
+{"fs":{"path":"todo.txt","exists":true},"timeout_ms":0,"message":"the copy source must survive"}

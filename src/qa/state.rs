@@ -317,7 +317,18 @@ impl Observation {
             | Check::EditorWithinViewport(_)
             | Check::State(_)
             | Check::OnScreen(_)
-            | Check::Blank(_) => (false, json!("needs the live window")),
+            | Check::Blank(_)
+            | Check::Visible(_)
+            | Check::ScrollValue(_)
+            | Check::BandSelected(_)
+            | Check::FocusWithin(_)
+            | Check::Resized(_)
+            | Check::ContainsPoint(_)
+            | Check::FooterFill(_)
+            | Check::Repainted(_)
+            | Check::ContrastBelow(_)
+            | Check::Elapsed(_)
+            | Check::DiagnosticsMention(_) => (false, json!("needs the live window")),
             Check::Not(inner) => match self.evaluate(inner) {
                 Ok(()) => (false, json!("the negated predicate holds")),
                 Err(failure) => (true, failure.actual),
@@ -531,7 +542,10 @@ pub(crate) fn row_selected(widget: &gtk::Widget) -> bool {
 
 pub(crate) fn scan(window: &gtk::Window) -> Scene {
     let rows = rows();
-    let focus = gtk::prelude::GtkWindowExt::focus(window).filter(WidgetExt::has_focus);
+    // AT-SPI reports no focus for a focused row a list keeps unmapped while
+    // it is scrolled away, so neither does `focused_pane()`.
+    let focus = gtk::prelude::GtkWindowExt::focus(window)
+        .filter(|focus| focus.has_focus() && focus.is_mapped());
     let root = window.upcast_ref::<gtk::Widget>();
     let all = descendants(root);
 
