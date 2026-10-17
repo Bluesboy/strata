@@ -7,10 +7,10 @@ use serde_json::json;
 use super::{
     input,
     protocol::{
-        At, Check, Chord, Command, EntryTarget, Modifier, Offset, Predicate, Query, Target,
-        changed_keys, parse_command,
+        At, Check, Chord, Command, EntryTarget, FieldCheck, Modifier, Offset, Predicate, Presence,
+        Query, Target, changed_keys, parse_command,
     },
-    state::{EntryObservation, Observation, PaneObservation},
+    state::{self, EntryObservation, FieldState, Observation, PaneObservation},
     step_towards,
     targets::Rect,
 };
@@ -51,7 +51,7 @@ fn commands_parse_from_the_scenario_spelling_with_their_defaults() {
         parse_command(r#"{"wait":{"focused":"todo.txt"}}"#),
         Ok(Command::Wait {
             predicate: Predicate {
-                check: Check::Focused(Some("todo.txt".to_owned())),
+                check: Check::Focused(Presence::Named("todo.txt".to_owned())),
                 dir: None,
             },
             timeout: Duration::from_millis(15_000),
@@ -95,6 +95,23 @@ fn commands_parse_from_the_scenario_spelling_with_their_defaults() {
             modifiers: Vec::new(),
         })
     );
+    assert_eq!(
+        parse_command(r#"{"activate":{"role":"toggle button","name":"Single"},"message":"m"}"#),
+        Ok(Command::Activate {
+            target: Target::Role {
+                role: "toggle button".to_owned(),
+                name: "Single".to_owned(),
+            },
+            message: Some("m".to_owned()),
+        })
+    );
+    assert_eq!(
+        parse_command(r#"{"holds":{"dialog":null}}"#),
+        Ok(Command::Holds(Predicate {
+            check: Check::Dialog(Presence::Absent),
+            dir: None,
+        }))
+    );
     let Ok(Command::Expect { predicates }) =
         parse_command(r#"{"expect":[{"selected":["a"],"dir":"x"},{"focused":null}]}"#)
     else {
@@ -128,7 +145,19 @@ fn malformed_commands_are_rejected_instead_of_guessed() {
         r#"{"wait":{"moved":{"target":{"entry":"a"},"direction":"diagonal"}}}"#,
         r#"{"key":"hyper+a"}"#,
         r#"{"expect":[]}"#,
-        r#"{"type":"abc"}"#,
+        r#"{"type":""}"#,
+        r#"{"activate":{"entry":"a"}}"#,
+        r#"{"remember":{"entry":"a"},"as":"x"}"#,
+        r#"{"remember":{"field":true}}"#,
+        r#"{"click":{"field":false}}"#,
+        r#"{"wait":{"dialog":false}}"#,
+        r#"{"wait":{"field":{"text":"a","caret":"end"}}}"#,
+        r#"{"wait":{"pref":{"key":"browser_mode"}}}"#,
+        r#"{"open_menu":{"header":"Appearance"}}"#,
+        r#"{"wait":{"field":{"of":"rename","name":"Rename"}}}"#,
+        r#"{"expect":{"editor_within_viewport":{"of":"rename","name":"Rename"}}}"#,
+        r#"{"wait":{"any":[{"field":{"of":"a","name":"b"}}]}}"#,
+        r#"{"holds":{"focused":"a"},"message":"b"}"#,
         "[]",
     ] {
         assert!(parse_command(line).is_err(), "{line} should be rejected");
@@ -165,9 +194,7 @@ fn single_characters_are_latin1_or_unicode_keysyms() {
 fn the_current_directory_is_the_focused_pane_or_else_the_deepest() {
     let mut observation = Observation {
         panes: vec![pane("root", vec![]), pane("documents", vec![])],
-        focused_entry: None,
-        focused_pane: None,
-        window_width: None,
+        ..Observation::default()
     };
     assert_eq!(observation.directory(), Some("documents"));
     observation.focused_pane = Some(0);
@@ -192,6 +219,7 @@ fn entry_predicates_read_the_named_pane_or_the_deepest() {
         focused_entry: Some("archive".to_owned()),
         focused_pane: Some(0),
         window_width: Some(1200),
+        ..Observation::default()
     };
     for holding in [
         json!({ "entries": ["old.txt"] }),
@@ -250,7 +278,15 @@ fn the_snapshot_reports_selection_and_focus_per_pane() {
         panes: vec![pane("root", vec![entry("archive", false), focused])],
         focused_entry: Some("todo.txt".to_owned()),
         focused_pane: Some(0),
-        window_width: None,
+        dialog: Some("Unable to rename item".to_owned()),
+        field: Some(FieldState {
+            name: "Rename".to_owned(),
+            text: "todo.txt".to_owned(),
+            caret: 8,
+            selection: Some([0, 4]),
+            focused: true,
+        }),
+        ..Observation::default()
     };
     assert_eq!(
         serde_json::to_value(observation.app_state()).expect("the snapshot should encode"),
@@ -259,6 +295,15 @@ fn the_snapshot_reports_selection_and_focus_per_pane() {
             "directory": "root",
             "panes": [{ "name": "root", "selected": ["todo.txt"], "focused": "todo.txt" }],
             "focused": "todo.txt",
+            "focused_pane": "root",
+            "dialog": "Unable to rename item",
+            "menu": null,
+            "preview": null,
+            "field": {
+                "name": "Rename", "text": "todo.txt", "caret": 8,
+                "selection": [0, 4], "focused": true,
+            },
+            "matches": ["archive", "todo.txt"],
         })
     );
 }
@@ -307,7 +352,15 @@ fn every_target_kind_parses_from_its_key() {
             dir: Some("archive".to_owned())
         }
     );
-    assert_eq!(target(r#"{"field":true}"#), Target::Field);
+    assert_eq!(target(r#"{"field":true}"#), Target::Field(None));
+    assert_eq!(
+        target(r#"{"field":"filter"}"#),
+        Target::Field(Some("filter".to_owned()))
+    );
+    assert_eq!(
+        target(r#"{"result":"beta/match-note.txt"}"#),
+        Target::Result("beta/match-note.txt".to_owned())
+    );
     assert_eq!(
         target(r#"{"sidebar":"Home"}"#),
         Target::Sidebar("Home".to_owned())
@@ -329,6 +382,8 @@ fn every_target_kind_parses_from_its_key() {
         r#"{"background":true}"#,
         r#"{"pane":null}"#,
         r#"{"menu_item":"New File"}"#,
+        r#"{"field":"filter"}"#,
+        r#"{"result":"beta/match-note.txt"}"#,
     ] {
         assert_eq!(
             target(json).to_json(),
@@ -388,9 +443,9 @@ fn entry_pane_and_width_predicates_read_the_snapshot() {
             ),
             pane("archive", vec![entry("old.txt", false)]),
         ],
-        focused_entry: None,
         focused_pane: Some(0),
         window_width: Some(420),
+        ..Observation::default()
     };
     for holding in [
         json!({ "pane": "archive" }),
@@ -416,4 +471,144 @@ fn entry_pane_and_width_predicates_read_the_snapshot() {
             "{failing} should not hold"
         );
     }
+}
+
+#[test]
+fn dialog_menu_preview_and_match_predicates_read_the_snapshot() {
+    let observation = Observation {
+        panes: vec![pane("root", vec![entry("readme.md", false)])],
+        focused_pane: Some(0),
+        dialog: Some("Unable to rename item".to_owned()),
+        menu: Some(vec!["New File".to_owned(), "New Folder".to_owned()]),
+        preview: Some(vec!["Preview".to_owned(), "beta source\n".to_owned()]),
+        results: Some(vec![
+            "match-note.txt".to_owned(),
+            "match-note.txt".to_owned(),
+        ]),
+        ..Observation::default()
+    };
+    for holding in [
+        json!({ "dialog": "Unable to rename item" }),
+        json!({ "dialog": true }),
+        json!({ "focused_pane": "root" }),
+        json!({ "focused": null }),
+        json!({ "menu_items": {} }),
+        json!({ "menu_items": { "contains": ["New Folder"], "excludes": ["Quick preview"] } }),
+        json!({ "preview": "beta source" }),
+        json!({ "matches": { "count": 2 } }),
+        json!({ "matches": ["match-note.txt", "match-note.txt"] }),
+        json!({ "any": [{ "focused": true }, { "focused_pane": true }] }),
+    ] {
+        assert!(
+            observation.evaluate(&predicate(holding.clone())).is_ok(),
+            "{holding} should hold"
+        );
+    }
+    for failing in [
+        json!({ "dialog": null }),
+        json!({ "menu_items": null }),
+        json!({ "preview": null }),
+        json!({ "preview": "alpha source" }),
+        json!({ "matches": { "count": 3 } }),
+        json!({ "any": [{ "focused": true }, { "dialog": null }] }),
+    ] {
+        assert!(
+            observation.evaluate(&predicate(failing.clone())).is_err(),
+            "{failing} should not hold"
+        );
+    }
+    let closed = Observation {
+        panes: vec![pane("root", vec![entry("readme.md", false)])],
+        ..Observation::default()
+    };
+    for holding in [
+        json!({ "dialog": null }),
+        json!({ "menu_items": null }),
+        json!({ "preview": null }),
+        json!({ "matches": ["readme.md"] }),
+    ] {
+        assert!(
+            closed.evaluate(&predicate(holding.clone())).is_ok(),
+            "{holding} should hold with nothing open"
+        );
+    }
+    assert!(
+        closed
+            .evaluate(&predicate(json!({ "menu_items": {} })))
+            .is_err()
+    );
+}
+
+#[test]
+fn a_field_check_matches_only_the_properties_it_names() {
+    let field = FieldState {
+        name: "Rename".to_owned(),
+        text: "report.txt".to_owned(),
+        caret: 6,
+        selection: None,
+        focused: true,
+    };
+    let check = |json: serde_json::Value| -> FieldCheck {
+        serde_json::from_value(json).expect("the field check should parse")
+    };
+    for holding in [
+        json!({}),
+        json!({ "name": "Rename", "text": "report.txt", "focused": true }),
+        json!({ "text": { "ends_with": ".txt", "starts_with": "rep" } }),
+        json!({ "caret": 6, "selection": null }),
+        json!({ "caret": { "min": 1, "max": 9 } }),
+    ] {
+        assert!(
+            state::field_matches(&check(holding.clone()), Some(&field)),
+            "{holding} should match"
+        );
+    }
+    for failing in [
+        json!({ "text": "report" }),
+        json!({ "caret": { "min": 7, "max": 9 } }),
+        json!({ "selection": [0, 6] }),
+        json!({ "focused": false }),
+    ] {
+        assert!(
+            !state::field_matches(&check(failing.clone()), Some(&field)),
+            "{failing} should not match"
+        );
+    }
+    assert!(!state::field_matches(&check(json!({})), None));
+}
+
+#[test]
+fn an_editor_is_within_the_viewport_only_inside_the_pane_and_window() {
+    assert!(state::within_viewport([210, 40, 200, 24], 200, 420));
+    assert!(state::within_viewport([200, 40, 220, 24], 200, 420));
+    assert!(!state::within_viewport([190, 40, 100, 24], 200, 420));
+    assert!(!state::within_viewport([210, 40, 221, 24], 200, 420));
+    assert!(!state::within_viewport([210, 40, 100, 0], 200, 420));
+    assert!(!state::within_viewport([420, 40, 0, 24], 200, 420));
+}
+
+#[test]
+fn a_native_toggle_reports_its_own_state_over_a_recorded_one() {
+    crate::test_support::gtk_test(
+        "qa::tests::a_native_toggle_reports_its_own_state_over_a_recorded_one",
+        || {
+            use gtk::prelude::*;
+            let toggle = gtk::ToggleButton::new();
+            toggle.set_active(true);
+            crate::ui::accessibility_qa::record(&toggle, |naming| naming.pressed = Some(false));
+            assert!(super::targets::states(toggle.upcast_ref()).pressed);
+
+            let plain = gtk::Button::new();
+            crate::ui::accessibility_qa::record(&plain, |naming| {
+                naming.pressed = Some(true);
+                naming.checked = Some(true);
+            });
+            let states = super::targets::states(plain.upcast_ref());
+            assert!(states.pressed && states.checked);
+
+            let switch = gtk::Switch::new();
+            switch.set_active(true);
+            assert!(super::targets::states(switch.upcast_ref()).checked);
+        },
+    );
 }

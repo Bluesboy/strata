@@ -11,7 +11,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::{
-    protocol::{Check, Failure, Predicate},
+    protocol::{Check, Failure, FieldCheck, Predicate},
     targets,
 };
 use crate::ui::accessibility_qa::{self as names, Mark};
@@ -24,6 +24,70 @@ pub(crate) struct Observation {
     pub(crate) focused_entry: Option<String>,
     pub(crate) focused_pane: Option<usize>,
     pub(crate) window_width: Option<i32>,
+    /// The open dialog's name, `dialog().name`.
+    pub(crate) dialog: Option<String>,
+    /// The open menu's items, `menu_items()`.
+    pub(crate) menu: Option<Vec<String>>,
+    /// Every name and text inside the open quick preview, in tree order.
+    pub(crate) preview: Option<Vec<String>>,
+    /// The rows of a `Search results` collection, when one is on screen.
+    pub(crate) results: Option<Vec<String>>,
+    /// The focused editable field, `editable_field()`.
+    pub(crate) field: Option<FieldState>,
+}
+
+/// What an editable field shows, read through `gtk::Editable` as AT-SPI's
+/// text interface reads it: offsets count characters.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub(crate) struct FieldState {
+    pub(crate) name: String,
+    pub(crate) text: String,
+    pub(crate) caret: i32,
+    pub(crate) selection: Option<[i32; 2]>,
+    pub(crate) focused: bool,
+}
+
+impl FieldState {
+    pub(crate) fn read(widget: &gtk::Widget) -> Option<Self> {
+        let editable = widget.dynamic_cast_ref::<gtk::Editable>()?;
+        Some(Self {
+            name: targets::accessible_name(widget),
+            text: editable.text().to_string(),
+            caret: editable.position(),
+            selection: editable
+                .selection_bounds()
+                .filter(|(start, end)| start != end)
+                .map(|(start, end)| [start.min(end), start.max(end)]),
+            focused: targets::editable_focused(widget),
+        })
+    }
+}
+
+/// Whether a field matches every property a check gives.
+pub(crate) fn field_matches(check: &FieldCheck, field: Option<&FieldState>) -> bool {
+    let Some(field) = field else {
+        return false;
+    };
+    check
+        .text
+        .as_ref()
+        .is_none_or(|text| text.matches(&field.text))
+        && check
+            .caret
+            .as_ref()
+            .is_none_or(|caret| caret.matches(field.caret))
+        && check
+            .selection
+            .is_none_or(|selection| selection == field.selection)
+        && check.focused.is_none_or(|focused| focused == field.focused)
+}
+
+/// `assert_editor_constrained`: the editor starts inside the pane and the
+/// window and is no wider than the window to the right of the pane's edge.
+/// Boxes are `[x, y, width, height]` in window coordinates.
+pub(crate) fn within_viewport(editor: [i64; 4], pane_x: i64, window_width: i64) -> bool {
+    let [x, _, width, height] = editor;
+    height > 0 && pane_x <= x && x < window_width && 0 < width && width <= window_width - pane_x
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -41,13 +105,19 @@ pub(crate) struct EntryObservation {
     pub(crate) focused: bool,
 }
 
-/// The `app` snapshot every reply carries.
+/// The `app` snapshot every reply carries; `docs/e2e-testing.md` defines its shape.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub(crate) struct AppState {
     pub(crate) view_mode: Option<String>,
     pub(crate) directory: Option<String>,
     pub(crate) panes: Vec<PaneState>,
     pub(crate) focused: Option<String>,
+    pub(crate) focused_pane: Option<String>,
+    pub(crate) dialog: Option<String>,
+    pub(crate) menu: Option<Vec<String>>,
+    pub(crate) preview: Option<Vec<String>>,
+    pub(crate) field: Option<FieldState>,
+    pub(crate) matches: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -106,6 +176,19 @@ impl Observation {
             .is_some_and(|entry| entry.selected)
     }
 
+    /// `matches(directory)`: the search results, or else the pane's own entries.
+    pub(crate) fn matches(&self, directory: Option<&str>) -> Vec<String> {
+        self.results
+            .clone()
+            .unwrap_or_else(|| self.entry_names(directory))
+    }
+
+    pub(crate) fn focused_pane_name(&self) -> Option<&str> {
+        self.focused_pane
+            .and_then(|index| self.panes.get(index))
+            .map(|pane| pane.name.as_str())
+    }
+
     pub(crate) fn selected_names(&self, directory: Option<&str>) -> Vec<String> {
         self.pane(directory).map_or_else(Vec::new, |pane| {
             pane.entries
@@ -139,6 +222,12 @@ impl Observation {
                 })
                 .collect(),
             focused: self.focused_entry.clone(),
+            focused_pane: self.focused_pane_name().map(str::to_owned),
+            dialog: self.dialog.clone(),
+            menu: self.menu.clone(),
+            preview: self.preview.clone(),
+            field: self.field.clone(),
+            matches: self.matches(None),
         }
     }
 
@@ -169,9 +258,55 @@ impl Observation {
                 Some(*expected) == self.window_width,
                 json!(self.window_width),
             ),
-            // The controller resolves these against live widgets.
-            Check::Present(_) | Check::Absent(_) | Check::Moved(_) => {
-                (false, json!("needs the live window"))
+            // The controller resolves these against live widgets and files.
+            Check::Present(_)
+            | Check::Absent(_)
+            | Check::Moved(_)
+            | Check::Field(_)
+            | Check::Pref(_)
+            | Check::EditorWithinViewport(_)
+            | Check::State(_) => (false, json!("needs the live window")),
+            Check::Any(predicates) => {
+                let actual: Vec<Value> = predicates
+                    .iter()
+                    .map(|predicate| match self.evaluate(predicate) {
+                        Ok(()) => json!(true),
+                        Err(failure) => failure.actual,
+                    })
+                    .collect();
+                (
+                    predicates
+                        .iter()
+                        .any(|predicate| self.evaluate(predicate).is_ok()),
+                    json!(actual),
+                )
+            }
+            Check::FocusedPane(expected) => {
+                let actual = self.focused_pane_name();
+                (expected.matches(actual), json!(actual))
+            }
+            Check::Dialog(expected) => {
+                (expected.matches(self.dialog.as_deref()), json!(self.dialog))
+            }
+            Check::MenuItems(expected) => (
+                match (expected, &self.menu) {
+                    (None, None) => true,
+                    (Some(expected), Some(items)) => expected.matches(items),
+                    _ => false,
+                },
+                json!(self.menu),
+            ),
+            Check::Preview(expected) => (
+                match (expected, &self.preview) {
+                    (None, None) => true,
+                    (Some(text), Some(shown)) => shown.iter().any(|shown| shown.contains(text)),
+                    _ => false,
+                },
+                json!(self.preview),
+            ),
+            Check::Matches(expected) => {
+                let actual = self.matches(directory);
+                (expected.matches(&actual), json!(actual))
             }
             Check::Entries(expected) => {
                 let actual = self.entry_names(directory);
@@ -181,9 +316,10 @@ impl Observation {
                 let actual = self.selected_names(directory);
                 (expected.matches(&actual), json!(actual))
             }
-            Check::Focused(expected) => {
-                (*expected == self.focused_entry, json!(self.focused_entry))
-            }
+            Check::Focused(expected) => (
+                expected.matches(self.focused_entry.as_deref()),
+                json!(self.focused_entry),
+            ),
             Check::ViewMode(expected) => {
                 let actual = self.view_mode();
                 (Some(expected.as_str()) == actual, json!(actual))
@@ -305,6 +441,16 @@ pub(crate) fn row_name(widget: &gtk::Widget) -> Option<String> {
     })
 }
 
+/// Whether a row widget's list item is selected; false for anything else.
+pub(crate) fn row_selected(widget: &gtk::Widget) -> bool {
+    names::entries().into_iter().any(|(item, _)| {
+        item.child()
+            .and_then(|child| child.parent())
+            .is_some_and(|row| row == *widget)
+            && item.is_selected()
+    })
+}
+
 pub(crate) fn scan(window: &gtk::Window) -> Scene {
     let rows = rows();
     let focus = gtk::prelude::GtkWindowExt::focus(window).filter(WidgetExt::has_focus);
@@ -348,15 +494,75 @@ pub(crate) fn scan(window: &gtk::Window) -> Scene {
         .into_iter()
         .map(|(_, pane, widgets, _)| (pane, widgets))
         .unzip();
+    let presented = targets::presented(root);
     Scene {
         observation: Observation {
             panes: observed,
             focused_entry,
             focused_pane,
             window_width: Some(window.width()),
+            dialog: targets::open_dialog(&presented)
+                .map(|dialog| targets::accessible_name(&dialog)),
+            menu: open_menu(&presented),
+            preview: open_preview(&presented),
+            results: search_results(&presented),
+            field: targets::focused_field(&presented).and_then(|field| FieldState::read(&field)),
         },
         widgets,
     }
+}
+
+fn rendered_with_role<'a>(
+    presented: &'a [gtk::Widget],
+    role: &'a str,
+) -> impl Iterator<Item = &'a gtk::Widget> {
+    presented.iter().filter(move |widget| {
+        targets::role_name(widget) == role && rendered_bounds(widget).is_some()
+    })
+}
+
+/// `context_menu()` and `menu_items()`: the first menu on screen and its plain items.
+fn open_menu(presented: &[gtk::Widget]) -> Option<Vec<String>> {
+    let menu = rendered_with_role(presented, "menu").next()?;
+    let inside = targets::presented(menu);
+    Some(
+        rendered_with_role(&inside, "menu item")
+            .map(targets::accessible_name)
+            .collect(),
+    )
+}
+
+/// `Strata.preview` finds the drawer by `ui::preview::PREVIEW_LABEL`;
+/// `preview_shows` reads every name and text below the drawer, shown or not.
+fn open_preview(presented: &[gtk::Widget]) -> Option<Vec<String>> {
+    let label = crate::i18n::tr(crate::ui::PREVIEW_LABEL);
+    let drawer = presented.iter().find(|widget| {
+        rendered_bounds(widget).is_some() && targets::accessible_name(widget) == label
+    })?;
+    let mut shown = Vec::new();
+    for widget in targets::presented(drawer) {
+        let name = targets::accessible_name(&widget);
+        let text = targets::text_content(&widget);
+        if !name.is_empty() {
+            shown.push(name);
+        }
+        if let Some(text) = text.filter(|text| !text.is_empty()) {
+            shown.push(text);
+        }
+    }
+    Some(shown)
+}
+
+/// The named rows of the results list, or of the results grid's table.
+fn search_results(presented: &[gtk::Widget]) -> Option<Vec<String>> {
+    let (results, row_role) = targets::search_results(presented)?;
+    let inside = targets::presented(&results);
+    Some(
+        rendered_with_role(&inside, row_role)
+            .map(targets::accessible_name)
+            .filter(|name| !name.is_empty())
+            .collect(),
+    )
 }
 
 fn pane_entries(

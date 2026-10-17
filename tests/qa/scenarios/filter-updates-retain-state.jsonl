@@ -1,0 +1,37 @@
+{"scenario":"filter-updates-retain-state","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_filter_results.py::test_query_updates_retain_selection_focus_preview_and_background_menu[$mode]","mutation":"filter-results","known_bug":null,"tree":{"match-note.txt":"root decoy\n","alpha":{"match-note.txt":"alpha source\n"},"beta":{"match-note.txt":"beta source\n","only-match.txt":"beta source\n"},"match-note-other.md":"other match\n","destination":{},"thumb.txt":"thumbnail search companion"},"images":{"beta/thumb.png":{"width":64,"height":64,"rgb":[230,40,60]}}}
+{"select":{"entry":"match-note.txt"}}
+{"key":"ctrl+f"}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"remember":{"field":true},"as":"filter"}
+{"type":"match-note"}
+{"wait":{"matches":{"count":4}},"message":"all recursive matches"}
+{"wait":{"present":{"result":"beta/match-note.txt"}},"message":"the beta result"}
+{"click":{"result":"beta/match-note.txt"},"mods":["ctrl"]}
+{"click":{"field":"filter"}}
+{"key":"space"}
+{"wait":{"preview":"beta source"},"message":"the selected preview"}
+{"move":{"result":"alpha/match-note.txt"}}
+{"settle":{"result":"alpha/match-note.txt"}}
+{"expect":[{"state":{"target":{"result":"alpha/match-note.txt"},"selected":false}},{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}},{"preview":"beta source"}]}
+{"key":"ctrl+a"}
+{"type":"match-note.t"}
+{"wait":{"matches":{"count":3}},"message":"the updated result count"}
+{"expect":[{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}},{"field":{"of":"filter","focused":true}},{"field":{"of":"filter","text":"match-note.t"}},{"preview":"beta source"}]}
+{"key":"ctrl+a"}
+{"type":"match-note"}
+{"wait":{"matches":{"count":4}},"message":"the updated result count"}
+{"expect":[{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}},{"field":{"of":"filter","focused":true}},{"field":{"of":"filter","text":"match-note"}},{"preview":"beta source"}]}
+{"key":"ctrl+a"}
+{"type":"match-note.t"}
+{"wait":{"matches":{"count":3}},"message":"the updated result count"}
+{"expect":[{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}},{"field":{"of":"filter","focused":true}},{"field":{"of":"filter","text":"match-note.t"}},{"preview":"beta source"}]}
+{"key":"ctrl+a"}
+{"type":"match-note"}
+{"wait":{"matches":{"count":4}},"message":"the updated result count"}
+{"expect":[{"state":{"target":{"result":"beta/match-note.txt"},"selected":true}},{"field":{"of":"filter","focused":true}},{"field":{"of":"filter","text":"match-note"}},{"preview":"beta source"}]}
+{"key":"space"}
+{"wait":{"preview":null},"message":"Space to close after updates"}
+{"expect":{"field":{"of":"filter","text":"match-note"}}}
+{"click":{"background":true},"button":3}
+{"wait":{"menu_items":{}},"message":"the empty-space menu"}
+{"expect":[{"menu_items":{"contains":["New Folder"]}},{"menu_items":{"excludes":["Quick preview"]}}]}

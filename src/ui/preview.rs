@@ -242,7 +242,7 @@ pub(in crate::ui) use keyboard::{
 #[cfg(test)]
 mod tests;
 
-pub(super) const PREVIEW_LABEL: &str = "Preview";
+pub(crate) const PREVIEW_LABEL: &str = "Preview";
 
 #[derive(Clone)]
 pub struct PreviewDrawer {

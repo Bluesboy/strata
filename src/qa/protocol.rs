@@ -29,6 +29,8 @@ pub(crate) enum Command {
         chord: Chord,
         repeat: u32,
     },
+    /// One key per character, as `Keyboard.type_text` types.
+    Type(String),
     Click {
         target: Target,
         button: u8,
@@ -38,6 +40,34 @@ pub(crate) enum Command {
     },
     /// Click an entry until it reports itself selected, as `select_entry` does.
     Select(EntryTarget),
+    /// Home, then the next-entry key until the entry has focus, as
+    /// `select_entry_with_keyboard` does.
+    SelectWithKeyboard {
+        name: String,
+        message: Option<String>,
+    },
+    /// Clicks the target until `until` holds, clicking again after a second
+    /// while it stays closed, as `open_appearance_menu` does.
+    OpenMenu {
+        target: Target,
+        until: Predicate,
+        message: Option<String>,
+    },
+    /// The control's default accessible action, without pointer input, as
+    /// `Node.activate` invokes it; the control need not be on screen.
+    Activate {
+        target: Target,
+        message: Option<String>,
+    },
+    /// Whether a predicate holds now, as `result`; never a failure. The
+    /// runner uses it for a step's `when`.
+    Holds(Predicate),
+    /// Keeps the widget a target names now, as a scenario keeps a node in a
+    /// variable; `{"field":"<name>"}` refers to it later.
+    Remember {
+        target: Target,
+        name: String,
+    },
     Move {
         target: Target,
         at: Option<At>,
@@ -78,10 +108,16 @@ pub(crate) enum Command {
     Query(Query),
 }
 
-pub(crate) const COMMANDS: [&str; 12] = [
+pub(crate) const COMMANDS: [&str; 18] = [
     "key",
+    "type",
     "click",
     "select",
+    "select_with_keyboard",
+    "open_menu",
+    "activate",
+    "holds",
+    "remember",
     "move",
     "wheel",
     "drag",
@@ -99,6 +135,49 @@ struct KeyFields {
     key: String,
     #[serde(default = "one")]
     repeat: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TypeFields {
+    #[serde(rename = "type")]
+    text: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SelectWithKeyboardFields {
+    select_with_keyboard: String,
+    message: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OpenMenuFields {
+    open_menu: Target,
+    until: Predicate,
+    message: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ActivateFields {
+    activate: Target,
+    message: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HoldsFields {
+    holds: Predicate,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RememberFields {
+    remember: Target,
+    #[serde(rename = "as")]
+    name: String,
 }
 
 #[derive(Deserialize)]
@@ -239,6 +318,8 @@ fn drag_steps() -> u32 {
 pub(crate) enum Query {
     State,
     Tree,
+    /// `settings.toml` as JSON, as `read_preferences` reads it.
+    Prefs,
 }
 
 fn modifiers(names: &[String]) -> Result<Vec<Modifier>, String> {
@@ -268,6 +349,57 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
             Ok(Command::Key {
                 chord: Chord::parse(&fields.key)?,
                 repeat: fields.repeat,
+            })
+        }
+        "type" => {
+            let fields: TypeFields = serde_json::from_value(fields).map_err(invalid)?;
+            if fields.text.is_empty() {
+                return Err("type needs text".to_owned());
+            }
+            Ok(Command::Type(fields.text))
+        }
+        "select_with_keyboard" => {
+            let fields: SelectWithKeyboardFields =
+                serde_json::from_value(fields).map_err(invalid)?;
+            Ok(Command::SelectWithKeyboard {
+                name: fields.select_with_keyboard,
+                message: fields.message,
+            })
+        }
+        "open_menu" => {
+            let fields: OpenMenuFields = serde_json::from_value(fields).map_err(invalid)?;
+            fields.open_menu.accepts(None)?;
+            Ok(Command::OpenMenu {
+                target: fields.open_menu,
+                until: fields.until,
+                message: fields.message,
+            })
+        }
+        "activate" => {
+            let fields: ActivateFields = serde_json::from_value(fields).map_err(invalid)?;
+            if !matches!(fields.activate, Target::Role { .. }) {
+                return Err("activate takes a role target".to_owned());
+            }
+            Ok(Command::Activate {
+                target: fields.activate,
+                message: fields.message,
+            })
+        }
+        "holds" => {
+            let fields: HoldsFields = serde_json::from_value(fields).map_err(invalid)?;
+            Ok(Command::Holds(fields.holds))
+        }
+        "remember" => {
+            let fields: RememberFields = serde_json::from_value(fields).map_err(invalid)?;
+            if !matches!(fields.remember, Target::Field(None)) {
+                return Err("remember keeps the focused field: {\"field\":true}".to_owned());
+            }
+            if fields.name.is_empty() {
+                return Err("remember needs a name in as".to_owned());
+            }
+            Ok(Command::Remember {
+                target: fields.remember,
+                name: fields.name,
             })
         }
         "click" => {
@@ -440,8 +572,9 @@ impl<'de> Deserialize<'de> for At {
 }
 
 /// The target kinds, each named by the one key that selects it.
-pub(crate) const TARGET_KINDS: [&str; 10] = [
+pub(crate) const TARGET_KINDS: [&str; 11] = [
     "entry",
+    "result",
     "role",
     "background",
     "pane",
@@ -467,8 +600,12 @@ pub(crate) enum Target {
     Pane { dir: Option<String> },
     /// The scroll viewport around a pane's entry list.
     Viewport { dir: Option<String> },
-    /// The focused editable text; `editable_field()`.
-    Field,
+    /// The focused editable text, `editable_field()`; or with a name, the
+    /// field a `remember` kept under it.
+    Field(Option<String>),
+    /// A filter result by its path below the filtered directory, as
+    /// `test_filter_results.result` finds it.
+    Result(String),
     /// `sidebar_button(name)`: a button by name.
     Sidebar(String),
     /// `header_button(name)`: a button by name.
@@ -511,11 +648,6 @@ impl Target {
             background: bool,
             dir: Option<String>,
         }
-        #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct FieldFields {
-            field: bool,
-        }
         let directory = |value: Value| -> Result<Option<String>, String> {
             let mut object = value.as_object().cloned().unwrap_or_default();
             if object.len() != 1 {
@@ -544,13 +676,19 @@ impl Target {
                 }
                 Ok(Self::Background { dir: fields.dir })
             }
-            "field" => {
-                let fields: FieldFields = serde_json::from_value(value).map_err(invalid)?;
-                if !fields.field {
-                    return Err("invalid field target: field must be true".to_owned());
+            "field" => match value
+                .as_object()
+                .and_then(|object| (object.len() == 1).then(|| object.get("field")).flatten())
+            {
+                Some(Value::Bool(true)) => Ok(Self::Field(None)),
+                Some(Value::String(name)) if !name.is_empty() => {
+                    Ok(Self::Field(Some(name.clone())))
                 }
-                Ok(Self::Field)
-            }
+                _ => Err(
+                    "invalid field target: field is true or the name a remember gave it".to_owned(),
+                ),
+            },
+            "result" => label(value).map(Self::Result),
             "pane" => directory(value).map(|dir| Self::Pane { dir }),
             "viewport" => directory(value).map(|dir| Self::Viewport { dir }),
             "sidebar" => label(value).map(Self::Sidebar),
@@ -568,7 +706,9 @@ impl Target {
             Self::Background { dir } => json!({ "background": true, "dir": dir }),
             Self::Pane { dir } => json!({ "pane": dir }),
             Self::Viewport { dir } => json!({ "viewport": dir }),
-            Self::Field => json!({ "field": true }),
+            Self::Field(None) => json!({ "field": true }),
+            Self::Field(Some(name)) => json!({ "field": name }),
+            Self::Result(path) => json!({ "result": path }),
             Self::Sidebar(name) => json!({ "sidebar": name }),
             Self::Header(name) => json!({ "header": name }),
             Self::MenuItem(name) => json!({ "menu_item": name }),
@@ -626,9 +766,31 @@ pub(crate) enum Check {
     /// `wait_for_entry_gone(name, dir)`.
     EntryGone(String),
     Selected(Names),
-    Focused(Option<String>),
+    /// The focused entry, `focused_name()`: a name, `true` for any, or null.
+    Focused(Presence),
+    /// The pane holding keyboard focus, `focused_pane()`.
+    FocusedPane(Presence),
     ViewMode(String),
     WindowWidth(i32),
+    /// The open dialog, `dialog()`: its name, `true` for any, or null.
+    Dialog(Presence),
+    /// The open menu's items, `menu_items()`; null while no menu is open.
+    MenuItems(Option<Names>),
+    /// Text the quick preview shows, `preview_shows(text)`; null while closed.
+    Preview(Option<String>),
+    /// What a recursive filter lists, `matches(dir)`.
+    Matches(Names),
+    /// A field's text, caret, selection, and focus.
+    Field(FieldCheck),
+    /// A key in `settings.toml`, as `read_preferences` reads it; null when absent.
+    Pref(PrefCheck),
+    /// The field lies inside the deepest pane and the window, as the caret
+    /// scenario's `assert_editor_constrained` checks.
+    EditorWithinViewport(FieldRef),
+    /// A target's accessible states, `node.has_state(...)`.
+    State(StateCheck),
+    /// Holds when any of the predicates holds.
+    Any(Vec<Predicate>),
     /// A target can be found on screen; `window.find(...) is not None`.
     Present(Target),
     /// `window.find(...) is None`.
@@ -641,14 +803,202 @@ impl Check {
     fn takes_directory(&self) -> bool {
         matches!(
             self,
-            Self::Entries(_) | Self::Selected(_) | Self::Entry(_) | Self::EntryGone(_)
+            Self::Entries(_)
+                | Self::Selected(_)
+                | Self::Entry(_)
+                | Self::EntryGone(_)
+                | Self::Matches(_)
         )
     }
 
-    /// Checks that resolve targets against live widgets rather than a snapshot.
+    /// Checks that resolve targets against live widgets or files rather than a snapshot.
     pub(crate) fn is_live(&self) -> bool {
-        matches!(self, Self::Present(_) | Self::Absent(_) | Self::Moved(_))
+        match self {
+            Self::Present(_)
+            | Self::Absent(_)
+            | Self::Moved(_)
+            | Self::Field(_)
+            | Self::Pref(_)
+            | Self::EditorWithinViewport(_)
+            | Self::State(_) => true,
+            Self::Any(predicates) => predicates.iter().any(|predicate| predicate.check.is_live()),
+            _ => false,
+        }
     }
+}
+
+/// Null, `true` for anything, or a name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Presence {
+    Absent,
+    Any,
+    Named(String),
+}
+
+impl Presence {
+    pub(crate) fn matches(&self, actual: Option<&str>) -> bool {
+        match self {
+            Self::Absent => actual.is_none(),
+            Self::Any => actual.is_some(),
+            Self::Named(name) => actual == Some(name.as_str()),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Presence {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        match Value::deserialize(deserializer)? {
+            Value::Null => Ok(Self::Absent),
+            Value::Bool(true) => Ok(Self::Any),
+            Value::String(name) => Ok(Self::Named(name)),
+            other => Err(serde::de::Error::custom(format!(
+                "expected a name, true for any, or null, not {other}"
+            ))),
+        }
+    }
+}
+
+impl Serialize for Presence {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Absent => serializer.serialize_none(),
+            Self::Any => serializer.serialize_bool(true),
+            Self::Named(name) => serializer.serialize_str(name),
+        }
+    }
+}
+
+/// Which field a check reads: one a `remember` kept, the first on screen
+/// with this accessible name, or else the focused one.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FieldRef {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) of: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) name: Option<String>,
+}
+
+/// `{}` holds whenever the field exists; each given property must match.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FieldCheck {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) of: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) text: Option<TextMatch>,
+    /// The caret's character offset, `Text.get_caret_offset`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) caret: Option<CaretMatch>,
+    /// `[start, end]` in characters, or null for no selection.
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(crate) selection: Option<Option<[i32; 2]>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) focused: Option<bool>,
+}
+
+impl FieldCheck {
+    pub(crate) fn field(&self) -> FieldRef {
+        FieldRef {
+            of: self.of.clone(),
+            name: self.name.clone(),
+        }
+    }
+}
+
+/// Tells an explicit null apart from a missing key.
+fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+) -> Result<Option<T>, D::Error> {
+    T::deserialize(deserializer).map(Some)
+}
+
+/// Exact text, or text with this start, end, or part.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(untagged)]
+pub(crate) enum TextMatch {
+    Exactly(String),
+    Like(TextPattern),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct TextPattern {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) starts_with: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) ends_with: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) contains: Option<String>,
+}
+
+impl TextMatch {
+    pub(crate) fn matches(&self, actual: &str) -> bool {
+        match self {
+            Self::Exactly(text) => text == actual,
+            Self::Like(pattern) => {
+                pattern
+                    .starts_with
+                    .as_deref()
+                    .is_none_or(|start| actual.starts_with(start))
+                    && pattern
+                        .ends_with
+                        .as_deref()
+                        .is_none_or(|end| actual.ends_with(end))
+                    && pattern
+                        .contains
+                        .as_deref()
+                        .is_none_or(|part| actual.contains(part))
+            }
+        }
+    }
+}
+
+/// An exact offset, or an inclusive range.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(untagged)]
+pub(crate) enum CaretMatch {
+    Exactly(i32),
+    Between { min: i32, max: i32 },
+}
+
+impl CaretMatch {
+    pub(crate) fn matches(&self, actual: i32) -> bool {
+        match self {
+            Self::Exactly(offset) => *offset == actual,
+            Self::Between { min, max } => (*min..=*max).contains(&actual),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PrefCheck {
+    pub(crate) key: String,
+    pub(crate) value: Value,
+}
+
+/// Each given state must match; the names are AT-SPI's.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct StateCheck {
+    pub(crate) target: Target,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) selected: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) focused: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) checked: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) pressed: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) sensitive: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -684,6 +1034,9 @@ pub(crate) struct NameFilter {
     pub(crate) contains: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) excludes: Vec<String>,
+    /// How many names, duplicates included.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) count: Option<usize>,
 }
 
 impl Names {
@@ -693,6 +1046,7 @@ impl Names {
             Self::Including(filter) => {
                 filter.contains.iter().all(|name| actual.contains(name))
                     && !filter.excludes.iter().any(|name| actual.contains(name))
+                    && filter.count.is_none_or(|count| count == actual.len())
             }
         }
     }
@@ -718,9 +1072,19 @@ impl<'de> Deserialize<'de> for Predicate {
         }
         let check: Check =
             serde_json::from_value(Value::Object(object)).map_err(serde::de::Error::custom)?;
+        let field = match &check {
+            Check::Field(check) => Some(check.field()),
+            Check::EditorWithinViewport(field) => Some(field.clone()),
+            _ => None,
+        };
+        if field.is_some_and(|field| field.of.is_some() && field.name.is_some()) {
+            return Err(serde::de::Error::custom(
+                "a field is either remembered (of) or found by name, not both",
+            ));
+        }
         if dir.is_some() && !check.takes_directory() {
             return Err(serde::de::Error::custom(
-                "dir applies only to entries, entry, entry_gone, and selected",
+                "dir applies only to entries, entry, entry_gone, selected, and matches",
             ));
         }
         Ok(Self { check, dir })

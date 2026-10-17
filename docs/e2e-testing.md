@@ -600,28 +600,46 @@ A scenario is a `.jsonl` file in `tests/qa/scenarios`, registered in the
 `scenarios!` list in `tests/qa.rs`. Its first line is a header:
 
 ```json
-{"scenario":"arrow-keys-move-focus","modes":["columns"],"prefs":{"type_to_search":false},"layout":"us","twin":"tests/e2e/scenarios/test_keyboard_navigation.py::test_arrow_keys_move_focus_and_selection","mutation":"keyboard-navigation","known_bug":null,"variants":[...]}
+{"scenario":"arrow-keys-move-focus","modes":["columns"],"prefs":{"type_to_search":false},"layout":"us","twin":"tests/e2e/scenarios/test_keyboard_navigation.py::test_arrow_keys_move_focus_and_selection[arrows-$mode]","mutation":"keyboard-navigation","known_bug":null,"variants":[...]}
 ```
 
-`modes` runs the file once per view, `twin` names the Python test it ports,
-`mutation` the patch that must make it fail, and `known_bug` an issue that makes
-a failure the expected result. A `known_bug` needs `known_bug_step`, the file
+`modes` runs the file once per view, `mutation` names the patch that must make
+it fail, and `known_bug` an issue that makes a failure the expected result.
+`twin` is the exact pytest node id each run ports: `$mode` (`columns`, `icons`,
+`list`) and a variant's `vars` are replaced per run, and a variant whose node
+does not fit the pattern sets its own `twin`. Every run must resolve to a
+distinct node id, and the runner prints it beside each result, as in
+`PASS copy-leaves-source/columns-ru (twin tests/e2e/scenarios/test_clipboard.py::test_copy_leaves_the_source_in_place[columns-ru])`.
+A `known_bug` needs `known_bug_step`, the file
 line (the header is line 1) of the step expected to fail; a failure at any other
 step, or an error, still fails the run. The header `layout` is switched to once the
 process is ready, so key names always mean US key positions. Optional `variants`
-run the file again with their own `prefs`, `layout`, `modes`, and `vars`; `$name`
-in a step is replaced by a variable, `$root` by the fixture directory's name, and
-`$view` by the run's view (`Columns`, `Icons`, `List`). An optional `tree` names
+run the file again with their own `prefs`, `layout`, `modes`, `vars`, and
+`twin`. In a step, `$name` is replaced by a variable; the built-ins are `$root`
+(the fixture directory's name, which is also its pane's), `$fixture` (its
+absolute path), `$home` and `$data` (the run's HOME and XDG data directory),
+`$view` (`Columns`, `Icons`, `List`), and `$mode`. An optional `tree` names
 a manifest tree or writes one out, where a name such as `{000..199}.txt` stands
-for one zero-padded file per number whose text has `{}` replaced by the number.
+for one zero-padded file per number whose text has `{}` replaced by the number;
+`images` (`{"beta/thumb.png":{"width":64,"height":64,"rgb":[230,40,60]}}`)
+then adds solid-colour PNGs, as a fixture saves a PIL image.
 Every later line is one step; a step with `"modes":["icons","list"]` runs only
-in those views, which is how a scenario mirrors a twin's `if mode == ...`.
+in those views, which is how a scenario mirrors a twin's `if mode == ...`, and a
+step with `"when":PREDICATE` runs only if the predicate holds just before it
+(the runner asks the process with `{"holds":PREDICATE}`), which mirrors a
+twin's `if node.has_state(...)`.
 
 | Step | Runs in | Meaning |
 | --- | --- | --- |
 | `{"key":"ctrl+x","repeat":2}` | process | US key positions, as in `harness/interaction.py` |
+| `{"type":"nested-notes"}` | process | `keyboard.type_text`: one key per character |
 | `{"click":TARGET,"button":1,"count":1,"mods":["shift"],"at":[4,"50%"]}` | process | `pointer.click`, `right_click` (`button` 3), `double_click` (`count` 2), `click_entry_with` |
 | `{"select":{"entry":"readme.md"}}` | process | clicks until the entry is selected, as `select_entry` does |
+| `{"select_with_keyboard":"todo.txt","message":"..."}` | process | `select_entry_with_keyboard`: Home, then Down (Right in Icons) until the entry has focus |
+| `{"open_menu":TARGET,"until":PREDICATE,"message":"..."}` | process | `open_appearance_menu`: clicks, and clicks again each second the menu stays closed while the target is not checked |
+| `{"activate":{"role":"toggle button","name":"..."},"message":"..."}` | process | `Node.activate`: the default action, no pointer input; the control may be scrolled away |
+| `{"holds":PREDICATE}` | process | `true` or `false` in `result`, never a failure |
+| `{"remember":{"field":true},"as":"filter"}` | process | keeps the focused field, as a twin keeps `field = strata.editable_field()` |
 | `{"move":TARGET,"at":[...]}` | process | `pointer.move_to` |
 | `{"wheel":TARGET,"clicks":3,"direction":"down","at":[...]}` | process | `pointer.scroll` |
 | `{"drag":{"from":TARGET,"to":TARGET},"steps":16,"release":true,"mods":[]}` | process | `pointer.drag`; an entry `from` starts on its icon (`drag_origin`); `release:false` keeps the button held |
@@ -630,11 +648,16 @@ in those views, which is how a scenario mirrors a twin's `if mode == ...`.
 | `{"settle":TARGET,"timeout_ms":15000}` | process | `strata.settle`: waits for the bounds to repeat three polls and remembers them |
 | `{"wait":PREDICATE,"timeout_ms":15000,"message":"..."}` | process | stops the run on timeout, with the widget tree |
 | `{"expect":[PREDICATE,...]}` | process | reports mismatches and continues |
-| `{"query":"state"}`, `{"query":"tree"}` | process | snapshot or widget tree in `result` |
+| `{"query":"state"}`, `"tree"`, `"prefs"` | process | snapshot, widget tree, or `settings.toml` as JSON in `result` |
 | `{"layout":"ru"}` | runner | `setxkbmap` and a group lock on the run's Xvfb |
-| `{"fs":{"path":"archive/todo.txt","exists":true},"timeout_ms":15000,"message":"..."}` | runner | waits for `exists`, `text`, or `names`; `timeout_ms` 0 is a plain assertion |
+| `{"fs":{"path":"archive/todo.txt","exists":true},"timeout_ms":15000,"message":"..."}` | runner | waits for `exists`, `text`, `names`, `is` (`file`, `dir`, `symlink`), `empty`, or `unchanged` (equal to a remembered listing); `timeout_ms` 0 is a plain assertion |
+| `{"fs":{"path":"archive/todo.txt","write":"existing\n"}}`, `{"fs":{"path":".","remember":"original"}}` | runner | acts at once: writes a file, or keeps `fixture.listing()` under a name |
 
-Every timeout defaults to 15 seconds, the Python suite's `tree.DEFAULT_TIMEOUT`.
+`fs` paths are relative to the fixture directory unless absolute, so
+`$data/Trash/files` is the run's isolated trash. Every timeout defaults to 15
+seconds, the Python suite's `tree.DEFAULT_TIMEOUT`. A missing directory counts
+as `empty`, as `not (path.exists() and any(path.iterdir()))` does. A `message`
+on `select_with_keyboard` or `activate` names the twin's step in its failure.
 
 Pointer timings, the approach-then-confirm move, the drag's intermediate
 points, and the pause after a release before a drag all follow
@@ -645,11 +668,12 @@ covers popovers, and is waited for up to 15 seconds as the Python lookups wait:
 | Target | Python lookup |
 | --- | --- |
 | `{"entry":"todo.txt","dir":"archive"}` | `entry(name, directory)`; any pane without `dir` |
+| `{"result":"beta/match-note.txt"}` | `test_filter_results.result`: a filter result by its path |
 | `{"role":"check menu item","name":"Folders first"}` | `window.find(role=..., name=...)` |
 | `{"sidebar":"Home"}`, `{"header":"Choose sort field"}` | `sidebar_button`, `header_button` |
 | `{"menu_item":"New File"}` | `menu_item`: in the open menu if there is one |
 | `{"dialog_button":"Close"}` | `dialog_button` |
-| `{"field":true}` | `editable_field`: the focused editable text |
+| `{"field":true}`, `{"field":"filter"}` | `editable_field`: the focused editable text, or the one remembered as `filter` |
 | `{"background":true,"dir":...}` | `background_point`: a point, so it takes no `at` |
 | `{"pane":"archive"}` | the pane; aims at `empty_point` unless `at` is given |
 | `{"viewport":null}` | the scroll viewport around a pane's entry list |
@@ -658,23 +682,87 @@ covers popovers, and is waited for up to 15 seconds as the Python lookups wait:
 counts back from the far edge) or a percentage such as `"80%"`; without it the
 pointer aims at the centre. Role names are AT-SPI's, with `push button` spelled
 `button`; names are the labels `src/ui/accessibility.rs` records (an entry row's
-is its list item's), a label's own text, or children's names for buttons and
-menu items. Tooltips never name a target: a control that needs a name, such as
-an icon-only button, gets `accessibility::set_label` with its tooltip text. The
-`tree` query prints both for every widget, which is the quickest way to write a
-target. `absent` holds only when the target is not found or not on screen; a
-lookup that breaks, such as an unrealized surface, is an error.
+is its list item's, and `set_labelled_by` joins its labels' names), a label's
+own text, or children's names for buttons and menu items; a menu button's inner
+toggle takes the menu button's name, as GTK names it. Tooltips never name a
+target: a control that needs a name, such as an icon-only button, gets
+`accessibility::set_label` with its tooltip text. The `tree` query prints both
+for every widget, which is the quickest way to write a target. `absent` holds
+only when the target is not found or not on screen; a lookup that breaks, such
+as an unrealized surface, is an error.
 
-Predicates are `directory`, `panes`, `pane` (the deepest pane's name),
-`entries`, `selected` (both take `dir` and either an exact list or
-`{"contains":[...],"excludes":[...]}`), `entry` and `entry_gone` (a name, with
-optional `dir`), `focused`, `view_mode`, `window_width`, `present` and `absent`
-(a target), and `moved` (`{"target":TARGET,"direction":"up"}`, also `down`,
-`left`, `right`, or `none` for unchanged bounds, against the last `settle` on
-that target). A reply is
-`{"ok","app","changed","criticals","result","failures","error"}`; `app` is the
-view mode, directory, panes with their selection and focus, and the focused
-entry. Any GLib warning or critical in `criticals` fails the run.
+Predicates mirror the page object's accessors:
+
+| Predicate | Python accessor |
+| --- | --- |
+| `{"directory":"archive"}`, `{"panes":[...]}`, `{"pane":"archive"}` | `current_directory()`, `pane_names()`, `pane().name` |
+| `{"entries":NAMES,"dir":...}`, `{"selected":NAMES,"dir":...}` | `entry_names(dir)`, `selected_names(dir)` |
+| `{"entry":"a.txt","dir":...}`, `{"entry_gone":"a.txt"}` | `entry(...)`, `wait_for_entry_gone(...)` |
+| `{"focused":"a.txt"}`, `{"focused_pane":true}` | `focused_name()`, `focused_pane()`; a name, `true` for any, or null |
+| `{"dialog":"Unable to rename item"}` | `dialog()`: its name, `true` for any, or null for none |
+| `{"menu_items":NAMES}`, `{"menu_items":{}}`, `{"menu_items":null}` | `menu_items()`; `{}` is any open menu, null none |
+| `{"preview":"beta source"}`, `{"preview":null}` | `preview_shows(text)`, `preview() is None` |
+| `{"matches":NAMES,"dir":...}` | `matches(dir)`: the search results, or else the pane's entries |
+| `{"field":{"of":"rename","name":"Rename","text":"a","caret":4,"selection":[0,4],"focused":true}}` | a field node's `text`, caret offset, selection (null for none), and `focused` state |
+| `{"editor_within_viewport":{"of":"rename"}}` | `assert_editor_constrained` in the caret scenario |
+| `{"pref":{"key":"browser_mode","value":"icons"}}` | `read_preferences()[key]`, parsed from TOML; null when absent |
+| `{"state":{"target":TARGET,"selected":true,"focused":false,"checked":false,"pressed":true,"sensitive":true}}` | `node.has_state(...)` for each state given |
+| `{"view_mode":"Icons"}`, `{"window_width":420}` | `view_mode()`, `window_bounds().width` |
+| `{"present":TARGET}`, `{"absent":TARGET}` | `window.find(...)` is or is not `None` |
+| `{"moved":{"target":TARGET,"direction":"up"}}` | bounds against the last `settle`; also `down`, `left`, `right`, or `none` |
+| `{"any":[PREDICATE,...]}` | `a or b` |
+
+`NAMES` is an exact list in visual order or
+`{"contains":[...],"excludes":[...],"count":4}`. A `field` check reads the
+field remembered as `of`, else the first on screen with that accessible `name`
+(never both), else the focused one; each property it gives must match, `text` exactly or as
+`{"starts_with"|"ends_with"|"contains":...}` and `caret` exactly or as
+`{"min":1,"max":72}`. Caret and selection come from `gtk::Editable`, which a
+`GtkEntry` such as the inline rename editor delegates to its `GtkText`, so they
+are the offsets AT-SPI's text interface reports.
+
+### Replies and the state snapshot
+
+A reply is `{"ok","app","changed","criticals","result","failures","error"}`.
+`changed` lists the `app` keys that differ from the previous reply, and any GLib
+warning or critical in `criticals` fails the run. `app` has exactly these keys:
+
+```json
+{
+  "view_mode": "Columns",
+  "directory": "strata-qa-fixture-ab12CD",
+  "panes": [
+    {"name": "strata-qa-fixture-ab12CD", "selected": ["archive"], "focused": null},
+    {"name": "archive", "selected": [], "focused": "todo.txt"}
+  ],
+  "focused": "todo.txt",
+  "focused_pane": "archive",
+  "dialog": null,
+  "menu": null,
+  "preview": null,
+  "field": null,
+  "matches": ["todo.txt"]
+}
+```
+
+- `view_mode`: `view_mode()`, the first pane's presentation (`Columns`, `Icons`,
+  `List`), or null with no pane on screen.
+- `directory`: `current_directory()`; `focused_pane`: `focused_pane().name`.
+- `panes`: `containers()` left to right; per pane its name, `selected_names` in
+  visual order, and the name of its entry holding focus or null.
+- `focused`: `focused_name()`.
+- `dialog`: `dialog().name`, or null.
+- `menu`: `menu_items()` of the open menu, or null when none is open.
+- `preview`: every non-empty accessible name and text inside the open preview
+  drawer in tree order, or null when it is closed.
+- `field`: the focused editable field as
+  `{"name","text","caret","selection","focused"}` (`selection` is
+  `[start, end]` or null), or null.
+- `matches`: `matches()` for the deepest pane.
+
+Final-state parity compares `view_mode`, `directory`, `panes`, `focused`,
+`focused_pane`, and `dialog`, which the Python harness can read through AT-SPI
+the same way; `menu`, `preview`, `field`, and `matches` are diagnostics.
 
 The runner checks every step with the process's own parser before launching,
 so a typo fails the scenario as a harness error. Setup, launch, layout,

@@ -41,10 +41,22 @@ fn tristate(value: bool) -> gtk::AccessibleTristate {
 
 pub(super) fn set_checked(widget: &impl IsA<gtk::Accessible>, checked: bool) {
     widget.update_state(&[gtk::accessible::State::Checked(tristate(checked))]);
+    #[cfg(feature = "qa")]
+    qa::record(widget, |naming| naming.checked = Some(checked));
+}
+
+/// Names a widget by the labels' text in order; the widget itself may be one of them.
+pub(super) fn set_labelled_by(widget: &impl IsA<gtk::Accessible>, labels: &[&gtk::Widget]) {
+    let related: Vec<&gtk::Accessible> = labels.iter().map(|label| label.upcast_ref()).collect();
+    widget.update_relation(&[gtk::accessible::Relation::LabelledBy(&related)]);
+    #[cfg(feature = "qa")]
+    qa::record_labelled_by(widget, labels);
 }
 
 pub(super) fn set_pressed(widget: &impl IsA<gtk::Accessible>, pressed: bool) {
     widget.update_state(&[gtk::accessible::State::Pressed(tristate(pressed))]);
+    #[cfg(feature = "qa")]
+    qa::record(widget, |naming| naming.pressed = Some(pressed));
 }
 
 /// Option rows show their chosen state by toggling a check icon from several
@@ -97,6 +109,8 @@ pub(super) fn describe_entry(item: &gtk::ListItem, display_name: &str, entry: Op
             label: Some(display_name.to_owned()),
             description: Some(description),
             mark: Some(qa::Mark::Entry),
+            checked: naming.checked,
+            pressed: naming.pressed,
         };
     });
 }
@@ -143,6 +157,8 @@ pub(super) fn describe_pane(pane: &impl IsA<gtk::Accessible>, directory: &str, m
                 BrowserMode::Icons => "Icons",
                 BrowserMode::List => "List",
             })),
+            checked: naming.checked,
+            pressed: naming.pressed,
         };
     });
 }
@@ -161,6 +177,8 @@ pub(super) fn describe_entry_container(container: &impl IsA<gtk::Accessible>, di
             label: Some(directory.to_owned()),
             description: Some(description),
             mark: Some(qa::Mark::EntryContainer),
+            checked: naming.checked,
+            pressed: naming.pressed,
         };
     });
 }
@@ -184,6 +202,8 @@ pub(super) fn describe_pane_surface(
             label: Some(directory.to_owned()),
             description: Some(status.to_owned()),
             mark: Some(qa::Mark::PaneSurface),
+            checked: naming.checked,
+            pressed: naming.pressed,
         };
     });
 }
@@ -219,6 +239,8 @@ pub(super) fn describe_menu_item(
             label: Some(label.to_owned()),
             description: Some(accelerator.to_owned()),
             mark: Some(qa::Mark::MenuItem),
+            checked: naming.checked,
+            pressed: naming.pressed,
         };
     });
 }

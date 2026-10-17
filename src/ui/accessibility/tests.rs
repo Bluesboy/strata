@@ -73,6 +73,8 @@ fn qa_reads_back_what_the_naming_helpers_set() {
                     label: Some("documents".to_owned()),
                     description: Some(view_name(BrowserMode::Icons)),
                     mark: Some(qa::Mark::Pane("Icons")),
+                    checked: None,
+                    pressed: None,
                 })
             );
 
@@ -85,6 +87,20 @@ fn qa_reads_back_what_the_naming_helpers_set() {
             assert_eq!(naming.description, None);
 
             assert_eq!(qa::naming(&gtk::Button::new()), None);
+
+            let option = gtk::ToggleButton::new();
+            set_checked(&option, true);
+            set_pressed(&option, false);
+            let title = gtk::Label::new(Some("List view"));
+            set_labelled_by(&option, &[title.upcast_ref(), option.upcast_ref()]);
+            assert_eq!(
+                qa::naming(&option).and_then(|naming| naming.checked),
+                Some(true)
+            );
+            assert_eq!(
+                qa::labelled_by(&option),
+                [title.upcast::<gtk::Widget>(), option.upcast()]
+            );
         },
     );
 }

@@ -26,11 +26,16 @@ pub(crate) struct Naming {
     pub(crate) label: Option<String>,
     pub(crate) description: Option<String>,
     pub(crate) mark: Option<Mark>,
+    /// The accessible `checked` and `pressed` states, which GTK cannot read back either.
+    pub(crate) checked: Option<bool>,
+    pub(crate) pressed: Option<bool>,
 }
 
 struct Record {
     object: glib::WeakRef<glib::Object>,
     naming: Naming,
+    /// The widgets a `labelled-by` relation names, in order.
+    labelled_by: Vec<glib::WeakRef<gtk::Widget>>,
 }
 
 const PRUNE_EVERY: usize = 1024;
@@ -50,6 +55,16 @@ fn address(object: &glib::Object) -> usize {
 }
 
 pub(crate) fn record(object: &impl ObjectType, update: impl FnOnce(&mut Naming)) {
+    with_record(object, |record| update(&mut record.naming));
+}
+
+pub(crate) fn record_labelled_by(object: &impl ObjectType, labels: &[&gtk::Widget]) {
+    with_record(object, |record| {
+        record.labelled_by = labels.iter().map(|label| label.downgrade()).collect();
+    });
+}
+
+fn with_record(object: &impl ObjectType, update: impl FnOnce(&mut Record)) {
     let Some(object) = object.dynamic_cast_ref::<glib::Object>() else {
         return;
     };
@@ -66,8 +81,9 @@ pub(crate) fn record(object: &impl ObjectType, update: impl FnOnce(&mut Naming))
         let record = records.by_address.entry(key).or_insert_with(|| Record {
             object: object.downgrade(),
             naming: Naming::default(),
+            labelled_by: Vec::new(),
         });
-        update(&mut record.naming);
+        update(record);
         records.inserted += 1;
         if records.inserted.is_multiple_of(PRUNE_EVERY) {
             records
@@ -85,6 +101,27 @@ pub(crate) fn naming(object: &impl ObjectType) -> Option<Naming> {
             .get(&address(object))
             .filter(|record| record.object.upgrade().as_ref() == Some(object))
             .map(|record| record.naming.clone())
+    })
+}
+
+/// The widgets a recorded `labelled-by` relation names; empty without one.
+pub(crate) fn labelled_by(object: &impl ObjectType) -> Vec<gtk::Widget> {
+    let Some(object) = object.dynamic_cast_ref::<glib::Object>() else {
+        return Vec::new();
+    };
+    RECORDS.with_borrow(|records| {
+        records
+            .by_address
+            .get(&address(object))
+            .filter(|record| record.object.upgrade().as_ref() == Some(object))
+            .map(|record| {
+                record
+                    .labelled_by
+                    .iter()
+                    .filter_map(glib::WeakRef::upgrade)
+                    .collect()
+            })
+            .unwrap_or_default()
     })
 }
 

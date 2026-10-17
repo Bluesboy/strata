@@ -964,11 +964,10 @@ fn click_activation_option(
         control.add_css_class("click-activation-control");
         // Include the view and item kind so assistive tools distinguish all twelve choices.
         for button in buttons {
-            button.update_relation(&[gtk::accessible::Relation::LabelledBy(&[
-                title.upcast_ref(),
-                label.upcast_ref(),
-                button.upcast_ref(),
-            ])]);
+            crate::ui::accessibility::set_labelled_by(
+                button,
+                &[title.upcast_ref(), label.upcast_ref(), button.upcast_ref()],
+            );
         }
         label.add_css_class("activation-inline-label");
         label.set_visible(false);

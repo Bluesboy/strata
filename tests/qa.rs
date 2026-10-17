@@ -51,13 +51,26 @@ macro_rules! scenarios {
 
 // One test per file in tests/qa/scenarios, named after it with underscores.
 scenarios! {
+    appearance_menu_switches_view,
     arrow_keys_move_focus,
+    click_mode_preference_live,
     copy_leaves_source,
     cut_moves_only_after_paste,
+    delete_to_trash,
     drag_file_onto_folder,
+    escape_preserves_name,
+    filter_updates_retain_state,
+    keep_both_then_undo,
+    long_rename_keeps_caret,
+    new_file_collision_dialog,
     panel_wheel_routing,
+    rename_commits_on_click_away,
+    rename_commits_on_enter,
+    rename_onto_existing_rejected,
     shift_click_range,
     single_click_opens_directory,
+    space_previews_filtered_result,
+    typed_path_navigates,
 }
 
 const REPOSITORY: &str = env!("CARGO_MANIFEST_DIR");
@@ -82,6 +95,10 @@ const CONTROLLER_PANIC: &str = "the QA controller panicked";
 const RUNNER_COMMANDS: [&str; 2] = ["layout", "fs"];
 /// A step key the runner reads and strips: the modes the step runs in.
 const STEP_MODES: &str = "modes";
+/// A step key the runner reads and strips: a predicate the step runs only
+/// while it holds, checked through the process's `holds` just before, as a
+/// twin's `if node.has_state(...)` branches.
+const STEP_WHEN: &str = "when";
 const MODES: [(&str, &str); 3] = [("columns", "Columns"), ("icons", "Icons"), ("list", "List")];
 const DEFAULT_TREE: &str = "canonical";
 /// Synthetic input the process sent, in the format `docs/e2e-testing.md` defines.
@@ -292,6 +309,8 @@ struct Header {
     prefs: Map<String, Value>,
     #[serde(default = "default_layout")]
     layout: String,
+    /// The pytest node each run ports; `$mode` and variant `$variables` are
+    /// replaced per run, and a variant may name its own.
     twin: String,
     mutation: Option<String>,
     known_bug: Option<String>,
@@ -303,6 +322,18 @@ struct Header {
     variants: Vec<Variant>,
     /// A manifest tree's name, or a tree written out here; see [`expand_tree`].
     tree: Option<Value>,
+    /// Solid-colour PNGs written into the tree after its times are pinned, as
+    /// a Python fixture saves a PIL image after `FixtureTree.create`.
+    #[serde(default)]
+    images: BTreeMap<String, Image>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Image {
+    width: u32,
+    height: u32,
+    rgb: [u8; 3],
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -316,6 +347,8 @@ struct Variant {
     layout: Option<String>,
     #[serde(default)]
     vars: BTreeMap<String, String>,
+    /// This variant's pytest node, when the header's pattern does not fit it.
+    twin: Option<String>,
 }
 
 fn default_layout() -> String {
@@ -405,6 +438,11 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
                     "known_bug_step {line} is a layout switch, which cannot fail as a scenario step"
                 ));
             }
+            if step.get(STEP_WHEN).is_some() {
+                return Err(format!(
+                    "known_bug_step {line} has a when, so it may not run at all"
+                ));
+            }
         }
         (Some(_), None) => {
             return Err("known_bug needs known_bug_step: the line expected to fail".to_owned());
@@ -459,6 +497,18 @@ fn run_steps(
 }
 
 fn check_step(step: &Value) -> Result<(), String> {
+    if step.get("holds").is_some() {
+        return Err("holds is the runner's own check; a step uses when".to_owned());
+    }
+    if let Some(condition) = step.get(STEP_WHEN) {
+        protocol::parse_command(&json!({ "holds": condition }).to_string())
+            .map_err(|error| format!("when: {error}"))?;
+        let mut step = step.clone();
+        if let Some(object) = step.as_object_mut() {
+            object.remove(STEP_WHEN);
+        }
+        return check_step(&step);
+    }
     if let Some(layout) = step.get("layout") {
         let name = layout.as_str().ok_or("layout names a manifest layout")?;
         if step.as_object().is_some_and(|object| object.len() != 1) {
@@ -473,6 +523,11 @@ fn check_step(step: &Value) -> Result<(), String> {
     if step.get("fs").is_some() {
         let step: FsStep = serde_json::from_value(step.clone())
             .map_err(|error| format!("invalid fs step: {error}"))?;
+        if step.fs.acts() && step.timeout_ms.is_some() {
+            return Err(
+                "an fs write or remember happens at once; it takes no timeout_ms".to_owned(),
+            );
+        }
         return step.fs.kind().map(|_| ());
     }
     protocol::parse_command(&step.to_string()).map(|_| ())
@@ -511,17 +566,63 @@ fn runs(header: &Header) -> Vec<Run> {
         .collect()
 }
 
-/// A run's `$variables`, plus `$root`, the fixture directory's name, which
-/// is also its pane's name, and `$view`, the run's view as `view_mode` names it.
-fn variables(run: &Run, root: &str) -> Vec<(String, String)> {
+/// Where a run's files live, for the built-in `$variables`.
+struct Places<'a> {
+    fixture: &'a Path,
+    /// The directory the run's XDG directories are made in.
+    scratch_home: &'a Path,
+}
+
+impl Places<'_> {
+    /// The directory the application sees as `variable`, from [`XDG_DIRECTORIES`].
+    fn xdg(&self, variable: &str) -> PathBuf {
+        let (_, directory) = XDG_DIRECTORIES
+            .iter()
+            .find(|(name, _)| *name == variable)
+            .expect("every built-in names an XDG directory");
+        self.scratch_home.join(directory)
+    }
+}
+
+/// Stand-ins for checking steps before anything is created.
+fn placeholders() -> Places<'static> {
+    Places {
+        fixture: Path::new("/tmp/strata-qa-fixture-placeholder"),
+        scratch_home: Path::new("/tmp/strata-qa-placeholder/home"),
+    }
+}
+
+/// A run's `$variables`, plus the built-ins: `$root`, the fixture directory's
+/// name, which is also its pane's name; `$fixture`, its absolute path;
+/// `$home` and `$data`, the run's HOME and XDG data directory; `$view`, the
+/// run's view as `view_mode` names it; and `$mode`, its mode.
+fn variables(run: &Run, places: &Places) -> Vec<(String, String)> {
     let mut variables: Vec<(String, String)> = run.variant.vars.clone().into_iter().collect();
-    variables.push(("root".to_owned(), root.to_owned()));
+    let root = places
+        .fixture
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    variables.push(("root".to_owned(), root));
+    variables.push(("fixture".to_owned(), places.fixture.display().to_string()));
+    variables.push(("home".to_owned(), places.xdg("HOME").display().to_string()));
+    variables.push((
+        "data".to_owned(),
+        places.xdg("XDG_DATA_HOME").display().to_string(),
+    ));
     variables.push((
         "view".to_owned(),
         view_name(&run.mode).unwrap_or_default().to_owned(),
     ));
+    variables.push(("mode".to_owned(), run.mode.clone()));
     variables.sort_by_key(|(name, _)| std::cmp::Reverse(name.len()));
     variables
+}
+
+/// The exact pytest node id a run ports.
+fn twin(header: &Header, run: &Run) -> String {
+    let pattern = run.variant.twin.as_deref().unwrap_or(&header.twin);
+    substitute_text(pattern, &variables(run, &placeholders()))
 }
 
 /// Replaces `$name` in every string of a step; longer names first so `$next` never eats `$nextish`.
@@ -931,7 +1032,10 @@ struct FsStep {
     message: Option<String>,
 }
 
-/// One of `exists`, `text`, or `names` about `path` under the fixture root.
+/// One check or action about `path`, relative to the fixture root unless
+/// absolute: wait for `exists`, `text`, `names`, `is` (`file`, `dir`, or
+/// `symlink`), or `empty`; compare with an earlier listing (`unchanged`); or
+/// act at once: `write` text, or `remember` the tree's listing under a name.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FsCheck {
@@ -939,25 +1043,72 @@ struct FsCheck {
     exists: Option<bool>,
     text: Option<String>,
     names: Option<Vec<String>>,
+    is: Option<String>,
+    empty: Option<bool>,
+    unchanged: Option<String>,
+    write: Option<String>,
+    remember: Option<String>,
 }
 
 enum FsKind<'a> {
     Exists(bool),
     Text(&'a str),
     Names(&'a [String]),
+    Is(&'a str),
+    Empty(bool),
+    Unchanged(&'a str),
+    Write(&'a str),
+    Remember(&'a str),
 }
+
+/// `fixture.listing()` taken by `remember`, by name.
+type Listings = BTreeMap<String, String>;
 
 impl FsCheck {
     fn kind(&self) -> Result<FsKind<'_>, String> {
-        match (self.exists, &self.text, &self.names) {
-            (Some(exists), None, None) => Ok(FsKind::Exists(exists)),
-            (None, Some(text), None) => Ok(FsKind::Text(text)),
-            (None, None, Some(names)) => Ok(FsKind::Names(names)),
-            _ => Err("fs needs a path and exactly one of exists, text, or names".to_owned()),
+        let mut kinds = Vec::new();
+        if let Some(exists) = self.exists {
+            kinds.push(FsKind::Exists(exists));
+        }
+        if let Some(text) = &self.text {
+            kinds.push(FsKind::Text(text));
+        }
+        if let Some(names) = &self.names {
+            kinds.push(FsKind::Names(names));
+        }
+        if let Some(kind) = &self.is {
+            if !matches!(kind.as_str(), "file" | "dir" | "symlink") {
+                return Err(format!("is takes file, dir, or symlink, not {kind:?}"));
+            }
+            kinds.push(FsKind::Is(kind));
+        }
+        if let Some(empty) = self.empty {
+            kinds.push(FsKind::Empty(empty));
+        }
+        if let Some(name) = &self.unchanged {
+            kinds.push(FsKind::Unchanged(name));
+        }
+        if let Some(text) = &self.write {
+            kinds.push(FsKind::Write(text));
+        }
+        if let Some(name) = &self.remember {
+            kinds.push(FsKind::Remember(name));
+        }
+        match kinds.len() {
+            1 => Ok(kinds.remove(0)),
+            _ => Err(
+                "fs needs a path and exactly one of exists, text, names, is, empty, \
+                 unchanged, write, or remember"
+                    .to_owned(),
+            ),
         }
     }
 
-    fn observe(&self, root: &Path) -> Result<(), String> {
+    fn acts(&self) -> bool {
+        matches!(self.kind(), Ok(FsKind::Write(_) | FsKind::Remember(_)))
+    }
+
+    fn observe(&self, root: &Path, listings: &mut Listings) -> Result<(), String> {
         let path = root.join(&self.path);
         match self.kind()? {
             FsKind::Exists(exists) => {
@@ -982,6 +1133,40 @@ impl FsCheck {
                 (actual == names)
                     .then_some(())
                     .ok_or(format!("names are {actual:?}"))
+            }
+            // `Path.is_file()` and `is_dir()` follow links; `is_symlink()` does not.
+            FsKind::Is(kind) => {
+                let holds = match kind {
+                    "file" => path.is_file(),
+                    "dir" => path.is_dir(),
+                    _ => path.is_symlink(),
+                };
+                holds.then_some(()).ok_or(format!("is not a {kind}"))
+            }
+            // `not (path.exists() and any(path.iterdir()))`: a missing directory is empty.
+            FsKind::Empty(empty) => {
+                let actual = match fs::read_dir(&path) {
+                    Ok(entries) => entries.count() == 0,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+                    Err(error) => return Err(error.to_string()),
+                };
+                (actual == empty)
+                    .then_some(())
+                    .ok_or(format!("empty is {actual}"))
+            }
+            FsKind::Unchanged(name) => {
+                let before = listings
+                    .get(name)
+                    .ok_or_else(|| format!("no listing was remembered as {name:?}"))?;
+                let now = listing(&path);
+                (now == *before)
+                    .then_some(())
+                    .ok_or(format!("the listing changed to:\n{now}"))
+            }
+            FsKind::Write(text) => fs::write(&path, text).map_err(|error| error.to_string()),
+            FsKind::Remember(name) => {
+                listings.insert(name.to_owned(), listing(&path));
+                Ok(())
             }
         }
     }
@@ -1015,14 +1200,19 @@ fn run_scenario(name: &str) {
         load_scenario(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
     let manifest = manifest();
     for run in runs(&scenario.header) {
-        if let Err(error) = run_steps(&scenario, &run, &variables(&run, "root")) {
+        if let Err(error) = run_steps(&scenario, &run, &variables(&run, &placeholders())) {
             panic!("{}/{}: {error}", scenario.header.scenario, run.label);
         }
     }
     let mut failed = Vec::new();
     for run in runs(&scenario.header) {
         let outcome = execute(&scenario, &run, &manifest);
-        let name = format!("{}/{}", scenario.header.scenario, run.label);
+        let name = format!(
+            "{}/{} (twin {})",
+            scenario.header.scenario,
+            run.label,
+            twin(&scenario.header, &run)
+        );
         let details = |heading: &str| {
             let mut lines: Vec<String> = outcome
                 .errors
@@ -1082,17 +1272,16 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
         ..Outcome::default()
     };
 
-    let root_name = fixture
-        .path()
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let steps = match run_steps(scenario, run, &variables(run, &root_name)) {
+    let home = scratch.path().join("home");
+    let runtime = scratch.path().join("runtime");
+    let places = Places {
+        fixture: fixture.path(),
+        scratch_home: &home,
+    };
+    let steps = match run_steps(scenario, run, &variables(run, &places)) {
         Ok(steps) => steps,
         Err(error) => return setup_error(format!("scenario: {error}")),
     };
-    let home = scratch.path().join("home");
-    let runtime = scratch.path().join("runtime");
     if let Err(error) = seed(manifest, scenario, run, &home, &runtime, fixture.path()) {
         return setup_error(format!("setup: {error}"));
     }
@@ -1228,6 +1417,11 @@ fn seed(
     )?;
     populate(fixture, &tree);
     pin_times(fixture, fixture_time(manifest));
+    for (path, image) in &scenario.header.images {
+        image::RgbImage::from_pixel(image.width, image.height, image::Rgb(image.rgb))
+            .save_with_format(fixture.join(path), image::ImageFormat::Png)
+            .map_err(|error| format!("cannot write {path}: {error}"))?;
+    }
     Ok(())
 }
 
@@ -1316,6 +1510,7 @@ struct Context<'a> {
 
 fn drive(application: &mut Application, context: &Context, layout: &mut String) -> Outcome {
     let mut outcome = Outcome::default();
+    let mut listings = Listings::new();
     let hello = application.receive(LAUNCH_TIMEOUT);
     if let Err(error) = hello.and_then(|hello| {
         record(
@@ -1342,7 +1537,27 @@ fn drive(application: &mut Application, context: &Context, layout: &mut String) 
     }
     for (line, step) in context.steps {
         let label = format!("line {line} {step}");
-        let object = step.as_object().cloned().unwrap_or_default();
+        let mut object = step.as_object().cloned().unwrap_or_default();
+        if let Some(condition) = object.remove(STEP_WHEN) {
+            let probe = json!({ "holds": condition });
+            match application.send(&probe, COMMAND_TIMEOUT) {
+                Ok(reply) => {
+                    let holds = reply["result"] == json!(true);
+                    if let Err(error) = record(&mut outcome, Some(*line), &label, &probe, reply) {
+                        file_failure(&mut outcome, *line, &label, &error);
+                        return outcome;
+                    }
+                    if !holds {
+                        continue;
+                    }
+                }
+                Err(error) => {
+                    outcome.errors.push(format!("{label}: {error}"));
+                    return outcome;
+                }
+            }
+        }
+        let step = &Value::Object(object.clone());
         if let Some(name) = object.get("layout") {
             let name = name.as_str().unwrap_or_default().to_owned();
             match switch(context.manifest, context.display, &name) {
@@ -1355,7 +1570,7 @@ fn drive(application: &mut Application, context: &Context, layout: &mut String) 
             continue;
         }
         let result = if object.contains_key("fs") {
-            wait_for_fs(step, context.fixture)
+            wait_for_fs(step, context.fixture, &mut listings)
         } else {
             let timeout = match object.get("timeout_ms").and_then(Value::as_u64) {
                 Some(ms) => (Duration::from_millis(ms) + WAIT_MARGIN).max(COMMAND_TIMEOUT),
@@ -1371,16 +1586,22 @@ fn drive(application: &mut Application, context: &Context, layout: &mut String) 
             }
         };
         if let Err(error) = result {
-            let failure = format!("{label}: {error}");
-            if error.contains(CONTROLLER_PANIC) {
-                outcome.errors.push(failure);
-            } else {
-                outcome.failures.push((Some(*line), failure));
-            }
+            file_failure(&mut outcome, *line, &label, &error);
             return outcome;
         }
     }
     outcome
+}
+
+/// A step that went wrong is the scenario's failure, unless the controller
+/// panicked: that is the harness's error, which no `known_bug` excuses.
+fn file_failure(outcome: &mut Outcome, line: usize, label: &str, error: &str) {
+    let failure = format!("{label}: {error}");
+    if error.contains(CONTROLLER_PANIC) {
+        outcome.errors.push(failure);
+    } else {
+        outcome.failures.push((Some(line), failure));
+    }
 }
 
 /// Logs the exchange, keeps expect mismatches and criticals as failures, and
@@ -1441,13 +1662,19 @@ fn record(
 }
 
 /// Steps were checked when the run's steps were built, so a bad body here
-/// would be a runner bug.
-fn wait_for_fs(step: &Value, fixture: &Path) -> Result<(), String> {
+/// would be a runner bug. An action runs once; a check is polled.
+fn wait_for_fs(step: &Value, fixture: &Path, listings: &mut Listings) -> Result<(), String> {
     let step: FsStep = serde_json::from_value(step.clone())
         .map_err(|error| format!("invalid fs step: {error}"))?;
+    if step.fs.acts() {
+        return step
+            .fs
+            .observe(fixture, listings)
+            .map_err(|error| format!("{}: {error}", step.fs.path));
+    }
     let deadline = Instant::now() + step.timeout_ms.map_or(DEFAULT_WAIT, Duration::from_millis);
     loop {
-        match step.fs.observe(fixture) {
+        match step.fs.observe(fixture, listings) {
             Ok(()) => return Ok(()),
             Err(actual) if Instant::now() >= deadline => {
                 return Err(format!(
@@ -1493,16 +1720,32 @@ fn every_scenario_file_is_registered_and_well_formed() {
         "register each scenario file in scenarios! {{}}"
     );
     let manifest = manifest();
+    let mut twins = BTreeMap::new();
     for name in REGISTERED {
         let scenario = load_scenario(&scenario_path(name)).expect("the scenario should load");
         let header = &scenario.header;
-        assert!(
-            Path::new(REPOSITORY)
-                .join(header.twin.split("::").next().unwrap_or_default())
-                .is_file(),
-            "{name}: the twin {} should exist",
-            header.twin
-        );
+        for run in runs(header) {
+            let node = twin(header, &run);
+            let (file, test) = node.split_once("::").unwrap_or((&node, ""));
+            let function = test.split('[').next().unwrap_or_default();
+            let source = fs::read_to_string(Path::new(REPOSITORY).join(file)).unwrap_or_default();
+            assert!(
+                !function.is_empty() && source.contains(&format!("def {function}(")),
+                "{name}/{}: the twin {node} should name a test function in its file",
+                run.label
+            );
+            assert!(
+                !node.contains('$'),
+                "{name}/{}: the twin {node} has an unknown variable",
+                run.label
+            );
+            if let Some(other) = twins.insert(node.clone(), format!("{name}/{}", run.label)) {
+                panic!(
+                    "{name}/{} and {other} both claim the twin {node}",
+                    run.label
+                );
+            }
+        }
         if let Some(mutation) = &header.mutation {
             assert!(
                 Path::new(REPOSITORY)
@@ -1518,7 +1761,7 @@ fn every_scenario_file_is_registered_and_well_formed() {
                 "{name}/{}: no layout {layout:?}",
                 run.label
             );
-            let steps = run_steps(&scenario, &run, &variables(&run, "root"))
+            let steps = run_steps(&scenario, &run, &variables(&run, &placeholders()))
                 .unwrap_or_else(|error| panic!("{name}/{}: {error}", run.label));
             assert!(!steps.is_empty(), "{name}/{}: no steps run", run.label);
         }
@@ -1557,6 +1800,7 @@ fn a_run_keeps_its_own_mode_steps_and_rejects_a_malformed_one() {
         json!({ "select": { "entry": "archive" }, "modes": ["columns"] }),
         json!({ "click": { "entry": "archive" }, "count": 2, "modes": ["icons"] }),
         json!({ "wait": { "view_mode": "$view" } }),
+        json!({ "key": "Escape", "when": { "dialog": true } }),
     ];
     let runs = runs(&header());
     let icons = runs
@@ -1564,22 +1808,27 @@ fn a_run_keeps_its_own_mode_steps_and_rejects_a_malformed_one() {
         .find(|run| run.mode == "icons")
         .expect("an icons run");
     assert_eq!(
-        run_steps(&scenario(steps), icons, &variables(icons, "root")),
+        run_steps(&scenario(steps), icons, &variables(icons, &placeholders())),
         Ok(vec![
             (1, json!({ "click": { "entry": "archive" }, "count": 2 })),
             (2, json!({ "wait": { "view_mode": "Icons" } })),
+            (3, json!({ "key": "Escape", "when": { "dialog": true } })),
         ])
     );
     for typo in [
         json!({ "click": { "entry": "a", "nmae": "b" } }),
         json!({ "fs": { "path": "a", "exists": true, "text": "b" } }),
+        json!({ "fs": { "path": "a", "write": "b" }, "timeout_ms": 0 }),
+        json!({ "fs": { "path": "a", "is": "socket" } }),
+        json!({ "key": "Escape", "when": { "dialgo": true } }),
+        json!({ "holds": { "dialog": true } }),
         json!({ "layout": "klingon" }),
     ] {
         assert!(
             run_steps(
                 &scenario(vec![typo.clone()]),
                 icons,
-                &variables(icons, "root")
+                &variables(icons, &placeholders())
             )
             .is_err(),
             "{typo} should be rejected before the run starts"
@@ -1609,7 +1858,8 @@ fn a_known_bug_must_name_a_step_line_that_can_fail() {
             format!(
                 "{{\"scenario\":\"example\",\"modes\":[\"columns\"],\"twin\":\"x\",\"mutation\":null{marker}}}\n\
                  {{\"layout\":\"ru\"}}\n\
-                 {{\"wait\":{{\"focused\":\"a\"}}}}\n"
+                 {{\"wait\":{{\"focused\":\"a\"}}}}\n\
+                 {{\"key\":\"Escape\",\"when\":{{\"dialog\":true}}}}\n"
             ),
         )
         .expect("the scenario should be written");
@@ -1620,8 +1870,43 @@ fn a_known_bug_must_name_a_step_line_that_can_fail() {
         r#","known_bug":"issue-1""#,
         r#","known_bug":null,"known_bug_step":3"#,
         r#","known_bug":"issue-1","known_bug_step":2"#,
+        r#","known_bug":"issue-1","known_bug_step":4"#,
         r#","known_bug":"issue-1","known_bug_step":9"#,
     ] {
         assert!(load(marker).is_err(), "{marker} should be rejected");
     }
+}
+
+#[test]
+fn an_empty_check_counts_a_missing_directory_as_empty() {
+    let root = tempfile::tempdir().expect("a scratch directory");
+    fs::create_dir(root.path().join("full")).expect("the directory should be created");
+    fs::write(root.path().join("full/a.txt"), "a").expect("the file should be written");
+    let check = |path: &str, empty: bool| {
+        let step: FsStep =
+            serde_json::from_value(json!({ "fs": { "path": path, "empty": empty } }))
+                .expect("the step should parse");
+        step.fs.observe(root.path(), &mut Listings::new())
+    };
+    assert!(check("missing", true).is_ok());
+    assert!(check("missing", false).is_err());
+    assert!(check("full", false).is_ok());
+    assert!(check("full", true).is_err());
+}
+
+#[test]
+fn only_a_controller_panic_is_filed_as_a_harness_error() {
+    let mut outcome = Outcome::default();
+    file_failure(&mut outcome, 3, "line 3", "timed out");
+    file_failure(
+        &mut outcome,
+        4,
+        "line 4",
+        &format!("{CONTROLLER_PANIC}: boom"),
+    );
+    assert_eq!(
+        outcome.failures,
+        [(Some(3), "line 3: timed out".to_owned())]
+    );
+    assert_eq!(outcome.errors.len(), 1);
 }

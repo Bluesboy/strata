@@ -29,10 +29,11 @@ use serde_json::{Value, json};
 use self::{
     input::{Event, Injector},
     protocol::{
-        At, Check, Chord, Command, Direction, EntryTarget, Failure, Modifier, Predicate, Query,
-        Reply, Target,
+        At, Check, Chord, Command, Direction, EntryTarget, Failure, FieldRef, Modifier, Predicate,
+        Query, Reply, Target,
     },
-    targets::{Aim, LookupError, Rect},
+    state::FieldState,
+    targets::{Aim, LookupError, Memory, Rect},
 };
 
 const READY_TIMEOUT: Duration = Duration::from_secs(60);
@@ -59,6 +60,10 @@ const SELECT_RETRY_AFTER: Duration = Duration::from_secs(4);
 const LOCATE_TIMEOUT: Duration = Duration::from_secs(15);
 /// `Strata.settle` samples: the same bounds this many polls in a row.
 const SETTLE_SAMPLES: usize = 3;
+/// `MENU_RETRY_INTERVAL` in `tests/e2e/harness/browser.py`.
+const MENU_RETRY_AFTER: Duration = Duration::from_secs(1);
+/// `Strata.KEYBOARD_SELECT_STEPS`: enough to cross any fixture directory.
+const KEYBOARD_SELECT_STEPS: usize = 40;
 const PANIC_EXIT: i32 = 70;
 const ARRIVAL_ATTEMPTS: usize = 5;
 /// Approach a point in two steps so GTK sees enter and motion, not a teleport.
@@ -124,6 +129,7 @@ impl Session {
             injector: None,
             previous: None,
             settled: RefCell::default(),
+            memory: RefCell::default(),
         };
         // GLib would keep a panic in the task's join handle and leave the
         // runner waiting; report it and exit instead.
@@ -166,6 +172,7 @@ struct Controller {
     previous: Option<Value>,
     /// Where each target came to rest in its last `settle`, keyed by its JSON.
     settled: RefCell<HashMap<String, Rect>>,
+    memory: RefCell<Memory>,
 }
 
 #[derive(Default)]
@@ -292,6 +299,7 @@ impl Controller {
         let input = Input {
             injector,
             window: &window,
+            memory: &self.memory,
         };
         match command {
             Command::Key { chord, repeat } => {
@@ -302,6 +310,46 @@ impl Controller {
                 }
                 Outcome::default()
             }
+            Command::Type(text) => {
+                for character in text.chars() {
+                    let chord = Chord {
+                        modifiers: Vec::new(),
+                        key: character.to_string(),
+                    };
+                    if let Err(error) = input.press(&chord).await {
+                        return Outcome::error(error);
+                    }
+                }
+                Outcome::default()
+            }
+            Command::SelectWithKeyboard { name, message } => {
+                input.select_with_keyboard(&name, message.as_deref()).await
+            }
+            Command::OpenMenu {
+                target,
+                until,
+                message,
+            } => self.open_menu(&input, &target, &until, message).await,
+            Command::Activate { target, message } => {
+                Outcome::from(input.activate(&target, message.as_deref()).await)
+            }
+            Command::Holds(predicate) => match self.check(&input, &predicate) {
+                Ok(verdict) => Outcome {
+                    result: json!(verdict.is_ok()),
+                    ..Outcome::default()
+                },
+                Err(error) => Outcome::error(error),
+            },
+            Command::Remember { target, name } => match input.find(&target, None, Aim::Point).await
+            {
+                Ok(located) => {
+                    self.memory
+                        .borrow_mut()
+                        .insert(name, located.widget.downgrade());
+                    Outcome::default()
+                }
+                Err(error) => Outcome::error(error),
+            },
             Command::Click {
                 target,
                 button,
@@ -398,6 +446,53 @@ impl Controller {
                 result: Value::String(state::dump(&window)),
                 ..Outcome::default()
             },
+            Command::Query(Query::Prefs) => match preferences() {
+                Ok(preferences) => Outcome {
+                    result: preferences,
+                    ..Outcome::default()
+                },
+                Err(error) => Outcome::error(error),
+            },
+        }
+    }
+
+    /// `open_appearance_menu`: a late startup focus change can close the
+    /// menu as it opens, so an unchecked target is clicked again each second.
+    async fn open_menu(
+        &self,
+        input: &Input<'_>,
+        target: &Target,
+        until: &Predicate,
+        message: Option<String>,
+    ) -> Outcome {
+        if let Err(error) = input.click(target, 1, 1, &[], None).await {
+            return Outcome::error(error);
+        }
+        let mut clicked = Instant::now();
+        let deadline = clicked + protocol::DEFAULT_WAIT;
+        loop {
+            match self.check(input, until) {
+                Err(error) => return Outcome::error(error),
+                Ok(Ok(())) => return Outcome::default(),
+                Ok(Err(mut failure)) if Instant::now() >= deadline => {
+                    failure.message = message;
+                    return Outcome::timed_out(input.window, failure, protocol::DEFAULT_WAIT);
+                }
+                Ok(Err(_)) => {}
+            }
+            // The twin tests AT-SPI's `checked`, which GTK never reports for
+            // a toggle button (an open menu's toggle is `pressed`), so it
+            // re-clicks whenever the menu is still closed; so does this.
+            let checked = input
+                .locate_now(target, None, Aim::Point)
+                .is_ok_and(|located| targets::states(&located.widget).checked);
+            if clicked.elapsed() > MENU_RETRY_AFTER && !checked {
+                if let Err(error) = input.click(target, 1, 1, &[], None).await {
+                    return Outcome::error(error);
+                }
+                clicked = Instant::now();
+            }
+            glib::timeout_future(POLL_INTERVAL).await;
         }
     }
 
@@ -459,12 +554,87 @@ impl Controller {
             actual,
             message: None,
         };
+        let verdict = |holds: bool, actual: Value| {
+            if holds { Ok(()) } else { Err(mismatch(actual)) }
+        };
         let locate = |target: &Target| match input.locate_now(target, None, Aim::Point) {
             Ok(located) => Ok(Some(located)),
             Err(LookupError::Missing(_)) => Ok(None),
             Err(LookupError::Broken(error)) => Err(error),
         };
         Ok(match &predicate.check {
+            Check::Any(predicates) => {
+                let mut actual = Vec::new();
+                for predicate in predicates {
+                    match self.check(input, predicate)? {
+                        Ok(()) => return Ok(Ok(())),
+                        Err(failure) => actual.push(failure.actual),
+                    }
+                }
+                Err(mismatch(json!(actual)))
+            }
+            Check::Field(check) => {
+                let field = input
+                    .field(&check.field())?
+                    .and_then(|field| FieldState::read(&field));
+                verdict(state::field_matches(check, field.as_ref()), json!(field))
+            }
+            Check::Pref(check) => {
+                let actual = preferences()?
+                    .get(&check.key)
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                verdict(actual == check.value, actual)
+            }
+            Check::EditorWithinViewport(field) => {
+                let Some(editor) = input.field(field)? else {
+                    return Ok(Err(mismatch(json!("no field"))));
+                };
+                let window = input.window.upcast_ref::<gtk::Widget>();
+                let scene = state::scan(input.window);
+                let pane = scene
+                    .pane_widgets(None)
+                    .and_then(|pane| pane.pane.compute_bounds(window));
+                let editor = editor.compute_bounds(window);
+                match (editor, pane) {
+                    (Some(editor), Some(pane)) => {
+                        let editor = [editor.x(), editor.y(), editor.width(), editor.height()]
+                            .map(|value| f64::from(value).floor() as i64);
+                        let pane_x = f64::from(pane.x()).floor() as i64;
+                        let width = i64::from(input.window.width());
+                        verdict(
+                            state::within_viewport(editor, pane_x, width),
+                            json!({ "editor": editor, "pane_x": pane_x, "window_width": width }),
+                        )
+                    }
+                    _ => Err(mismatch(json!("the field or the pane has no bounds"))),
+                }
+            }
+            Check::State(check) => match locate(&check.target)? {
+                None => Err(mismatch(json!("not on screen"))),
+                Some(located) => {
+                    let states = targets::states(&located.widget);
+                    let wanted = [
+                        (check.selected, states.selected),
+                        (check.focused, states.focused),
+                        (check.checked, states.checked),
+                        (check.pressed, states.pressed),
+                        (check.sensitive, states.sensitive),
+                    ];
+                    verdict(
+                        wanted
+                            .iter()
+                            .all(|(wanted, actual)| wanted.is_none_or(|wanted| wanted == *actual)),
+                        json!({
+                            "selected": states.selected,
+                            "focused": states.focused,
+                            "checked": states.checked,
+                            "pressed": states.pressed,
+                            "sensitive": states.sensitive,
+                        }),
+                    )
+                }
+            },
             Check::Present(target) => match locate(target)? {
                 Some(_) => Ok(()),
                 None => Err(mismatch(json!(false))),
@@ -489,17 +659,27 @@ impl Controller {
                             Direction::Right => now[0] > settled[0],
                             Direction::None => now == settled,
                         };
-                        if moved {
-                            Ok(())
-                        } else {
-                            Err(mismatch(json!({ "settled": settled, "now": now })))
-                        }
+                        verdict(moved, json!({ "settled": settled, "now": now }))
                     }
                 }
             }
             _ => state::scan(input.window).observation.evaluate(predicate),
         })
     }
+}
+
+/// `settings.toml` as JSON, read from disk as `read_preferences` reads it;
+/// an absent file is no preferences.
+fn preferences() -> Result<Value, String> {
+    let path = crate::storage::config_directory().join("settings.toml");
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(format!("cannot read {}: {error}", path.display())),
+    };
+    let table: toml::Table = toml::from_str(&text)
+        .map_err(|error| format!("cannot parse {}: {error}", path.display()))?;
+    serde_json::to_value(table).map_err(|error| error.to_string())
 }
 
 /// Lets queued X events, the idle work they schedule, and the next frame's
@@ -524,6 +704,7 @@ async fn settle(window: Option<&gtk::Window>) {
 struct Input<'a> {
     injector: &'a Injector,
     window: &'a gtk::Window,
+    memory: &'a RefCell<Memory>,
 }
 
 impl Input<'_> {
@@ -604,28 +785,201 @@ impl Input<'_> {
         at: Option<&At>,
         aim: Aim,
     ) -> Result<targets::Located, LookupError> {
-        targets::locate(self.window, self.injector, target, at, aim)
+        targets::locate(
+            self.window,
+            self.injector,
+            &self.memory.borrow(),
+            target,
+            at,
+            aim,
+        )
     }
 
-    /// Waits for the target like the Python lookups do, then the X screen
-    /// point to aim at.
-    async fn locate(
+    /// The field a check names; a remembered one that is gone is no field.
+    fn field(&self, field: &FieldRef) -> Result<Option<gtk::Widget>, String> {
+        targets::field(self.window, &self.memory.borrow(), field).map_err(|error| match error {
+            LookupError::Missing(message) | LookupError::Broken(message) => message,
+        })
+    }
+
+    /// `Node.activate`: waits for the control as `strata.wait` would, then
+    /// invokes its default action, which GTK's AT-SPI bridge maps to
+    /// `gtk_widget_activate`.
+    async fn activate(&self, target: &Target, message: Option<&str>) -> Result<(), String> {
+        let Target::Role { role, name } = target else {
+            return Err("activate takes a role target".to_owned());
+        };
+        let deadline = Instant::now() + LOCATE_TIMEOUT;
+        let widget = loop {
+            if let Some(widget) = targets::find_presented(self.window.upcast_ref(), role, name) {
+                break widget;
+            }
+            if Instant::now() >= deadline {
+                let waiting = message.map_or_else(String::new, |message| {
+                    format!("timed out waiting for {message}: ")
+                });
+                return Err(format!(
+                    "{waiting}no {role} named {name:?} after {} s",
+                    LOCATE_TIMEOUT.as_secs()
+                ));
+            }
+            glib::timeout_future(POLL_INTERVAL).await;
+        };
+        if !widget.activate() {
+            return Err(format!("the {role} named {name:?} has no default action"));
+        }
+        settle(Some(self.window)).await;
+        Ok(())
+    }
+
+    /// Polls the snapshot until `holds`, as `strata.wait` does, on behalf of
+    /// a `select_with_keyboard` for `name`.
+    async fn wait_for(
+        &self,
+        name: &str,
+        holds: impl Fn(&state::Observation) -> bool,
+        message: String,
+    ) -> Result<(), Outcome> {
+        let deadline = Instant::now() + protocol::DEFAULT_WAIT;
+        loop {
+            let observation = state::scan(self.window).observation;
+            if holds(&observation) {
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                let failure = Failure {
+                    predicate: json!({ "select_with_keyboard": name }),
+                    actual: json!(observation.focused_entry),
+                    message: Some(message),
+                };
+                return Err(Outcome::timed_out(
+                    self.window,
+                    failure,
+                    protocol::DEFAULT_WAIT,
+                ));
+            }
+            glib::timeout_future(POLL_INTERVAL).await;
+        }
+    }
+
+    /// A failing `select_with_keyboard` names the scenario's step before the
+    /// helper's own wait, so its failure lines up with the twin's step.
+    async fn select_with_keyboard(&self, name: &str, step: Option<&str>) -> Outcome {
+        let mut outcome = self.walk_to(name).await;
+        if let Some(step) = step {
+            for failure in &mut outcome.failures {
+                failure.message = Some(match failure.message.take() {
+                    Some(detail) => format!("{step}: {detail}"),
+                    None => step.to_owned(),
+                });
+            }
+        }
+        outcome
+    }
+
+    /// `select_entry_with_keyboard`: Home, then the next-entry key until the
+    /// cursor reaches the entry, waiting for each step to move it.
+    async fn walk_to(&self, name: &str) -> Outcome {
+        if let Err(outcome) = self
+            .wait_for(
+                name,
+                |observation| observation.view_mode().is_some(),
+                "a browser pane to be on screen".to_owned(),
+            )
+            .await
+        {
+            return outcome;
+        }
+        let icons = state::scan(self.window).observation.view_mode() == Some("Icons");
+        let next = Chord {
+            modifiers: Vec::new(),
+            key: if icons { "Right" } else { "Down" }.to_owned(),
+        };
+        let home = Chord {
+            modifiers: Vec::new(),
+            key: "Home".to_owned(),
+        };
+        if let Err(error) = self.press(&home).await {
+            return Outcome::error(error);
+        }
+        if let Err(outcome) = self
+            .wait_for(
+                name,
+                |observation| observation.focused_entry.is_some(),
+                "the keyboard cursor".to_owned(),
+            )
+            .await
+        {
+            return outcome;
+        }
+        for _ in 0..KEYBOARD_SELECT_STEPS {
+            let previous = state::scan(self.window).observation.focused_entry;
+            if previous.as_deref() == Some(name) {
+                return match self
+                    .wait_for(
+                        name,
+                        |observation| observation.entry(name, None).is_some(),
+                        format!("the entry {name:?} to appear"),
+                    )
+                    .await
+                {
+                    Ok(()) => Outcome::default(),
+                    Err(outcome) => outcome,
+                };
+            }
+            if let Err(error) = self.press(&next).await {
+                return Outcome::error(error);
+            }
+            if let Err(outcome) = self
+                .wait_for(
+                    name,
+                    |observation| observation.focused_entry != previous,
+                    format!("the cursor to move past {previous:?}"),
+                )
+                .await
+            {
+                return outcome;
+            }
+        }
+        Outcome {
+            failures: vec![Failure {
+                predicate: json!({ "select_with_keyboard": name }),
+                actual: json!(state::scan(self.window).observation.focused_entry),
+                message: Some(format!("the keyboard cursor to reach {name:?}")),
+            }],
+            error: Some(format!("the keyboard cursor never reached {name:?}")),
+            ..Outcome::default()
+        }
+    }
+
+    /// Waits for the target like the Python lookups do.
+    async fn find(
         &self,
         target: &Target,
         at: Option<&At>,
         aim: Aim,
-    ) -> Result<(i16, i16), String> {
+    ) -> Result<targets::Located, String> {
         let deadline = Instant::now() + LOCATE_TIMEOUT;
-        let (x, y) = loop {
+        loop {
             match self.locate_now(target, at, aim) {
-                Ok(located) => break located.point,
+                Ok(located) => return Ok(located),
                 Err(LookupError::Broken(error)) => return Err(error),
                 Err(LookupError::Missing(error)) if Instant::now() >= deadline => {
                     return Err(format!("{error} after {} s", LOCATE_TIMEOUT.as_secs()));
                 }
                 Err(LookupError::Missing(_)) => glib::timeout_future(POLL_INTERVAL).await,
             }
-        };
+        }
+    }
+
+    /// Waits for the target, then the X screen point to aim at.
+    async fn locate(
+        &self,
+        target: &Target,
+        at: Option<&At>,
+        aim: Aim,
+    ) -> Result<(i16, i16), String> {
+        let (x, y) = self.find(target, at, aim).await?.point;
         Ok((coordinate(x)?, coordinate(y)?))
     }
 
