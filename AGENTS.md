@@ -107,6 +107,20 @@ pass before merge.
   across supported environments and avoid assertions that depend on
   platform-specific URI normalization or other incidental system behavior.
 
+## QA scenarios
+
+- Run the `--qa` scenarios only through `./scripts/qa.sh`, inside the pinned
+  container. `tests/qa.rs` refuses to start without `STRATA_QA_CONTAINER=1`.
+- A host run (`STRATA_QA_HOST=1`) needs explicit owner consent for that task.
+  Record it and the skipped container run in the handoff; it is never
+  validation evidence. Do not wire the QA runner into `scripts/e2e-native.sh`
+  or `scripts/test-headless.py`. See `docs/e2e-testing.md`.
+- `./scripts/qa.sh`, `./scripts/qa-parity.sh`, and `./scripts/e2e.sh` share a
+  build cache; run them one after another, never concurrently.
+- A behaviour change updates the Python test and its QA twin together; check
+  the pair with `./scripts/qa-parity.sh` (`--baseline` for twins without a
+  mutation patch).
+
 ## E2E base-image reuse
 
 - Run `./scripts/e2e.sh` for normal local testing. It verifies and reuses the local
