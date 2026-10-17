@@ -1,0 +1,17 @@
+{"scenario":"rename-shortcuts","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_entry_management.py::test_rename_shortcuts[$shortcut]","mutation":null,"known_bug":null,"variants":[{"id":"F2","vars":{"shortcut":"F2"}},{"id":"ctrl-r","vars":{"shortcut":"ctrl+r"}}]}
+{"select":{"entry":"todo.txt"}}
+{"key":"F2","variants":["F2"]}
+{"key":"ctrl+r","variants":["ctrl-r"]}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"remember":{"field":true},"as":"field"}
+{"key":"ctrl+a"}
+{"type":"renamed.txt"}
+{"wait":{"field":{"of":"field","text":"renamed.txt"}},"message":"the new name to be typed"}
+{"key":"ctrl+r"}
+{"wait":{"field":{}},"message":"an editable field to take focus"}
+{"expect":{"field":{"text":"renamed.txt"}}}
+{"key":"Return"}
+{"fs":{"path":"renamed.txt","exists":true},"message":"the file to be renamed on disk"}
+{"fs":{"path":"todo.txt","exists":false},"timeout_ms":0}
+{"fs":{"path":"renamed.txt","text":"todo\n"},"timeout_ms":0}
+{"wait":{"entry":"renamed.txt"},"message":"the entry 'renamed.txt' to appear"}

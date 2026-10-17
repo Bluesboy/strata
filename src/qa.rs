@@ -148,9 +148,11 @@ impl Session {
             application: application.clone(),
             protocol: self.protocol,
             injector: None,
+            main: glib::WeakRef::new(),
             previous: None,
             settled: RefCell::default(),
             memory: RefCell::default(),
+            widgets: RefCell::default(),
             samples: RefCell::default(),
         };
         // GLib would keep a panic in the task's join handle and leave the
@@ -191,11 +193,19 @@ struct Controller {
     application: gtk::Application,
     protocol: File,
     injector: Option<Injector>,
+    /// The browser window the run started with, `strata.window`: a floating
+    /// chooser becomes the active window while it is open, and state is
+    /// still read from the browser.
+    main: glib::WeakRef<gtk::Window>,
     previous: Option<Value>,
     /// Where each target came to rest in its last `settle`, keyed by its JSON,
     /// and the boxes `settle` and `remember` kept under a name.
     settled: RefCell<Boxes>,
+    /// The fields `remember` kept, for `{"field":"name"}` and `of`.
     memory: RefCell<Memory>,
+    /// The other widgets `remember` kept, apart from the fields so a field
+    /// lookup never resolves one, for `replaced`.
+    widgets: RefCell<Memory>,
     /// Screen captures, text measurements, and instants, by the name a step
     /// kept them under.
     samples: RefCell<HashMap<String, Sample>>,
@@ -269,16 +279,19 @@ impl Controller {
     }
 
     fn window(&self) -> Option<gtk::Window> {
-        self.application
-            .active_window()
-            .or_else(|| self.application.windows().into_iter().next())
+        self.main.upgrade().or_else(|| {
+            self.application
+                .active_window()
+                .or_else(|| self.application.windows().into_iter().next())
+        })
     }
 
     async fn await_ready(&self) -> Result<(), String> {
         let deadline = Instant::now() + READY_TIMEOUT;
         loop {
-            if self.window().is_some_and(|window| state::is_ready(&window)) {
-                settle(self.window().as_ref()).await;
+            if let Some(window) = self.window().filter(state::is_ready) {
+                self.main.set(Some(&window));
+                settle(Some(&window)).await;
                 return Ok(());
             }
             if Instant::now() >= deadline {
@@ -337,6 +350,7 @@ impl Controller {
             injector,
             window: &window,
             memory: &self.memory,
+            widgets: &self.widgets,
             boxes: &self.settled,
         };
         match command {
@@ -380,13 +394,18 @@ impl Controller {
             },
             Command::Remember { target, name } => match input.find(&target, None, Aim::Point).await
             {
-                Ok(located) if matches!(target, Target::Field(None)) => {
+                Ok(located) if matches!(target, Target::Field(None) | Target::FieldWithin(_)) => {
+                    self.widgets.borrow_mut().remove(&name);
                     self.memory
                         .borrow_mut()
                         .insert(name, located.widget.downgrade());
                     Outcome::default()
                 }
                 Ok(located) => {
+                    self.memory.borrow_mut().remove(&name);
+                    self.widgets
+                        .borrow_mut()
+                        .insert(name.clone(), located.widget.downgrade());
                     self.settled.borrow_mut().insert(name, located.rect);
                     Outcome::default()
                 }
@@ -434,6 +453,7 @@ impl Controller {
                             "Bounds(x={x}, y={y}, width={width}, height={height})"
                         )))
                     }
+                    Accessor::EditableFields => Ok(json!(targets::editable_fields(&window))),
                     Accessor::Visible => shape.apply(
                         visible_rows(&input, dir.as_deref())?
                             .into_iter()
@@ -555,17 +575,27 @@ impl Controller {
                 predicate,
                 keys,
                 times,
+                check_first,
             } => {
                 for _ in 0..times {
+                    if check_first {
+                        match self.check(&input, &predicate) {
+                            Err(error) => return Outcome::error(error),
+                            Ok(Ok(())) => break,
+                            Ok(Err(_)) => {}
+                        }
+                    }
                     for chord in &keys {
                         if let Err(error) = input.press(chord).await {
                             return Outcome::error(error);
                         }
                     }
-                    match self.check(&input, &predicate) {
-                        Err(error) => return Outcome::error(error),
-                        Ok(Ok(())) => break,
-                        Ok(Err(_)) => {}
+                    if !check_first {
+                        match self.check(&input, &predicate) {
+                            Err(error) => return Outcome::error(error),
+                            Ok(Ok(())) => break,
+                            Ok(Err(_)) => {}
+                        }
                     }
                 }
                 Outcome::default()
@@ -753,21 +783,30 @@ impl Controller {
             Command::Expect {
                 predicates,
                 message,
+                timeout,
             } => {
-                let mut failures = Vec::new();
-                for predicate in &predicates {
-                    match self.check(&input, predicate) {
-                        Ok(Ok(())) => {}
-                        Ok(Err(mut failure)) => {
-                            failure.message.clone_from(&message);
-                            failures.push(failure);
+                let deadline = timeout.map(|timeout| Instant::now() + timeout);
+                loop {
+                    let mut failures = Vec::new();
+                    for predicate in &predicates {
+                        match self.check(&input, predicate) {
+                            Ok(Ok(())) => {}
+                            Ok(Err(mut failure)) => {
+                                failure.message.clone_from(&message);
+                                failures.push(failure);
+                            }
+                            Err(error) => return Outcome::error(error),
                         }
-                        Err(error) => return Outcome::error(error),
                     }
-                }
-                Outcome {
-                    failures,
-                    ..Outcome::default()
+                    if failures.is_empty()
+                        || deadline.is_none_or(|deadline| Instant::now() >= deadline)
+                    {
+                        return Outcome {
+                            failures,
+                            ..Outcome::default()
+                        };
+                    }
+                    glib::timeout_future(POLL_INTERVAL).await;
                 }
             }
             Command::Query(Query::State) => Outcome {
@@ -1350,6 +1389,141 @@ impl Controller {
                 });
                 verdict(mentioned, json!(false))
             }
+            Check::All(predicates) => {
+                let mut actual = Vec::new();
+                let mut holds = true;
+                for predicate in predicates {
+                    match self.check(input, predicate)? {
+                        Ok(()) => actual.push(json!(true)),
+                        Err(failure) => {
+                            holds = false;
+                            actual.push(failure.actual);
+                        }
+                    }
+                }
+                verdict(holds, json!(actual))
+            }
+            Check::EditableFields(expected) => {
+                let count = targets::editable_fields(input.window);
+                verdict(count == *expected, json!(count))
+            }
+            Check::Description(check) => match locate(&check.target)? {
+                None => Err(mismatch(json!("not on screen"))),
+                Some(located) => {
+                    let description = targets::accessible_description(&located.widget);
+                    verdict(description == check.text, json!(description))
+                }
+            },
+            Check::Mentions(mention) => match locate(&mention.target)? {
+                None => Err(mismatch(json!("not on screen"))),
+                Some(located) => {
+                    let widgets = targets::presented(&located.widget);
+                    let found = match (&mention.text, &mention.words) {
+                        (Some(text), _) => widgets.iter().any(|widget| {
+                            targets::accessible_name(widget).contains(text.as_str())
+                                || targets::accessible_description(widget).contains(text.as_str())
+                        }),
+                        // `dialog.find(predicate=...)` looks only at rendered nodes.
+                        (None, Some(words)) => {
+                            let words = state::collapse_whitespace(words);
+                            widgets
+                                .iter()
+                                .filter(|widget| state::rendered_bounds(widget).is_some())
+                                .any(|widget| {
+                                    let shown = format!(
+                                        "{} {}",
+                                        targets::accessible_name(widget),
+                                        targets::text_content(widget).unwrap_or_default()
+                                    );
+                                    state::collapse_whitespace(&shown).contains(&words)
+                                })
+                        }
+                        (None, None) => false,
+                    };
+                    verdict(found, json!(false))
+                }
+            },
+            Check::Presented(target) => {
+                let found = targets::presented_target(
+                    input.window,
+                    input.injector,
+                    Kept {
+                        memory: &input.memory.borrow(),
+                        boxes: &input.boxes.borrow(),
+                    },
+                    target,
+                )
+                .map_err(|error| error.message().to_owned())?;
+                verdict(found.is_some(), json!(false))
+            }
+            Check::File(file) => {
+                let exists = Path::new(&file.path).symlink_metadata().is_ok();
+                verdict(exists == file.exists, json!(exists))
+            }
+            Check::FocusedWidget(expected) => {
+                let focused = targets::presented(input.window.upcast_ref())
+                    .into_iter()
+                    .find(|widget| {
+                        targets::states(widget).focused && state::rendered_bounds(widget).is_some()
+                    })
+                    .map(|widget| targets::accessible_name(&widget));
+                verdict(focused == *expected, json!(focused))
+            }
+            Check::Inside(inside) => match (locate(&inside.target)?, locate(&inside.of)?) {
+                (Some(target), Some(of)) => {
+                    let (inner, outer) = (target.rect.pixels(), of.rect.pixels());
+                    verdict(
+                        state::inside(inner, outer, inside.axis),
+                        json!({ "target": inner, "of": outer }),
+                    )
+                }
+                _ => Err(mismatch(json!("not on screen"))),
+            },
+            Check::EditorWithinWindow(check) => {
+                let Some(editor) = input.field(&FieldRef {
+                    of: Some(check.of.clone()),
+                    name: None,
+                })?
+                else {
+                    return Ok(Err(mismatch(json!("no field"))));
+                };
+                let window = input.window.upcast_ref::<gtk::Widget>();
+                let scene = state::scan(input.window);
+                let pane = scene
+                    .pane_widgets(check.pane.as_deref())
+                    .and_then(|pane| pane.pane.compute_bounds(window));
+                match (editor.compute_bounds(window), pane) {
+                    (Some(editor), Some(pane)) => {
+                        let editor = [editor.x(), editor.y(), editor.width(), editor.height()]
+                            .map(|value| f64::from(value).floor() as i64);
+                        let pane_x = f64::from(pane.x()).floor() as i64;
+                        let width = i64::from(input.window.width());
+                        verdict(
+                            state::within_window(editor, pane_x, width),
+                            json!({ "editor": editor, "pane_x": pane_x, "window_width": width }),
+                        )
+                    }
+                    _ => Err(mismatch(json!("the field or the pane has no bounds"))),
+                }
+            }
+            Check::Replaced(replaced) => {
+                let Some(kept) = input.widgets.borrow().get(&replaced.since).cloned() else {
+                    return Err(if input.memory.borrow().contains_key(&replaced.since) {
+                        format!(
+                            "{:?} was remembered as a field, not a widget",
+                            replaced.since
+                        )
+                    } else {
+                        format!("no widget was remembered as {:?}", replaced.since)
+                    });
+                };
+                match locate(&replaced.target)? {
+                    None => Err(mismatch(json!("not on screen"))),
+                    Some(now) => {
+                        verdict(kept.upgrade().as_ref() != Some(&now.widget), json!(false))
+                    }
+                }
+            }
             _ => state::scan(input.window).observation.evaluate(predicate),
         })
     }
@@ -1729,6 +1903,8 @@ fn note(
         Accessor::Visible | Accessor::ScrollTarget | Accessor::Bounds => {
             Err("visible, scroll_target, and bounds are read with the X screen".to_owned())
         }
+        Accessor::EditableFields => Ok(json!(targets::editable_fields(window))),
+        Accessor::MenuItems => list(observation.menu.clone().unwrap_or_default()),
     }
 }
 
@@ -1841,6 +2017,7 @@ struct Input<'a> {
     injector: &'a Injector,
     window: &'a gtk::Window,
     memory: &'a RefCell<Memory>,
+    widgets: &'a RefCell<Memory>,
     /// Boxes and points `settle` and `remember` kept, for `left_bound` and `kept` targets.
     boxes: &'a RefCell<Boxes>,
 }
@@ -1957,28 +2134,45 @@ impl Input<'_> {
     /// `Node.activate`: waits for the control as `strata.wait` would, then
     /// invokes its default action, which GTK's AT-SPI bridge maps to
     /// `gtk_widget_activate`.
+    /// A role target without `within` may be scrolled away, as a twin's
+    /// `window.find(..., rendered=False)` reaches it; any other target is
+    /// looked up on screen, as `dialog.find(role="button", name=...)` is.
     async fn activate(&self, target: &Target, message: Option<&str>) -> Result<(), String> {
-        let Target::Role { role, name, .. } = target else {
-            return Err("activate takes a role target".to_owned());
-        };
-        let deadline = Instant::now() + LOCATE_TIMEOUT;
-        let widget = loop {
-            if let Some(widget) = targets::find_presented(self.window.upcast_ref(), role, name) {
-                break widget;
+        let widget = if let Target::Role {
+            role,
+            name: Some(name),
+            description: None,
+            within: None,
+        } = target
+        {
+            let deadline = Instant::now() + LOCATE_TIMEOUT;
+            loop {
+                if let Some(widget) = targets::find_presented(self.window.upcast_ref(), role, name)
+                {
+                    break widget;
+                }
+                if Instant::now() >= deadline {
+                    let waiting = message.map_or_else(String::new, |message| {
+                        format!("timed out waiting for {message}: ")
+                    });
+                    return Err(format!(
+                        "{waiting}no {role} named {name:?} after {} s",
+                        LOCATE_TIMEOUT.as_secs()
+                    ));
+                }
+                glib::timeout_future(POLL_INTERVAL).await;
             }
-            if Instant::now() >= deadline {
-                let waiting = message.map_or_else(String::new, |message| {
-                    format!("timed out waiting for {message}: ")
-                });
-                return Err(format!(
-                    "{waiting}no {role} named {name:?} after {} s",
-                    LOCATE_TIMEOUT.as_secs()
-                ));
-            }
-            glib::timeout_future(POLL_INTERVAL).await;
+        } else {
+            self.find(target, None, Aim::Point)
+                .await
+                .map_err(|error| match message {
+                    Some(message) => format!("timed out waiting for {message}: {error}"),
+                    None => error,
+                })?
+                .widget
         };
         if !widget.activate() {
-            return Err(format!("the {role} named {name:?} has no default action"));
+            return Err(format!("{} has no default action", target.to_json()));
         }
         settle(Some(self.window)).await;
         Ok(())

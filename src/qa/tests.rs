@@ -107,7 +107,8 @@ fn commands_parse_from_the_scenario_spelling_with_their_defaults() {
         Ok(Command::Activate {
             target: Target::Role {
                 role: "toggle button".to_owned(),
-                name: "Single".to_owned(),
+                name: Some("Single".to_owned()),
+                description: None,
                 within: None,
             },
             message: Some("m".to_owned()),
@@ -123,6 +124,7 @@ fn commands_parse_from_the_scenario_spelling_with_their_defaults() {
     let Ok(Command::Expect {
         predicates,
         message: None,
+        timeout: None,
     }) = parse_command(r#"{"expect":[{"selected":["a"],"dir":"x"},{"focused":null}]}"#)
     else {
         panic!("expect should take a list of predicates");
@@ -445,7 +447,8 @@ fn every_target_kind_parses_from_its_key() {
         target(r#"{"role":"button","name":"Keep Both"}"#),
         Target::Role {
             role: "button".to_owned(),
-            name: "Keep Both".to_owned(),
+            name: Some("Keep Both".to_owned()),
+            description: None,
             within: None,
         }
     );
@@ -835,6 +838,39 @@ fn an_editor_is_within_the_viewport_only_inside_the_pane_and_window() {
 }
 
 #[test]
+fn a_created_editor_starts_beside_the_pane_and_ends_inside_the_window() {
+    assert!(state::within_window([210, 40, 200, 24], 200, 420));
+    assert!(state::within_window([0, 40, 2, 24], -30, 420));
+    assert!(!state::within_window([-1, 40, 100, 24], -30, 420));
+    assert!(!state::within_window([190, 40, 100, 24], 200, 420));
+    assert!(!state::within_window([210, 40, 211, 24], 200, 420));
+    assert!(!state::within_window([210, 40, 1, 24], 200, 420));
+}
+
+#[test]
+fn a_box_is_inside_another_on_the_axes_asked_for() {
+    use super::protocol::PointAxis;
+    let viewport = [200, 100, 400, 300];
+    assert!(state::inside([210, 110, 100, 20], viewport, None));
+    assert!(!state::inside([210, 390, 100, 20], viewport, None));
+    assert!(!state::inside([150, 110, 100, 20], viewport, None));
+    assert!(state::inside(
+        [150, 110, 100, 20],
+        viewport,
+        Some(PointAxis::Y)
+    ));
+    assert!(!state::inside(
+        [210, 110, 0, 20],
+        viewport,
+        Some(PointAxis::Y)
+    ));
+    assert_eq!(
+        state::collapse_whitespace(" doesn't\n support  Trash "),
+        "doesn't support Trash"
+    );
+}
+
+#[test]
 fn a_native_toggle_reports_its_own_state_over_a_recorded_one() {
     crate::test_support::gtk_test(
         "qa::tests::a_native_toggle_reports_its_own_state_over_a_recorded_one",
@@ -914,6 +950,9 @@ fn composed_and_kept_targets_parse_and_round_trip() {
         r#"{"kept":"edge"}"#,
         r#"{"point":[{"extent":{"window":true},"plus":-4},{"extent":{"window":true},"plus":-4}]}"#,
         r#"{"point":[{"max":[{"of":{"pane":"a"},"at":10},{"of":{"viewport":null},"at":"4/5"}]},{"of":{"pane":"a"},"at":"50%"}]}"#,
+        r#"{"role":"panel","within":{"entry":"a","dir":"b"}}"#,
+        r#"{"role":"label","name":"b","description":"/a/b","within":{"toplevel":"Copy to"}}"#,
+        r#"{"field":true,"within":{"toplevel":"Copy to"}}"#,
     ] {
         assert_eq!(
             target(json).to_json(),
@@ -928,6 +967,8 @@ fn composed_and_kept_targets_parse_and_round_trip() {
         r#"{"point":[{"extent":{"window":true},"at":2},{"of":{"pane":null}}]}"#,
         r#"{"parent":{"sidebar":"Home"},"dir":"a"}"#,
         r#"{"dialog":false}"#,
+        r#"{"field":"a","within":{"dialog":true}}"#,
+        r#"{"toplevel":true}"#,
     ] {
         assert!(
             parse_command(&format!(r#"{{"move":{bad}}}"#)).is_err(),
@@ -974,6 +1015,29 @@ fn new_commands_parse_and_reject_what_they_cannot_mean() {
         panic!("a bounded key loop should parse");
     };
     assert_eq!((keys.len(), times), (2, 2));
+    let Ok(Command::KeysUntil {
+        times, check_first, ..
+    }) = parse_command(
+        r#"{"keys_until":{"state":{"target":{"menu_item":"Actions"},"focused":true}},"keys":["Down"],"times":["Cut","Copy","Actions"],"check_first":true}"#,
+    )
+    else {
+        panic!("a key loop over a noted list should parse");
+    };
+    assert_eq!((times, check_first), (3, true));
+    let Ok(Command::Expect { timeout, .. }) =
+        parse_command(r#"{"expect":{"focused":"a"},"timeout_ms":4000,"as":"returned"}"#)
+    else {
+        panic!("a polling expect should parse");
+    };
+    assert_eq!(timeout, Some(Duration::from_millis(4000)));
+    for bad in [
+        r#"{"expect":{"mentions":{"target":{"dialog":true},"text":"a","words":"a b"}}}"#,
+        r#"{"expect":{"file":{"path":"todo.txt","exists":true}}}"#,
+        r#"{"wait":{"all":[]}}"#,
+        r#"{"activate":{"background":true}}"#,
+    ] {
+        assert!(parse_command(bad).is_err(), "{bad} should be rejected");
+    }
     let Ok(Command::Note { value, .. }) =
         parse_command(r#"{"note":"bounds","of":{"viewport":null},"as":"viewport_bounds"}"#)
     else {
@@ -1076,6 +1140,7 @@ fn name_filters_compare_names_as_python_strings_do() {
         json!({ "first_above": "010.txt" }),
         json!({ "any_from": "040.txt" }),
         json!({ "toggled": { "names": ["011.txt", "000.txt"], "against": ["000.txt"] } }),
+        json!({ "in_order": ["011.txt", "041.txt"] }),
     ] {
         assert!(
             names(holding.clone()).matches(&actual),
@@ -1087,6 +1152,8 @@ fn name_filters_compare_names_as_python_strings_do() {
         json!({ "first_above": "011.txt" }),
         json!({ "any_from": "042.txt" }),
         json!({ "toggled": { "names": ["011.txt"], "against": ["011.txt"] } }),
+        json!({ "in_order": ["041.txt", "011.txt"] }),
+        json!({ "in_order": ["011.txt", "042.txt"] }),
     ] {
         assert!(
             !names(failing.clone()).matches(&actual),

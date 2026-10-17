@@ -498,6 +498,7 @@ fn build_folder_color_bar(
         dot.add_css_class("folder-color-dot");
         dot.add_css_class(color.css_class());
         dot.set_tooltip_text(Some(&crate::i18n::tr(color.name())));
+        crate::ui::accessibility::set_own_label(&dot, &crate::i18n::tr(color.name()));
         let check = gtk::Image::from_icon_name(crate::assets::icons::CHECK_ON_PRIMARY);
         check.set_pixel_size(10);
         check.set_visible(false);

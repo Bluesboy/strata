@@ -53,34 +53,49 @@ macro_rules! scenarios {
 // One test per scenario file, named after it with underscores; names are unique
 // across the folders.
 scenarios! {
+    airy_committed_rename_visible,
     alt_up_and_history,
     appearance_menu_switches_view,
     arrow_keys_move_focus,
     arrow_keys_move_focus_remaining,
     arrow_scope_toggles_live,
     background_click_clears_selection,
+    background_customize_ancestor_column,
+    background_customize_presented_folder,
     background_press_clears_before_drag,
     beside_last_column_clears,
     click_after_navigating_reanchors,
+    click_away_rename_respects_navigation,
     click_mode_preference_live,
     click_then_double_click_no_rename,
+    clicking_inside_keeps_new_entry,
     clicking_open_folder_focuses_column,
     column_edge_scrolls_listing,
     columns_home_end_mirror,
     columns_never_hover_peek,
+    columns_reclick_open_folder_renames,
     columns_return_selects_source_folder,
+    committed_rename_stays_visible,
+    compress_then_chooser_extracts,
     context_menu_copy_and_paste,
     context_menu_cut_and_paste,
     control_click_toggles,
     copy_leaves_source,
     copying_directory_copies_contents,
+    created_entry_completion_keeps_focus,
+    created_folder_editor_narrow_window,
     cross_volume_enter_choice,
     cross_volume_plain_copy,
     ctrl_drag_copies_keeps_selection,
+    customization_follows_move_and_trash,
+    customization_follows_rename,
+    customize_takes_focus_single_escape,
     cut_moves_only_after_paste,
     delete_animation_keeps_survivors,
     delete_to_trash,
+    delete_without_trash_focuses_cancel,
     disabled_transport_click,
+    dismissed_overlays_return_focus,
     dismissing_conflict_preserves_both,
     double_click_leaves_folder_open_focused,
     drag_cancels_folder_peek,
@@ -96,47 +111,74 @@ scenarios! {
     empty_column_clears_other_columns,
     empty_name_space_drag_starts_marquee,
     enter_after_escape_opens_folder,
+    entry_menu_named_actions,
     escape_clears_selection_no_navigation,
     escape_dismisses_transient,
     escape_only_clears_active_column,
     escape_preserves_name,
+    escape_preserves_name_remaining,
+    executable_menu_confirmed_run,
+    executable_requires_confirmation,
     file_drag_does_not_open_preview,
+    file_properties_describes_and_closes,
     filter_updates_retain_state,
     filtered_result_to_sidebar_folder,
+    floating_chooser_transfers_files,
     focus_usable_after_view_change,
     folder_into_another_folder,
+    invalid_archive_name_keeps_dialog,
+    invalid_names_retain_original,
+    invalid_new_file_names_corrected,
     keep_both_applies_to_all_mixed_paste,
     keep_both_then_undo,
     keep_both_then_undo_remaining,
+    keyboard_context_menu_owns_keys,
     keyboard_only_copy_paste,
     keyboard_open_selects_first_child,
     keyboard_selection_in_single_click_mode,
     leftover_click_honors_modifiers,
+    list_transfer_reveal_selects_copy,
     list_typed_file_path,
     long_rename_keeps_caret,
     marquee_beside_content_full_pane,
     merge_combines_folder_contents,
+    modal_dialog_blocks_window_shortcuts,
     modifier_click_focuses_target,
     modifier_clicks_inert_space_select,
     multi_selection_drag_moves_every_entry,
     new_file_collision_dialog,
+    new_folder_collision_dialog,
+    new_folder_with_selection_groups,
+    new_item_backspace_clears_name,
+    new_item_clears_hiding_filter,
+    new_item_first_free_number,
+    new_items_in_empty_directory,
     one_click_only_selects,
     opening_child_keeps_paste_under_pointer,
     pane_corner_marquee_keeps_sidebar,
+    pane_menu_directory_actions,
     panel_wheel_routing,
     parent_pane_anchors_first_entry,
     paste_availability_follows_clipboard,
     paste_into_explicit_selection,
     paste_into_parent_current_directory,
     paste_targets_selected_directory,
+    permanent_delete_confirmation,
+    permanent_delete_symlinked_parent,
     preselected_entry_hover,
     preview_blank_click_keeps_selection,
+    properties_pins_and_unpins_folder,
     refresh_keeps_cursor_and_viewport,
     refresh_keeps_filter_focus,
     release_outside_cancels_drag,
+    rename_and_undo_restores,
     rename_commits_on_click_away,
     rename_commits_on_enter,
+    rename_from_context_menu,
     rename_onto_existing_rejected,
+    rename_shortcuts,
+    rename_shortcuts_leave_location,
+    repeated_renames_select_stem,
     replace_restores_original_on_undo,
     replacing_duplicate_name_overwrites,
     return_restores_nested_scroll,
@@ -146,6 +188,7 @@ scenarios! {
     same_folder_copy_numbered_duplicate,
     scrolling_extends_marquee,
     second_selection_replaces_first,
+    secondary_click_retargets_menu,
     select_all_selects_every_entry,
     selected_blank_space_starts_file_drag,
     shift_after_escape_starts_on_focused,
@@ -154,6 +197,7 @@ scenarios! {
     shift_click_range_keyboard_entry,
     shift_click_revisits_after_folder,
     shift_drag_moves_file,
+    shortcut_reference_opens_and_closes,
     sidebar_destinations_accept_three_files,
     sidebar_marquee_keeps_scrolled_list,
     sidebar_marquee_reaches_leading_pane,
@@ -164,19 +208,32 @@ scenarios! {
     single_click_opens_directory,
     single_click_opens_directory_group,
     skipping_one_collision_pastes_rest,
+    slow_click_away_does_not_rename,
+    slow_click_rename_escape_stem,
     space_previews_filtered_result,
     spring_navigation_keeps_drag,
     strip_edge_scrolls_columns_in,
+    submenu_arrows_return_to_parent,
+    tenxer_d_without_trash_confirms,
     tenxer_escape_closes_peek,
     tenxer_escape_filter_preview_fill,
+    tenxer_footer_rename_refuses_conflicts,
     tenxer_icons_edges_search_peek,
     tenxer_keeps_location_edit,
     tenxer_sidebar_header_round_trips,
     tenxer_space_toggles_cursor,
     tenxer_visual_ranges,
+    tone_mark_escape_before_rename,
+    trashing_open_folder_opens_next,
     two_clicks_open,
     two_slow_clicks_do_not_open,
     typed_path_navigates,
+    undo_created_folder_trashes,
+    undo_restores_completed_move,
+    valid_name_commits_remaining,
+    visible_created_item_preserves_scroll,
+    visible_rename_preserves_scroll,
+    window_accelerators_leave_rename,
 }
 
 const REPOSITORY: &str = env!("CARGO_MANIFEST_DIR");
@@ -212,6 +269,11 @@ const STEP_VARIANTS: &str = "variants";
 /// while it holds, checked through the process's `holds` just before, as a
 /// twin's `if node.has_state(...)` branches.
 const STEP_WHEN: &str = "when";
+/// Step keys the runner reads and strips: the step runs only if, or only
+/// unless, an earlier `expect` kept as that name held, as a twin's
+/// `if _focus_returned(...)` or `except TreeTimeout:` branches.
+const STEP_IF: &str = "if";
+const STEP_UNLESS: &str = "unless";
 const MODES: [(&str, &str); 3] = [("columns", "Columns"), ("icons", "Icons"), ("list", "List")];
 const DEFAULT_TREE: &str = "canonical";
 /// What `state_parity_ignore` may name: `IGNORABLE_STATE` in `scripts/qa_parity.py`.
@@ -470,6 +532,11 @@ struct Header {
     /// reads them.
     #[serde(default)]
     state_parity_ignore: Vec<String>,
+    /// `fs` actions taken before the launch, as a twin's fixture writes files
+    /// before `strata` starts: an executable in the tree, or desktop entries
+    /// and actions under `$data` and `$config`.
+    #[serde(default)]
+    setup: Vec<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -570,6 +637,16 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
     if let Some(tree) = &header.tree {
         expand_tree(tree, &manifest())?;
     }
+    for (index, step) in header.setup.iter().enumerate() {
+        let parsed: FsStep = serde_json::from_value(step.clone())
+            .map_err(|error| format!("setup {}: invalid fs step: {error}", index + 1))?;
+        if !parsed.fs.acts() || parsed.timeout_ms.is_some() || parsed.message.is_some() {
+            return Err(format!(
+                "setup {}: setup takes fs actions only, such as write or chmod",
+                index + 1
+            ));
+        }
+    }
     gtk_settings(&manifest().gtk_settings, &header.gtk_settings)?;
     for (index, key) in header.state_parity_ignore.iter().enumerate() {
         if !IGNORABLE_STATE.contains(&key.as_str())
@@ -651,9 +728,12 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
                     "known_bug_step {line} is a layout switch, which cannot fail as a scenario step"
                 ));
             }
-            if step.get(STEP_WHEN).is_some() {
+            if [STEP_WHEN, STEP_IF, STEP_UNLESS]
+                .iter()
+                .any(|key| step.get(*key).is_some())
+            {
                 return Err(format!(
-                    "known_bug_step {line} has a when, so it may not run at all"
+                    "known_bug_step {line} has a when, if, or unless, so it may not run at all"
                 ));
             }
         }
@@ -685,6 +765,8 @@ fn run_steps(
     let mut steps = Vec::new();
     // Each note a step keeps, with a stand-in of its type for checking later steps.
     let mut notes: Vec<(String, Value)> = Vec::new();
+    // The names earlier `expect` steps keep whether they held under.
+    let mut flags: Vec<String> = Vec::new();
     for (line, step) in &scenario.steps {
         let mut step = substitute(step, variables);
         let Some(object) = step.as_object_mut() else {
@@ -706,6 +788,22 @@ fn run_steps(
         }
         let checked = substitute_notes(&step, &notes);
         check_step(&checked).map_err(|error| format!("line {line}: {error}"))?;
+        for key in [STEP_IF, STEP_UNLESS] {
+            if let Some(flag) = checked.get(key).and_then(Value::as_str)
+                && !flags.iter().any(|kept| kept == flag)
+            {
+                return Err(format!(
+                    "line {line}: {key} names {flag:?}, which no earlier expect keeps"
+                ));
+            }
+        }
+        if let Some(flag) = checked
+            .get("expect")
+            .and(checked.get("as"))
+            .and_then(Value::as_str)
+        {
+            flags.push(flag.to_owned());
+        }
         if let Some(token) = unknown_variable(&checked) {
             return Err(format!(
                 "line {line}: ${token} is neither a variable nor an earlier note"
@@ -746,6 +844,8 @@ fn kept_note(step: &Value, notes: &[(String, Value)]) -> Result<Option<(String, 
         };
         let placeholder = if value == protocol::Accessor::ScrollTarget {
             json!(0.0)
+        } else if value == protocol::Accessor::EditableFields {
+            json!(0)
         } else if value.is_list() && pick.is_none() {
             json!([NOTED_PLACEHOLDER])
         } else {
@@ -933,6 +1033,37 @@ fn check_step(step: &Value) -> Result<(), String> {
             )
         };
     }
+    // A flag that is never set would leave both an `if` and an `unless` step
+    // out, so the expect that keeps it must always run.
+    if step.get("expect").is_some()
+        && step.get("as").is_some()
+        && [STEP_WHEN, STEP_IF, STEP_UNLESS]
+            .iter()
+            .any(|key| step.get(*key).is_some())
+    {
+        return Err(
+            "an expect that keeps a flag in as may not have a when, if, or unless".to_owned(),
+        );
+    }
+    for key in [STEP_IF, STEP_UNLESS] {
+        if let Some(flag) = step.get(key) {
+            if !flag.as_str().is_some_and(|flag| !flag.is_empty()) {
+                return Err(format!("{key} names what an earlier expect kept"));
+            }
+            let mut step = step.clone();
+            if let Some(object) = step.as_object_mut() {
+                object.remove(key);
+            }
+            return check_step(&step);
+        }
+    }
+    if step.get("expect").is_some()
+        && step
+            .get("as")
+            .is_some_and(|name| !name.as_str().is_some_and(|name| !name.is_empty()))
+    {
+        return Err("an expect keeps whether it held under a name in as".to_owned());
+    }
     if let Some(condition) = step.get(STEP_WHEN) {
         if ["note", "increment", "slice"]
             .iter()
@@ -1048,6 +1179,10 @@ fn variables(run: &Run, places: &Places) -> Vec<(String, String)> {
     variables.push((
         "data".to_owned(),
         places.xdg("XDG_DATA_HOME").display().to_string(),
+    ));
+    variables.push((
+        "config".to_owned(),
+        places.xdg("XDG_CONFIG_HOME").display().to_string(),
     ));
     variables.push((
         "view".to_owned(),
@@ -1483,7 +1618,12 @@ struct FsStep {
 /// and pin its times as `FixtureTree.populate` does, save a solid-colour PNG
 /// (`image`), run `ffmpeg -v error -y <ffmpeg...> <path>`, both in place as
 /// the twins write, or link a fresh directory on another file system there
-/// (`volume`, the directory to make it in), removed when the run ends.
+/// (`volume`, the directory to make it in, named after `prefix`), removed
+/// when the run ends; make a symbolic link to a target (`symlink`); copy a
+/// program found on `PATH` with its mode and times (`program`, as
+/// `shutil.copy2(shutil.which(...))`); wait until the text `has` some parts
+/// and lacks others, until no name `names_without` a part, or until GIO says
+/// whether the file can go to the Trash (`can_trash`).
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FsCheck {
@@ -1505,6 +1645,17 @@ struct FsCheck {
     image: Option<Image>,
     ffmpeg: Option<Vec<String>>,
     volume: Option<String>,
+    prefix: Option<String>,
+    /// Files written into a fresh volume before it is linked, as a twin's
+    /// fixture fills its temporary directory before `symlink_to`.
+    #[serde(default, rename = "with")]
+    volume_files: BTreeMap<String, String>,
+    symlink: Option<String>,
+    program: Option<String>,
+    has: Option<Has>,
+    names_without: Option<String>,
+    can_trash: Option<bool>,
+    remove_volume: Option<bool>,
     remember_names: Option<String>,
     names_from: Option<String>,
     #[serde(default)]
@@ -1513,8 +1664,25 @@ struct FsCheck {
     plus: Vec<String>,
 }
 
+/// Parts the text must contain and parts it must not; an unreadable file
+/// contains nothing, as `_settings_has_key` treats an `OSError`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Has {
+    #[serde(default)]
+    contains: Vec<String>,
+    #[serde(default)]
+    lacks: Vec<String>,
+}
+
 enum FsKind<'a> {
     Exists(bool),
+    Symlink(&'a str),
+    Program(&'a str),
+    Has(&'a Has),
+    NamesWithout(&'a str),
+    CanTrash(bool),
+    RemoveVolume,
     Text(&'a str),
     Names(&'a [String]),
     Is(&'a str),
@@ -1529,7 +1697,7 @@ enum FsKind<'a> {
     Populate(&'a Value),
     Image(&'a Image),
     Ffmpeg(&'a [String]),
-    Volume(&'a str),
+    Volume(&'a str, &'a str, &'a BTreeMap<String, String>),
     RememberNames(&'a str),
     NamesFrom(&'a str),
 }
@@ -1597,7 +1765,44 @@ impl FsCheck {
                     "volume makes its directory in an absolute path, not {directory:?}"
                 ));
             }
-            kinds.push(FsKind::Volume(directory));
+            if let Some(name) = self.volume_files.keys().find(|name| {
+                let name = Path::new(name);
+                name.is_absolute() || name.components().count() != 1
+            }) {
+                return Err(format!(
+                    "with names files in the volume itself, not {name:?}"
+                ));
+            }
+            kinds.push(FsKind::Volume(
+                directory,
+                self.prefix.as_deref().unwrap_or("strata-drop-volume-"),
+                &self.volume_files,
+            ));
+        } else if self.prefix.is_some() || !self.volume_files.is_empty() {
+            return Err("prefix and with belong to volume".to_owned());
+        }
+        if let Some(target) = &self.symlink {
+            kinds.push(FsKind::Symlink(target));
+        }
+        if let Some(program) = &self.program {
+            kinds.push(FsKind::Program(program));
+        }
+        if let Some(has) = &self.has {
+            if has.contains.is_empty() && has.lacks.is_empty() {
+                return Err("has needs contains or lacks".to_owned());
+            }
+            kinds.push(FsKind::Has(has));
+        }
+        if let Some(part) = &self.names_without {
+            kinds.push(FsKind::NamesWithout(part));
+        }
+        if let Some(can_trash) = self.can_trash {
+            kinds.push(FsKind::CanTrash(can_trash));
+        }
+        match self.remove_volume {
+            Some(true) => kinds.push(FsKind::RemoveVolume),
+            Some(false) => return Err("remove_volume is true or left out".to_owned()),
+            None => {}
         }
         if let Some(text) = &self.write {
             kinds.push(FsKind::Write(text));
@@ -1627,8 +1832,9 @@ impl FsCheck {
             1 => Ok(kinds.remove(0)),
             _ => Err(
                 "fs needs a path and exactly one of exists, text, names, is, empty, \
-                 unchanged, copy_of, size_of, names_from, write, remember, remember_names, \
-                 mkdir, chmod, populate, image, ffmpeg, or volume"
+                 unchanged, copy_of, size_of, names_from, has, names_without, can_trash, \
+                 write, remember, remember_names, mkdir, chmod, populate, image, ffmpeg, \
+                 volume, remove_volume, symlink, or program"
                     .to_owned(),
             ),
         }
@@ -1644,7 +1850,10 @@ impl FsCheck {
                 | FsKind::Populate(_)
                 | FsKind::Image(_)
                 | FsKind::Ffmpeg(_)
-                | FsKind::Volume(_)
+                | FsKind::Volume(..)
+                | FsKind::Symlink(_)
+                | FsKind::Program(_)
+                | FsKind::RemoveVolume
                 | FsKind::RememberNames(_))
         )
     }
@@ -1768,9 +1977,9 @@ impl FsCheck {
                 .map_err(|error| error.to_string()),
             // `tempfile.TemporaryDirectory(prefix="strata-drop-volume-", dir=...)`,
             // which must lie on another device than the fixture, then linked in.
-            FsKind::Volume(directory) => {
+            FsKind::Volume(directory, prefix, files) => {
                 let volume = tempfile::Builder::new()
-                    .prefix("strata-drop-volume-")
+                    .prefix(prefix)
                     .tempdir_in(directory)
                     .map_err(|error| format!("cannot make a directory in {directory}: {error}"))?;
                 let device = |path: &Path| {
@@ -1781,6 +1990,9 @@ impl FsCheck {
                 if device(volume.path())? == device(root)? {
                     return Err(format!("{directory} is on the fixture's own device"));
                 }
+                for (name, text) in files {
+                    fs::write(volume.path().join(name), text).map_err(|error| error.to_string())?;
+                }
                 std::os::unix::fs::symlink(volume.path(), &path)
                     .map_err(|error| error.to_string())?;
                 state.volumes.push(volume);
@@ -1789,6 +2001,67 @@ impl FsCheck {
             FsKind::Remember(name) => {
                 listings.insert(name.to_owned(), listing(&path));
                 Ok(())
+            }
+            FsKind::Symlink(target) => {
+                std::os::unix::fs::symlink(target, &path).map_err(|error| error.to_string())
+            }
+            FsKind::Program(name) => copy_program(name, &path),
+            // The twin's `TemporaryDirectory` ends with its fixture, before the
+            // state dump, and leaves the link dangling.
+            FsKind::RemoveVolume => {
+                let target = fs::read_link(&path).map_err(|error| error.to_string())?;
+                let index = state
+                    .volumes
+                    .iter()
+                    .position(|volume| volume.path() == target)
+                    .ok_or_else(|| {
+                        format!("{} links to no volume this run made", path.display())
+                    })?;
+                state
+                    .volumes
+                    .remove(index)
+                    .close()
+                    .map_err(|error| error.to_string())
+            }
+            FsKind::Has(has) => {
+                let text = fs::read_to_string(&path).ok();
+                let contains = |part: &String| {
+                    text.as_deref()
+                        .is_some_and(|text| text.contains(part.as_str()))
+                };
+                let missing: Vec<&String> =
+                    has.contains.iter().filter(|part| !contains(part)).collect();
+                let present: Vec<&String> =
+                    has.lacks.iter().filter(|part| contains(part)).collect();
+                if missing.is_empty() && present.is_empty() {
+                    Ok(())
+                } else {
+                    Err(format!("lacks {missing:?} and has {present:?}"))
+                }
+            }
+            FsKind::NamesWithout(part) => {
+                let names = sorted_names(&path)?;
+                let found: Vec<&String> = names.iter().filter(|name| name.contains(part)).collect();
+                found
+                    .is_empty()
+                    .then_some(())
+                    .ok_or(format!("names {found:?} contain {part:?}"))
+            }
+            // `Gio.File.query_info(FILE_ATTRIBUTE_ACCESS_CAN_TRASH)`, as the twin's
+            // precondition asks GIO itself.
+            FsKind::CanTrash(expected) => {
+                use gtk::gio::prelude::FileExt as _;
+                let actual = gtk::gio::File::for_path(&path)
+                    .query_info(
+                        gtk::gio::FILE_ATTRIBUTE_ACCESS_CAN_TRASH,
+                        gtk::gio::FileQueryInfoFlags::NONE,
+                        gtk::gio::Cancellable::NONE,
+                    )
+                    .map_err(|error| error.to_string())?
+                    .boolean(gtk::gio::FILE_ATTRIBUTE_ACCESS_CAN_TRASH);
+                (actual == expected)
+                    .then_some(())
+                    .ok_or(format!("can_trash is {actual}"))
             }
             FsKind::Mkdir { parents } => {
                 let parent = path.parent().unwrap_or(root);
@@ -1824,6 +2097,31 @@ impl FsCheck {
             FsKind::Ffmpeg(arguments) => ffmpeg(arguments, &path),
         }
     }
+}
+
+/// `shutil.copy2(shutil.which(name), path)`: the program's bytes, mode, and
+/// access and modification times.
+fn copy_program(name: &str, path: &Path) -> Result<(), String> {
+    let source = std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
+        .map(|directory| directory.join(name))
+        .find(|candidate| {
+            fs::metadata(candidate).is_ok_and(|metadata| {
+                metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+            })
+        })
+        .ok_or_else(|| format!("no program {name:?} on PATH"))?;
+    fs::copy(&source, path).map_err(|error| format!("{}: {error}", source.display()))?;
+    let metadata = fs::metadata(&source).map_err(|error| error.to_string())?;
+    let times = fs::FileTimes::new()
+        .set_accessed(metadata.accessed().map_err(|error| error.to_string())?)
+        .set_modified(metadata.modified().map_err(|error| error.to_string())?);
+    File::options()
+        .write(true)
+        .open(path)
+        .and_then(|file| file.set_times(times))
+        .map_err(|error| error.to_string())
 }
 
 /// Sorted with hidden files, as `FixtureTree.names` lists them.
@@ -2003,6 +2301,15 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
     if let Err(error) = seed(manifest, scenario, run, &home, &runtime, fixture.path()) {
         return setup_error(format!("setup: {error}"));
     }
+    let mut fs_state = FsState::default();
+    for step in &scenario.header.setup {
+        let step = substitute(step, &variables(run, &places));
+        if let Err(error) =
+            wait_for_fs(&step, fixture.path(), fixture_time(manifest), &mut fs_state)
+        {
+            return setup_error(format!("setup: {error}"));
+        }
+    }
     let display = match Display::start(scratch.path().join("xvfb.log")) {
         Ok(display) => display,
         Err(error) => return setup_error(format!("setup: {error}")),
@@ -2037,6 +2344,7 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
             screens: &scratch.path().join("screenshots"),
         },
         &mut layout,
+        &mut fs_state,
     );
     if layout != DEFAULT_LAYOUT
         && let Err(error) = display.restore_layout()
@@ -2349,9 +2657,13 @@ struct Context<'a> {
     screens: &'a Path,
 }
 
-fn drive(application: &mut Application, context: &Context, layout: &mut String) -> Outcome {
+fn drive(
+    application: &mut Application,
+    context: &Context,
+    layout: &mut String,
+    fs_state: &mut FsState,
+) -> Outcome {
     let mut outcome = Outcome::default();
-    let mut fs_state = FsState::default();
     let hello = application.receive(LAUNCH_TIMEOUT);
     if let Err(error) = hello.and_then(|hello| {
         record(
@@ -2377,10 +2689,20 @@ fn drive(application: &mut Application, context: &Context, layout: &mut String) 
         }
     }
     let mut notes: Vec<(String, Value)> = Vec::new();
+    let mut flags: BTreeMap<String, bool> = BTreeMap::new();
     for (line, step) in context.steps {
         let step = &substitute_notes(step, &notes);
         let label = format!("line {line} {step}");
         let mut object = step.as_object().cloned().unwrap_or_default();
+        let held = |key: &str, object: &mut Map<String, Value>| {
+            object
+                .remove(key)
+                .and_then(|flag| flag.as_str().and_then(|flag| flags.get(flag).copied()))
+        };
+        if held(STEP_IF, &mut object) == Some(false) || held(STEP_UNLESS, &mut object) == Some(true)
+        {
+            continue;
+        }
         if let Some(condition) = object.remove(STEP_WHEN) {
             let probe = json!({ "holds": condition });
             match application.send(&probe, COMMAND_TIMEOUT) {
@@ -2470,7 +2792,7 @@ fn drive(application: &mut Application, context: &Context, layout: &mut String) 
             }
         }
         let result = if object.contains_key("fs") {
-            wait_for_fs(step, context.fixture, context.fixture_time, &mut fs_state)
+            wait_for_fs(step, context.fixture, context.fixture_time, fs_state)
         } else {
             let timeout = match object.get("timeout_ms").and_then(Value::as_u64) {
                 Some(ms) => (Duration::from_millis(ms) + WAIT_MARGIN).max(COMMAND_TIMEOUT),
@@ -2480,6 +2802,12 @@ fn drive(application: &mut Application, context: &Context, layout: &mut String) 
             match application.send(step, timeout) {
                 Ok(reply) => {
                     let result = reply["result"].clone();
+                    if let Some(name) = object.get("expect").and(object.get("as")) {
+                        flags.insert(
+                            name.as_str().unwrap_or_default().to_owned(),
+                            reply["ok"] == json!(true),
+                        );
+                    }
                     let recorded = record(&mut outcome, Some(*line), &label, step, reply);
                     if recorded.is_ok()
                         && let Some(name) = object.get("note").and(object.get("as"))
@@ -2746,6 +3074,10 @@ fn a_run_keeps_its_own_mode_steps_and_rejects_a_malformed_one() {
         json!({ "key": "Escape", "when": { "dialgo": true } }),
         json!({ "holds": { "dialog": true } }),
         json!({ "layout": "klingon" }),
+        json!({ "expect": { "dialog": true }, "as": "open", "when": { "dialog": true } }),
+        json!({ "wait": { "all": [] } }),
+        json!({ "fs": { "path": "a", "volume": "/dev/shm", "with": { "../b": "c" } } }),
+        json!({ "fs": { "path": "a", "write": "b", "with": { "c": "d" } } }),
     ] {
         assert!(
             run_steps(

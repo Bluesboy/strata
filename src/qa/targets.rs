@@ -163,13 +163,32 @@ pub(crate) fn locate(
             }
             result
         }
-        Target::Role { role, name, within } => match within {
-            None => find(root, role, name)?,
-            Some(within) => {
-                let scope = locate(window, injector, kept, within, None, Aim::Point)?.widget;
-                find(&scope, role, name)?
+        Target::Role {
+            role,
+            name,
+            description,
+            within,
+        } => {
+            let wanted = Wanted {
+                role,
+                name: name.as_deref(),
+                description: description.as_deref(),
+            };
+            match within {
+                None => wanted.find(root)?,
+                Some(within) => {
+                    let scope = locate(window, injector, kept, within, None, Aim::Point)?.widget;
+                    wanted.find(&scope)?
+                }
             }
-        },
+        }
+        Target::FieldWithin(within) => {
+            let scope = locate(window, injector, kept, within, None, Aim::Point)?.widget;
+            focused_field(&presented(&scope))
+                .ok_or_else(|| missing("no editable field inside the target has focus"))?
+        }
+        Target::Toplevel(title) => toplevel(title)
+            .ok_or_else(|| missing(format!("no window titled {title:?} on screen")))?,
         Target::Named { name, within } => {
             let scope = locate(window, injector, kept, within, None, Aim::Point)?.widget;
             first_rendered(&scope, |widget| accessible_name(widget) == *name)
@@ -414,6 +433,105 @@ fn background(
     })
 }
 
+/// What a role target asks for: the role, and the name and description when given.
+struct Wanted<'a> {
+    role: &'a str,
+    name: Option<&'a str>,
+    description: Option<&'a str>,
+}
+
+impl Wanted<'_> {
+    fn matches(&self, widget: &gtk::Widget) -> bool {
+        role_name(widget) == self.role
+            && self.name.is_none_or(|name| accessible_name(widget) == name)
+            && self
+                .description
+                .is_none_or(|description| accessible_description(widget) == description)
+    }
+
+    /// The first showing match in DFS order, as `Node.find(role=..., ...)` returns it.
+    fn find(&self, root: &gtk::Widget) -> Result<gtk::Widget, LookupError> {
+        first_rendered(root, |widget| self.matches(widget)).ok_or_else(|| {
+            missing(format!(
+                "no {}{}{} on screen",
+                self.role,
+                self.name
+                    .map(|name| format!(" named {name:?}"))
+                    .unwrap_or_default(),
+                self.description
+                    .map(|description| format!(" described {description:?}"))
+                    .unwrap_or_default()
+            ))
+        })
+    }
+
+    /// `find(..., rendered=False)`: presented, but perhaps scrolled away.
+    fn find_presented(&self, root: &gtk::Widget) -> Option<gtk::Widget> {
+        presented(root)
+            .into_iter()
+            .find(|widget| self.matches(widget))
+    }
+}
+
+/// A showing application window with this title, as `application.find(name=title)`
+/// finds a chooser outside the main window.
+fn toplevel(title: &str) -> Option<gtk::Widget> {
+    gtk::Window::list_toplevels()
+        .into_iter()
+        .filter_map(|window| window.downcast::<gtk::Window>().ok())
+        .find(|window| {
+            window.title().as_deref() == Some(title)
+                && state::rendered_bounds(window.upcast_ref()).is_some()
+        })
+        .map(Cast::upcast)
+}
+
+/// A target presented anywhere, rendered or not, for `presented`: role
+/// targets as `find(role=..., name=..., rendered=False)`, any other target as
+/// it resolves on screen.
+pub(crate) fn presented_target(
+    window: &gtk::Window,
+    injector: &Injector,
+    kept: Kept<'_>,
+    target: &Target,
+) -> Result<Option<gtk::Widget>, LookupError> {
+    match target {
+        Target::Role {
+            role,
+            name,
+            description,
+            within,
+        } => {
+            let wanted = Wanted {
+                role,
+                name: name.as_deref(),
+                description: description.as_deref(),
+            };
+            let scope = match within {
+                None => window.clone().upcast::<gtk::Widget>(),
+                Some(within) => match locate(window, injector, kept, within, None, Aim::Point) {
+                    Ok(located) => located.widget,
+                    Err(LookupError::Missing(_)) => return Ok(None),
+                    Err(broken) => return Err(broken),
+                },
+            };
+            Ok(wanted.find_presented(&scope))
+        }
+        other => match locate(window, injector, kept, other, None, Aim::Point) {
+            Ok(located) => Ok(Some(located.widget)),
+            Err(LookupError::Missing(_)) => Ok(None),
+            Err(broken) => Err(broken),
+        },
+    }
+}
+
+/// The description Strata's naming helpers set, as AT-SPI reports it; empty without one.
+pub(crate) fn accessible_description(widget: &gtk::Widget) -> String {
+    names::naming(widget)
+        .and_then(|naming| naming.description)
+        .unwrap_or_default()
+}
+
 /// The first showing widget in DFS order with this role and name, as
 /// `Node.find(role=..., name=...)` returns it.
 fn find(root: &gtk::Widget, role: &str, name: &str) -> Result<gtk::Widget, LookupError> {
@@ -510,6 +628,15 @@ fn is_field(widget: &gtk::Widget) -> bool {
         && widget
             .dynamic_cast_ref::<gtk::Editable>()
             .is_some_and(EditableExt::is_editable)
+}
+
+/// `len(window.find_all(role="text", states={"editable"}))`: the editable
+/// text fields on screen.
+pub(crate) fn editable_fields(window: &gtk::Window) -> usize {
+    presented(window.upcast_ref())
+        .iter()
+        .filter(|widget| is_field(widget) && state::rendered_bounds(widget).is_some())
+        .count()
 }
 
 /// `editable_field()`: the first editable text on screen holding focus.
@@ -672,7 +799,8 @@ pub(crate) fn role_name(widget: &gtk::Widget) -> &'static str {
         Role::ComboBox => "combo box",
         Role::Dialog => "dialog",
         Role::Grid | Role::Table => "table",
-        Role::Group | Role::TabPanel => "panel",
+        Role::Generic | Role::TabPanel => "panel",
+        Role::Group => "grouping",
         Role::Heading => "heading",
         Role::Img => "image",
         Role::Input | Role::SearchBox => "entry",

@@ -127,6 +127,9 @@ pub(crate) enum Command {
         predicate: Predicate,
         keys: Vec<Chord>,
         times: u32,
+        /// Checks before each round instead, as `for _ in range(30): if
+        /// node.has_state(...): break; press(...)` checks before pressing.
+        check_first: bool,
     },
     /// Presses or releases one key with no pause, as `connection.key(keysym,
     /// True)` does: a modifier name (`ctrl`) or a key name (`Escape`).
@@ -209,9 +212,13 @@ pub(crate) enum Command {
         samples: usize,
     },
     /// `message` names the twin's assertion, as a wait's names its `strata.wait`.
+    /// With a timeout it polls until every predicate holds, as a twin's
+    /// `try: strata.wait(...) except TreeTimeout: failures.append(...)` does,
+    /// and reports the mismatches when time runs out.
     Expect {
         predicates: Vec<Predicate>,
         message: Option<String>,
+        timeout: Option<Duration>,
     },
     Query(Query),
 }
@@ -283,7 +290,10 @@ struct PressStepFields {
 struct KeysUntilFields {
     keys_until: Predicate,
     keys: Vec<String>,
-    times: u32,
+    /// A number, or a noted list whose length it is, as `for _ in strata.menu_items():`.
+    times: Value,
+    #[serde(default)]
+    check_first: bool,
 }
 
 #[derive(Deserialize)]
@@ -571,6 +581,11 @@ struct WaitFields {
 struct ExpectFields {
     expect: Value,
     message: Option<String>,
+    timeout_ms: Option<u64>,
+    /// The runner keeps whether the expectation held under this name, for a
+    /// later step's `if` or `unless`; the process ignores it.
+    #[serde(rename = "as")]
+    _name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -660,6 +675,11 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
         }
         "keys_until" => {
             let fields: KeysUntilFields = serde_json::from_value(fields).map_err(invalid)?;
+            let times = match &fields.times {
+                Value::Array(items) => u32::try_from(items.len()).ok(),
+                other => other.as_u64().and_then(|times| u32::try_from(times).ok()),
+            }
+            .ok_or("keys_until times is a number of rounds or a noted list")?;
             if fields.keys.is_empty() || fields.times == 0 {
                 return Err("keys_until needs keys and at least one round".to_owned());
             }
@@ -670,7 +690,8 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
                     .iter()
                     .map(|key| Chord::parse(key))
                     .collect::<Result<_, _>>()?,
-                times: fields.times,
+                times,
+                check_first: fields.check_first,
             })
         }
         "during" => {
@@ -752,8 +773,11 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
         }
         "activate" => {
             let fields: ActivateFields = serde_json::from_value(fields).map_err(invalid)?;
-            if !matches!(fields.activate, Target::Role { within: None, .. }) {
-                return Err("activate takes a role target".to_owned());
+            if !matches!(
+                fields.activate,
+                Target::Role { .. } | Target::DialogButton(_)
+            ) {
+                return Err("activate takes a role target or a dialog_button".to_owned());
             }
             Ok(Command::Activate {
                 target: fields.activate,
@@ -768,7 +792,9 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
             let fields: RememberFields = serde_json::from_value(fields).map_err(invalid)?;
             if matches!(fields.remember, Target::Field(Some(_))) {
                 return Err(
-                    "remember keeps the focused field, {\"field\":true}, or a box".to_owned(),
+                    "remember keeps the focused field, {\"field\":true} with an optional \
+                     within, or a box"
+                        .to_owned(),
                 );
             }
             if fields.name.is_empty() {
@@ -998,6 +1024,7 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
             Ok(Command::Expect {
                 predicates,
                 message: fields.message,
+                timeout: fields.timeout_ms.map(Duration::from_millis),
             })
         }
         _ => {
@@ -1206,7 +1233,7 @@ impl<'de> Deserialize<'de> for At {
 }
 
 /// The target kinds, each named by the one key that selects it.
-pub(crate) const TARGET_KINDS: [&str; 21] = [
+pub(crate) const TARGET_KINDS: [&str; 22] = [
     "entry",
     "result",
     "search_result",
@@ -1228,6 +1255,7 @@ pub(crate) const TARGET_KINDS: [&str; 21] = [
     "ancestor",
     "kept",
     "point",
+    "toplevel",
 ];
 
 /// Names a widget the way a person sees it, never by screen position. Each
@@ -1236,11 +1264,13 @@ pub(crate) const TARGET_KINDS: [&str; 21] = [
 pub(crate) enum Target {
     /// An entry row; `entry(name, directory)`.
     Entry(EntryTarget),
-    /// The first showing widget with this AT-SPI role name and accessible
-    /// name, inside `within` when given, as `strata.preview().find(...)`.
+    /// The first showing widget with this AT-SPI role name, and this
+    /// accessible name and description when given, inside `within` when
+    /// given, as `strata.preview().find(...)`.
     Role {
         role: String,
-        name: String,
+        name: Option<String>,
+        description: Option<String>,
         within: Option<Box<Target>>,
     },
     /// The entry list below its last entry; `background_point(directory)`.
@@ -1252,6 +1282,12 @@ pub(crate) enum Target {
     /// The focused editable text, `editable_field()`; or with a name, the
     /// field a `remember` kept under it.
     Field(Option<String>),
+    /// The focused editable text inside another target, as
+    /// `chooser.find(role="text", states={"editable", "focused"})`.
+    FieldWithin(Box<Target>),
+    /// An application window by its title, as `application.find(name=title)`
+    /// finds a floating chooser.
+    Toplevel(String),
     /// A filter result by its path below the filtered directory, as
     /// `test_filter_results.result` finds it.
     Result(String),
@@ -1440,7 +1476,8 @@ impl Target {
         #[serde(deny_unknown_fields)]
         struct RoleFields {
             role: String,
-            name: String,
+            name: Option<String>,
+            description: Option<String>,
             within: Option<Target>,
         }
         #[derive(Deserialize)]
@@ -1496,6 +1533,7 @@ impl Target {
                 Ok(Self::Role {
                     role: fields.role,
                     name: fields.name,
+                    description: fields.description,
                     within: fields.within.map(Box::new),
                 })
             }
@@ -1506,18 +1544,26 @@ impl Target {
                 }
                 Ok(Self::Background { dir: fields.dir })
             }
-            "field" => match value
-                .as_object()
-                .and_then(|object| (object.len() == 1).then(|| object.get("field")).flatten())
-            {
-                Some(Value::Bool(true)) => Ok(Self::Field(None)),
-                Some(Value::String(name)) if !name.is_empty() => {
-                    Ok(Self::Field(Some(name.clone())))
+            "field" => {
+                let object = value.as_object().cloned().unwrap_or_default();
+                match (object.get("field"), object.get("within"), object.len()) {
+                    (Some(Value::Bool(true)), None, 1) => Ok(Self::Field(None)),
+                    (Some(Value::Bool(true)), Some(within), 2) => {
+                        serde_json::from_value(within.clone())
+                            .map(|within| Self::FieldWithin(Box::new(within)))
+                            .map_err(invalid)
+                    }
+                    (Some(Value::String(name)), None, 1) if !name.is_empty() => {
+                        Ok(Self::Field(Some(name.clone())))
+                    }
+                    _ => Err(
+                        "invalid field target: field is true, with an optional within, \
+                         or the name a remember gave it"
+                            .to_owned(),
+                    ),
                 }
-                _ => Err(
-                    "invalid field target: field is true or the name a remember gave it".to_owned(),
-                ),
-            },
+            }
+            "toplevel" => label(value).map(Self::Toplevel),
             "result" => label(value).map(Self::Result),
             "pane" => directory(value).map(|dir| Self::Pane { dir }),
             "viewport" => directory(value).map(|dir| Self::Viewport { dir }),
@@ -1598,19 +1644,30 @@ impl Target {
             Self::Role {
                 role,
                 name,
-                within: None,
-            } => json!({ "role": role, "name": name }),
-            Self::Role {
-                role,
-                name,
-                within: Some(within),
-            } => json!({ "role": role, "name": name, "within": within.to_json() }),
+                description,
+                within,
+            } => {
+                let mut object = Map::new();
+                object.insert("role".to_owned(), json!(role));
+                if let Some(name) = name {
+                    object.insert("name".to_owned(), json!(name));
+                }
+                if let Some(description) = description {
+                    object.insert("description".to_owned(), json!(description));
+                }
+                if let Some(within) = within {
+                    object.insert("within".to_owned(), within.to_json());
+                }
+                Value::Object(object)
+            }
             Self::Background { dir: None } => json!({ "background": true }),
             Self::Background { dir } => json!({ "background": true, "dir": dir }),
             Self::Pane { dir } => json!({ "pane": dir }),
             Self::Viewport { dir } => json!({ "viewport": dir }),
             Self::Field(None) => json!({ "field": true }),
             Self::Field(Some(name)) => json!({ "field": name }),
+            Self::FieldWithin(within) => json!({ "field": true, "within": within.to_json() }),
+            Self::Toplevel(title) => json!({ "toplevel": title }),
             Self::Result(path) => json!({ "result": path }),
             Self::Sidebar(name) => json!({ "sidebar": name }),
             Self::Header(name) => json!({ "header": name }),
@@ -1709,6 +1766,11 @@ pub(crate) enum Accessor {
     /// `of`'s box as Python prints `node.screen_bounds()`, for a message:
     /// `Bounds(x=0, y=0, width=10, height=10)`.
     Bounds,
+    /// How many editable text fields are on screen,
+    /// `len(window.find_all(role="text", states={"editable"}))`.
+    EditableFields,
+    /// `menu_items()`: the open menu's items, empty while none is open.
+    MenuItems,
 }
 
 impl Accessor {
@@ -1736,6 +1798,7 @@ impl Accessor {
                 | Self::AllSelected
                 | Self::Matches
                 | Self::Visible
+                | Self::MenuItems
         )
     }
 }
@@ -1834,6 +1897,86 @@ pub(crate) enum Check {
     /// Any accessible name or description of any application window
     /// mentions one of these, lower-cased, as `strata.diagnostics().lower()`.
     DiagnosticsMention(Vec<String>),
+    /// Holds when every one of the predicates holds.
+    All(Vec<Predicate>),
+    /// How many editable text fields are on screen,
+    /// `len(window.find_all(role="text", states={"editable"}))`.
+    EditableFields(usize),
+    /// A target's accessible description, `node.description == text`.
+    Description(DescriptionCheck),
+    /// Text in a target's subtree: a name or description containing `text`,
+    /// as `text in node.dump()`, or `words` in some widget's name and text
+    /// with any run of whitespace between them, as `re.search(r"a\s+b", ...)`.
+    Mentions(MentionCheck),
+    /// A target is presented, perhaps scrolled away or not yet allocated, as
+    /// `window.find(..., rendered=False) is not None`.
+    Presented(Target),
+    /// Whether a path exists, read by the process itself so it can join an
+    /// `any` or `all` with window state; the path must be absolute.
+    File(FileCheck),
+    /// The name of the first focused widget on screen, `strata.focused_node()`;
+    /// null when nothing holds focus.
+    FocusedWidget(Option<String>),
+    /// A target's box has width and height and lies inside another's, on
+    /// both axes or, with `axis`, on that one alone.
+    Inside(InsideCheck),
+    /// A field starts at or right of a pane's left edge (or the window's,
+    /// when the pane begins left of it), is wider than one pixel, and ends
+    /// inside the window, as the narrow-window creation scenario checks.
+    EditorWithinWindow(EditorWindowCheck),
+    /// A target resolves to another widget than the one `remember` kept
+    /// under `since`, as a listing's reload rebuilds its rows.
+    Replaced(Replaced),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Replaced {
+    pub(crate) target: Target,
+    pub(crate) since: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct DescriptionCheck {
+    pub(crate) target: Target,
+    pub(crate) text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MentionCheck {
+    pub(crate) target: Target,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) words: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FileCheck {
+    pub(crate) path: String,
+    pub(crate) exists: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct InsideCheck {
+    pub(crate) target: Target,
+    pub(crate) of: Target,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) axis: Option<PointAxis>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct EditorWindowCheck {
+    /// The field a `remember` kept under this name.
+    pub(crate) of: String,
+    /// The pane, the deepest without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) pane: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -1964,8 +2107,19 @@ impl Check {
             | Self::Repainted(_)
             | Self::ContrastBelow(_)
             | Self::Elapsed(_)
-            | Self::DiagnosticsMention(_) => true,
-            Self::Any(predicates) => predicates.iter().any(|predicate| predicate.check.is_live()),
+            | Self::DiagnosticsMention(_)
+            | Self::EditableFields(_)
+            | Self::Description(_)
+            | Self::Mentions(_)
+            | Self::Presented(_)
+            | Self::File(_)
+            | Self::FocusedWidget(_)
+            | Self::Inside(_)
+            | Self::EditorWithinWindow(_)
+            | Self::Replaced(_) => true,
+            Self::Any(predicates) | Self::All(predicates) => {
+                predicates.iter().any(|predicate| predicate.check.is_live())
+            }
             Self::Not(predicate) => predicate.check.is_live(),
             _ => false,
         }
@@ -2209,7 +2363,7 @@ pub(crate) enum Direction {
 #[serde(untagged)]
 pub(crate) enum Names {
     Exactly(Vec<String>),
-    Including(NameFilter),
+    Including(Box<NameFilter>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -2241,6 +2395,10 @@ pub(crate) struct NameFilter {
     /// `(name in selected) == (name not in initial)`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) toggled: Option<Toggled>,
+    /// Each is listed, first occurrences in this order, as
+    /// `positions = [items.index(a) for a in expected]; positions == sorted(positions)`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) in_order: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -2278,9 +2436,19 @@ impl Names {
                             .iter()
                             .all(|name| actual.contains(name) != toggled.against.contains(name))
                     })
+                    && in_order(actual, &filter.in_order)
             }
         }
     }
+}
+
+/// Every name is listed and their first occurrences come in this order.
+fn in_order(actual: &[String], expected: &[String]) -> bool {
+    let positions: Option<Vec<usize>> = expected
+        .iter()
+        .map(|name| actual.iter().position(|item| item == name))
+        .collect();
+    positions.is_some_and(|positions| positions.is_sorted())
 }
 
 impl<'de> Deserialize<'de> for Predicate {
@@ -2308,6 +2476,25 @@ impl<'de> Deserialize<'de> for Predicate {
             Check::EditorWithinViewport(field) => Some(field.clone()),
             _ => None,
         };
+        if let Check::All(predicates) = &check
+            && predicates.is_empty()
+        {
+            return Err(serde::de::Error::custom("all takes at least one predicate"));
+        }
+        if let Check::Mentions(mention) = &check
+            && mention.text.is_some() == mention.words.is_some()
+        {
+            return Err(serde::de::Error::custom(
+                "mentions takes exactly one of text and words",
+            ));
+        }
+        if let Check::File(file) = &check
+            && !file.path.starts_with('/')
+        {
+            return Err(serde::de::Error::custom(
+                "file takes an absolute path, such as $fixture/todo.txt",
+            ));
+        }
         if field.is_some_and(|field| field.of.is_some() && field.name.is_some()) {
             return Err(serde::de::Error::custom(
                 "a field is either remembered (of) or found by name, not both",

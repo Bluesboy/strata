@@ -11,7 +11,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::{
-    protocol::{Check, Failure, FieldCheck, Predicate, Presence},
+    protocol::{Check, Failure, FieldCheck, PointAxis, Predicate, Presence},
     targets,
 };
 use crate::ui::accessibility_qa::{self as names, Mark};
@@ -95,6 +95,35 @@ pub(crate) fn field_matches(check: &FieldCheck, field: Option<&FieldState>) -> b
 pub(crate) fn within_viewport(editor: [i64; 4], pane_x: i64, window_width: i64) -> bool {
     let [x, _, width, height] = editor;
     height > 0 && pane_x <= x && x < window_width && 0 < width && width <= window_width - pane_x
+}
+
+/// The narrow-window creation check: the editor is wider than one pixel,
+/// starts at or right of `max(pane_x, 0)`, and ends inside the window.
+/// Boxes are `[x, y, width, height]` in window coordinates.
+pub(crate) fn within_window(editor: [i64; 4], pane_x: i64, window_width: i64) -> bool {
+    let [x, _, width, _] = editor;
+    width > 1 && x >= pane_x.max(0) && x + width <= window_width
+}
+
+/// A box with width and height inside another, on both axes or one.
+pub(crate) fn inside(inner: [i64; 4], outer: [i64; 4], axis: Option<PointAxis>) -> bool {
+    let [x, y, width, height] = inner;
+    let [outer_x, outer_y, outer_width, outer_height] = outer;
+    let across = x >= outer_x && x + width <= outer_x + outer_width;
+    let down = y >= outer_y && y + height <= outer_y + outer_height;
+    width > 0
+        && height > 0
+        && match axis {
+            None => across && down,
+            Some(PointAxis::X) => across,
+            Some(PointAxis::Y) => down,
+        }
+}
+
+/// Every run of whitespace as one space, so `"doesn't support Trash"`
+/// matches as `re.search(r"doesn't\s+support\s+Trash", ...)` would.
+pub(crate) fn collapse_whitespace(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// `on_screen(node)`: a box `[x, y, width, height]` with height, inside the
@@ -328,7 +357,16 @@ impl Observation {
             | Check::Repainted(_)
             | Check::ContrastBelow(_)
             | Check::Elapsed(_)
-            | Check::DiagnosticsMention(_) => (false, json!("needs the live window")),
+            | Check::DiagnosticsMention(_)
+            | Check::EditableFields(_)
+            | Check::Description(_)
+            | Check::Mentions(_)
+            | Check::Presented(_)
+            | Check::File(_)
+            | Check::FocusedWidget(_)
+            | Check::Inside(_)
+            | Check::EditorWithinWindow(_)
+            | Check::Replaced(_) => (false, json!("needs the live window")),
             Check::Not(inner) => match self.evaluate(inner) {
                 Ok(()) => (false, json!("the negated predicate holds")),
                 Err(failure) => (true, failure.actual),
@@ -345,6 +383,21 @@ impl Observation {
                     predicates
                         .iter()
                         .any(|predicate| self.evaluate(predicate).is_ok()),
+                    json!(actual),
+                )
+            }
+            Check::All(predicates) => {
+                let actual: Vec<Value> = predicates
+                    .iter()
+                    .map(|predicate| match self.evaluate(predicate) {
+                        Ok(()) => json!(true),
+                        Err(failure) => failure.actual,
+                    })
+                    .collect();
+                (
+                    predicates
+                        .iter()
+                        .all(|predicate| self.evaluate(predicate).is_ok()),
                     json!(actual),
                 )
             }

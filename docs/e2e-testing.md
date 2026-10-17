@@ -641,8 +641,12 @@ process is ready, so key names always mean US key positions. Optional `variants`
 run the file again with their own `prefs`, `layout`, `modes`, `vars`, and
 `twin`. In a step, `$name` is replaced by a variable; the built-ins are `$root`
 (the fixture directory's name, which is also its pane's), `$fixture` (its
-absolute path), `$home` and `$data` (the run's HOME and XDG data directory),
-`$view` (`Columns`, `Icons`, `List`), and `$mode`. An optional `tree` names
+absolute path), `$home`, `$data`, and `$config` (the run's HOME and XDG data
+and config directories), `$view` (`Columns`, `Icons`, `List`), and `$mode`.
+An optional `setup` lists `fs` actions taken after the tree is written and
+before the launch, as a twin's fixture writes an executable into the tree or
+desktop entries and actions under `$data` and `$config` before `strata`
+starts. An optional `tree` names
 a manifest tree or writes one out, where a name such as `{000..199}.txt` stands
 for one zero-padded file per number whose text has `{}` replaced by the number;
 `images` (`{"beta/thumb.png":{"width":64,"height":64,"rgb":[230,40,60]}}`)
@@ -657,9 +661,13 @@ both reject any other key.
 Every later line is one step; a step with `"modes":["icons","list"]` runs only
 in those views, which is how a scenario mirrors a twin's `if mode == ...`; a step
 with `"variants":["row-space"]` runs only in those header variants, as a twin's
-`if target == ...`; and a step with `"when":PREDICATE` runs only if the
+`if target == ...`; a step with `"when":PREDICATE` runs only if the
 predicate holds just before it (the runner asks the process with
-`{"holds":PREDICATE}`), which mirrors a twin's `if node.has_state(...)`.
+`{"holds":PREDICATE}`), which mirrors a twin's `if node.has_state(...)`; and a
+step with `"if":"returned"` or `"unless":"returned"` runs only if an earlier
+`expect` kept as `"as":"returned"` held, or did not, which mirrors a twin that
+collects failures and recovers, as `if _focus_returned(...)` and
+`except TreeTimeout: failures.append(...)` do.
 A `note` keeps what an accessor reads, as a twin keeps
 `names = strata.entry_names()`: later steps say `$names`, which becomes the
 value itself where a string is exactly `$names` (so a list stays a list) and
@@ -675,13 +683,13 @@ fails the scenario before it runs.
 | `{"select":{"entry":"readme.md"}}` | process | clicks until the entry is selected, as `select_entry` does |
 | `{"select_with_keyboard":"todo.txt","message":"..."}` | process | `select_entry_with_keyboard`: Home, then Down (Right in Icons) until the entry has focus |
 | `{"open_menu":TARGET,"until":PREDICATE,"message":"..."}` | process | `open_appearance_menu`: clicks, and clicks again each second the menu stays closed while the target is not checked |
-| `{"activate":{"role":"toggle button","name":"..."},"message":"..."}` | process | `Node.activate`: the default action, no pointer input; the control may be scrolled away |
+| `{"activate":{"role":"toggle button","name":"..."},"message":"..."}` | process | `Node.activate`: the default action, no pointer input; a role target without `within` may be scrolled away; one with `within`, or a `{"dialog_button":"Close dialog"}`, is looked up on screen first |
 | `{"holds":PREDICATE}` | process | `true` or `false` in `result`, never a failure |
-| `{"remember":{"field":true},"as":"filter"}` | process | keeps the focused field, as a twin keeps `field = strata.editable_field()`; any other target keeps its box, for `left_bound` and `moved` |
-| `{"note":"entries","dir":"$root","as":"names"}` | process | an accessor's value for later `$names`: `directory`, `pane`, `panes`, `entries`, `selected`, `all_selected`, `matches`, `focused`, `focused_pane`, `visible` (the rows wholly inside the pane's scroll viewport, `_visible_entries`); `from`/`through` slice a list as `names[names.index(a):names.index(b) + 1]`, then `"middle":3` keeps `names[len // 2:len // 2 + 3]`, `"plus":["todo.txt"]` makes it `sorted(set(names) \| {...})`, `"sorted":true` sorts it, and `"pick":-1` keeps one name, `names[-1]`; `bounds` with `"of":TARGET` is its box as Python prints `screen_bounds()`, for a message; `"until_found":true` (with `message`, `timeout_ms`) polls until it is not null, as `strata.wait(accessor)` returns it; `middle_visible` with `unless_first` is the reversing-scroll scenario's `middle_entry`; `scroll_target` with `"of":TARGET` is the pane's scroll value plus `max(of.y + of.height - viewport.y + 1, 1)` |
+| `{"remember":{"field":true},"as":"filter"}` | process | keeps the focused field, as a twin keeps `field = strata.editable_field()`; any other target keeps its box, for `left_bound` and `moved`, and its widget, for `replaced`, apart from the fields, so a field lookup never resolves it |
+| `{"note":"entries","dir":"$root","as":"names"}` | process | an accessor's value for later `$names`: `directory`, `pane`, `panes`, `entries`, `selected`, `all_selected`, `matches`, `focused`, `focused_pane`, `visible` (the rows wholly inside the pane's scroll viewport, `_visible_entries`), `menu_items` (the open menu's items, empty with none), `editable_fields` (how many editable text fields are on screen, a number); `from`/`through` slice a list as `names[names.index(a):names.index(b) + 1]`, then `"middle":3` keeps `names[len // 2:len // 2 + 3]`, `"plus":["todo.txt"]` makes it `sorted(set(names) \| {...})`, `"sorted":true` sorts it, and `"pick":-1` keeps one name, `names[-1]`; `bounds` with `"of":TARGET` is its box as Python prints `screen_bounds()`, for a message; `"until_found":true` (with `message`, `timeout_ms`) polls until it is not null, as `strata.wait(accessor)` returns it; `middle_visible` with `unless_first` is the reversing-scroll scenario's `middle_entry`; `scroll_target` with `"of":TARGET` is the pane's scroll value plus `max(of.y + of.height - viewport.y + 1, 1)` |
 | `{"increment":"first","as":"next"}` | runner | a noted name with its trailing number one higher, `f"folder-{n + 1:03}"` |
 | `{"slice":"rows","middle":3,"pick":-1,"as":"last"}` | runner | part of a noted list, so one snapshot serves several values as a twin reuses `rows`: `middle` then `pick`, as a note shapes a list |
-| `{"keys_until":PREDICATE,"keys":["Home","Left"],"times":2}` | process | presses the keys in turn for at most `times` rounds, stopping once the predicate holds right after a round, as `for _ in range(2): ...; if node.has_state(...): break` |
+| `{"keys_until":PREDICATE,"keys":["Home","Left"],"times":2}` | process | presses the keys in turn for at most `times` rounds, stopping once the predicate holds right after a round, as `for _ in range(2): ...; if node.has_state(...): break`; `"check_first":true` checks before each round instead, as `for _ in range(30): if ...: break; press(...)`, and `times` may be a noted list, whose length it then is, as `for _ in strata.menu_items():` |
 | `{"move":TARGET,"at":[...]}` | process | `pointer.move_to` |
 | `{"move_by":[2,0]}` | process | `pointer.move_to` the pointer's own position plus an offset |
 | `{"wheel":TARGET,"clicks":3,"direction":"down","at":[...]}` | process | `pointer.scroll` |
@@ -699,7 +707,7 @@ fails the scenario before it runs.
 | `{"resize":{"width":420,"height":300}}` | process | `resize_surface` on the main window; without `height`, its current height |
 | `{"settle":TARGET,"timeout_ms":15000,"as":"entered"}` | process | `strata.settle`: waits for the bounds to repeat three polls and remembers them, under `as` too when given |
 | `{"wait":PREDICATE,"timeout_ms":15000,"message":"...","samples":10}` | process | stops the run on timeout, with the widget tree; `samples` polls in a row must hold, as a twin's steady-sample condition (both poll about every 50 ms, `tree.POLL_INTERVAL`) |
-| `{"expect":[PREDICATE,...],"message":"..."}` | process | reports mismatches and continues; `message` names the twin's assertion message |
+| `{"expect":[PREDICATE,...],"message":"..."}` | process | reports mismatches and continues; `message` names the twin's assertion message; with `timeout_ms` it polls until all hold first, as a twin's `try: strata.wait(..., timeout=4) except TreeTimeout: failures.append(...)`; `"as":"name"` keeps whether it held for a later step's `if` or `unless` |
 | `{"query":"state"}`, `"tree"`, `"prefs"` | process | snapshot, widget tree, or `settings.toml` as JSON in `result` |
 | `{"layout":"ru"}` | runner | `setxkbmap` and a group lock on the run's Xvfb |
 | `{"fs":{"path":"archive/todo.txt","exists":true},"timeout_ms":15000,"message":"..."}` | runner | waits for `exists`, `text`, `names`, `is` (`file`, `dir`, `symlink`), `empty`, or `unchanged` (equal to a remembered listing); `timeout_ms` 0 is a plain assertion |
@@ -708,7 +716,10 @@ fails the scenario before it runs.
 | `{"fs":{"path":"full/{000..179}.txt","write":"{}\n"}}`, `{"fs":{"path":"archive","chmod":"555"}}` | runner | one `write_text` per number of a range, `{}` in the text standing for it; `Path.chmod(0o555)` |
 | `{"fs":{"path":"archive/report.md","copy_of":"documents/report.md"}}`, `"size_of"` | runner | waits until the file has the other file's bytes, or its size |
 | `{"fs":{"path":".","remember_names":"original"}}`, `{"fs":{"path":".","names_from":"original","minus":["todo.txt"],"plus":[...]}}` | runner | keeps `set(fixture.names(path))`; waits until the names are that set less `minus` plus `plus` |
-| `{"fs":{"path":"drop-volume","volume":"/dev/shm"}}` | runner | the cross-volume fixture: a fresh `strata-drop-volume-*` directory in `/dev/shm`, which must lie on another device than the fixture, linked at `path` and removed when the run ends |
+| `{"fs":{"path":"drop-volume","volume":"/dev/shm"}}` | runner | the cross-volume fixture: a fresh `strata-drop-volume-*` directory in `/dev/shm` (`"prefix":"strata-no-trash-"` names it otherwise, and `"with":{"doomed.txt":"doomed"}` writes files into it before it is linked, as a twin's fixture fills its temporary directory before `symlink_to`), which must lie on another device than the fixture, linked at `path` and removed when the run ends, or by `{"fs":{"path":"no-trash","remove_volume":true}}`, which leaves the link dangling as a twin's fixture teardown does before the state dump |
+| `{"fs":{"path":"new file (1)","symlink":"missing"}}`, `{"fs":{"path":"run-me","program":"true"}}` | runner | `Path.symlink_to(target)`; `shutil.copy2(shutil.which("true"), path)`: the program's bytes, mode, and times |
+| `{"fs":{"path":"$config/strata/settings.toml","has":{"contains":["\"$fixture/docs2\""],"lacks":[...]}}}` | runner | waits until the text contains every part and none of the others; an unreadable file contains nothing, as `_settings_has_key` treats an `OSError` |
+| `{"fs":{"path":".","names_without":"clicked"}}`, `{"fs":{"path":"no-trash/doomed.txt","can_trash":false}}` | runner | waits until no name contains the part, as `not any("clicked" in name ...)`; until GIO's `access::can-trash` is that value |
 | `{"screenshot":"hover.png"}` | runner | captures the Xvfb root, as a twin's artifact screenshot; saved with the run's artifacts when it keeps them |
 | `{"fs":{"path":"photo.png","image":{"width":1600,"height":900,"rgb":[0,128,0]}}}`, `{"fs":{"path":"sound.wav","ffmpeg":["-f","lavfi",...]}}` | runner | a solid-colour PNG, written in place in one write as PIL's buffered save writes it (written in pieces, the listing would see it grow and replace its row), or `ffmpeg -v error -y <ffmpeg...> <path>` |
 
@@ -732,7 +743,8 @@ allocation lands, which the slower Python lookups never see.
 | `{"entry":"todo.txt","dir":"archive"}` | `entry(name, directory)`; any pane without `dir` |
 | `{"result":"beta/match-note.txt"}` | `test_filter_results.result`: a filter result by its path |
 | `{"role":"check menu item","name":"Folders first"}` | `window.find(role=..., name=...)` |
-| `{"role":"button","name":"Next video","within":{"preview":true}}` | `strata.preview().find(role=..., name=...)`: the search starts at another target |
+| `{"role":"button","name":"Next video","within":{"preview":true}}` | `strata.preview().find(role=..., name=...)`: the search starts at another target; without `name` any name matches, as `entry.find(role="panel")`, and `description` must match too when given |
+| `{"toplevel":"Copy to"}`, `{"field":true,"within":{"toplevel":"Copy to"}}` | `destination_chooser(title)`: an application window by its title, outside the browser window; `chooser.find(role="text", states={"editable", "focused"})`, which `remember` keeps as a field |
 | `{"sidebar":"Home"}`, `{"header":"Choose sort field"}` | `sidebar_button`, `header_button` |
 | `{"menu_item":"New File"}` | `menu_item`: in the open menu if there is one |
 | `{"dialog_button":"Close"}` | `dialog_button` |
@@ -759,7 +771,8 @@ outside the target, or `"end-1/6"` for a share back from the far edge; without
 it the pointer aims at the centre. A share has no lower bound: the row-padding
 twin's `max(1, height // 6)` equals `"1/6"` for every row at least 6 pixels
 tall, and the scenarios only aim at rows taller than that. Role names are AT-SPI's, with `push button` spelled
-`button`; names are the labels `src/ui/accessibility.rs` records (an entry row's
+`button`, a plain box `panel`, and a group `grouping`, as GTK's AT-SPI bridge
+reports them; names are the labels `src/ui/accessibility.rs` records (an entry row's
 is its list item's, and `set_labelled_by` joins its labels' names), a label's
 own text, or children's names for buttons and menu items; a menu button's inner
 toggle takes the menu button's name, as GTK names it. Tooltips never name a
@@ -806,13 +819,25 @@ Predicates mirror the page object's accessors:
 | `{"contrast_below":{"of":"dragging","to":"resting","share":0.8}}` | `dragging_contrast < resting_contrast * 0.8` for two `measure_text` results |
 | `{"elapsed":{"since":"released","ms":600}}` | `time.monotonic() - released >= 0.6` |
 | `{"diagnostics_mention":["could not","permission denied"]}` | any of them in `strata.diagnostics().lower()`: the accessible names and descriptions of every application window |
+| `{"all":[PREDICATE,...]}` | `a and b` |
+| `{"editable_fields":1}` | `len(window.find_all(role="text", states={"editable"}))` |
+| `{"description":{"target":{"menu_item":"Copy"},"text":"Ctrl+C"}}` | `node.description == "Ctrl+C"` |
+| `{"mentions":{"target":{"dialog":true},"text":"Customize Folder"}}`, `"words":"doesn't support Trash"` | `"Customize Folder" in dialog.dump()`: some name or description in the subtree contains it; with `words`, some rendered widget's `f"{name} {text}"` has them with any whitespace between, as `re.search(r"doesn't\s+support\s+Trash", ...)` |
+| `{"presented":{"role":"label","name":"Ctrl+Alt+M"}}` | `window.find(..., rendered=False) is not None` |
+| `{"file":{"path":"$fixture/documents/notes.txt","exists":false}}` | whether the path exists without following a final symlink, as the runner's `fs` `exists` checks it; read by the process so `any` and `all` can join it with window state |
+| `{"focused_widget":"Custom color…"}` | `strata.focused_node().name`; null when nothing has focus |
+| `{"inside":{"target":TARGET,"of":{"container":"rename-target"},"axis":"y"}}` | the target has width and height and lies inside the other's box, on both axes or just `axis` |
+| `{"editor_within_window":{"of":"rename","pane":"$root"}}` | the narrow-window creation check: a remembered field wider than one pixel, starting at or right of `max(pane.x, 0)` and ending inside the window |
+| `{"replaced":{"target":{"entry":"rename-target"},"since":"listed"}}` | the target now resolves to another widget than the one `remember` kept under `since`, as a reload rebuilds a listing's rows; for the QA-only waits in "QA-only waits" |
 
 `NAMES` is an exact list in visual order or
 `{"contains":[...],"excludes":[...],"count":4,"at_least":2,"ends_with":[...]}`,
 with `"first"` (`names[0] == ...`), `"first_above"` (`names[0] > "010.txt"`),
 `"any_from"` (some name `>= "040.txt"`), and
 `"toggled":{"names":[...],"against":[...]}` (each listed exactly when
-`against` does not list it), comparing names as Python compares strings;
+`against` does not list it), and `"in_order":[...]` (each listed, first
+occurrences in that order, as `assert_menu_order`), comparing names as Python
+compares strings;
 `panes` takes one too. `moved` takes `"since":"entered"` to compare with a box
 `settle` or `remember` kept under that name, and with direction `none`,
 `"y_within":2` allows that much vertical drift and ignores the rest, as
@@ -865,6 +890,11 @@ warning or critical in `criticals` fails the run. `app` has exactly these keys:
   `{"name","text","caret","selection","focused"}` (`selection` is
   `[start, end]` or null), or null.
 - `matches`: `matches()` for the deepest pane.
+
+The snapshot, every target, and the input log's origin belong to the browser
+window the run started with, as `strata.window` is the frame the Python harness
+found first; a floating chooser, which becomes the active window while it is
+open, is reached through a `toplevel` target.
 
 Final-state parity compares `view_mode`, `directory`, `panes`, `focused`,
 `focused_pane`, and `dialog`, which the Python harness can read through AT-SPI
@@ -994,9 +1024,45 @@ pace guarantees, and is listed here:
   the cursor mirrors before Ctrl+V. Over 24 twin runs the pasted file always
   ends selected and focused in that column.
 
-Both expose an app race: Ctrl+D or Ctrl+V within 75 ms of the arrow key that
-moved the cursor onto a folder leaves a stale mirrored column, and a paste
+- `escape-preserves-name-remaining` (existing-folder),
+  `valid-name-commits-remaining` (enter- and sidebar-existing-folder in
+  Columns), `rename-and-undo-restores` (folder), and
+  `repeated-renames-select-stem` (folder in Columns): wait for the folder's
+  column the cursor mirrors before F2. Over 24 sequential twin runs each
+  ends in the same state every time, with that column open beside the folder
+  wherever the twin stays in its parent (the sidebar case ends in Home).
+
+These expose an app race: Ctrl+D, Ctrl+V, or F2 within 75 ms of the arrow key
+that moved the cursor onto a folder leaves a stale mirrored column, and a paste
 then leaves the pasted file neither selected nor focused.
+
+- `rename-and-undo-restores`: settles the renamed row before Ctrl+Z. The
+  directory monitor can list the new name, and the listing select and focus
+  it, before the rename's own completion publishes its undo and ends the
+  operation; a Ctrl+Z in between is dropped. The app shows nothing a run can
+  read to tell that the undo is ready (Undo has no menu item or action
+  state), so the wait is the settle. Under the same parallel load, 3 of 60
+  QA runs without it lost the Ctrl+Z and none of 60 with it did (6 of 116
+  and 0 of 84 over every probe). Over 24 twin runs of both kinds Ctrl+Z
+  always restored the original.
+- `committed-rename-stays-visible`, `airy-committed-rename-visible`,
+  `visible-rename-preserves-scroll`, `click-away-rename-respects-navigation`,
+  and `visible-created-item-preserves-scroll`: wait for F5's reload to replace
+  the `rename-target` row before opening it. The row is remembered after it
+  is listed and just before F5; in 48 probe runs that waited 1.5 s instead of
+  pressing F5, the row was never replaced, so the replacement the wait sees
+  is F5's. The app cancels a click on a row the listing replaces mid-press;
+  QA's pace reaches that window, and over 24 sequential runs of every case
+  the twins' never did.
+- `new-folder-with-selection-groups` (Columns): waits for the renamed
+  `grouped` row to count its two items before clicking it. The row first
+  shows the optimistic rename, and a click on it before the listing catches
+  up leaves focus in the parent column (16 of 24 QA runs without the wait,
+  none of 36 with it); over 24 twin runs the click always focused the
+  folder's column.
+- `tenxer-d-without-trash-confirms`: waits for the `no-trash` link to be
+  listed before walking the cursor onto it, which over 24 twin runs the
+  fixture's own setup time always allowed.
 
 ### Nondeterministic final state
 

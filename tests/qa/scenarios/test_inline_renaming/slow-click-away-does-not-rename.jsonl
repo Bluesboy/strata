@@ -1,0 +1,7 @@
+{"scenario":"slow-click-away-does-not-rename","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_inline_renaming.py::test_slow_click_away_from_the_name_does_not_rename[$target-$mode]","mutation":null,"known_bug":null,"variants":[{"id":"icon","vars":{"target":"icon"}},{"id":"name-padding","modes":["columns","list"],"vars":{"target":"name-padding"}}]}
+{"select_with_keyboard":"todo.txt"}
+{"click":{"entry":"todo.txt","part":"icon"},"variants":["icon"]}
+{"click":{"entry":"todo.txt","part":"label"},"at":["2/3","50%"],"variants":["name-padding"]}
+{"sleep":600}
+{"expect":{"absent":{"role":"text","name":"Rename"}}}
+{"expect":{"selected":["todo.txt"]}}

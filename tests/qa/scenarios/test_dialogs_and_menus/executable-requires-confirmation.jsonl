@@ -1,0 +1,10 @@
+{"scenario":"executable-requires-confirmation","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_dialogs_and_menus.py::test_executable_without_handler_requires_confirmation","mutation":null,"known_bug":null,"setup":[{"fs":{"path":"run-me","program":"true"}}]}
+{"click":{"entry":"run-me"},"count":2}
+{"wait":{"dialog":true},"message":"a dialog to appear"}
+{"expect":{"mentions":{"target":{"dialog":true},"text":"Run this program?"}}}
+{"wait":{"state":{"target":{"dialog_button":"Run"},"focused":true}},"message":"Run to receive initial focus"}
+{"activate":{"dialog_button":"Close dialog"}}
+{"wait":{"dialog":null},"message":"the close button to dismiss the dialog"}
+{"click":{"entry":"run-me"},"count":2}
+{"click":{"dialog_button":"Run"}}
+{"wait":{"dialog":null},"message":"the confirmed program to launch"}

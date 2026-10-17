@@ -784,6 +784,7 @@ pub fn build_layer(
     let close = gtk::Button::builder()
         .tooltip_text(crate::i18n::tr("Close settings"))
         .build();
+    super::accessibility::set_own_label(&close, &crate::i18n::tr("Close settings"));
     close.set_child(Some(&crate::assets::primary_icon(icons::X, 18)));
     close.add_css_class("settings-close");
     close.set_valign(gtk::Align::Center);
