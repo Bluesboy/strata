@@ -23,7 +23,7 @@ from qa_parity import (
     parse_qa_log,
     pass_parity,
     qa_signature,
-    shard_patches,
+    shard_units,
     signature_parity,
     touches_parity,
 )
@@ -189,15 +189,37 @@ class StateParityTests(unittest.TestCase):
 
 
 class CiShardingTests(unittest.TestCase):
-    def test_every_scenario_mutation_lands_in_exactly_one_shard(self):
-        patches = qa_parity.ci_patches()
-        self.assertEqual(len(patches), len(qa_parity.scenarios()))
-        for shards in (1, 3, qa_parity.CI_SHARDS, len(patches) + 5):
+    def test_every_scenario_lands_in_exactly_one_shard_by_its_patch_or_name(self):
+        units = qa_parity.ci_units()
+        found = qa_parity.scenarios()
+        self.assertEqual(sorted(units), sorted(scenario.mutation or scenario.name for scenario in found))
+        for shards in (1, 3, qa_parity.CI_SHARDS, len(units) + 5):
             with self.subTest(shards=shards):
-                assigned = shard_patches(patches, shards)
-                self.assertEqual(len(assigned), min(shards, len(patches)))
+                assigned = shard_units(units, shards)
+                self.assertEqual(len(assigned), min(shards, len(units)))
                 self.assertTrue(all(assigned))
-                self.assertEqual(sorted(sum(assigned, [])), patches)
+                self.assertEqual(sorted(sum(assigned, [])), units)
+
+    def test_the_plan_accepts_scenarios_without_a_mutation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scenarios, mutations = root / "scenarios", root / "mutations"
+            scenarios.mkdir()
+            mutations.mkdir()
+            (scenarios / "alpha.jsonl").write_text(json.dumps({"scenario": "alpha", "mutation": "break-alpha"}) + "\n")
+            (scenarios / "beta.jsonl").write_text(json.dumps({"scenario": "beta", "mutation": None}) + "\n")
+            (mutations / "break-alpha.patch").write_text("+++ b/src/main.rs\n")
+            with mock.patch.object(qa_parity, "SCENARIOS", scenarios), \
+                    mock.patch.object(qa_parity, "MUTATIONS", mutations), \
+                    mock.patch.object(qa_parity, "CI_SHARDS", 1):
+                self.assertEqual(qa_parity.ci_units(), ["beta", "break-alpha"])
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    self.assertEqual(qa_parity.ci_plan(None), 0)
+                self.assertIn('"names":"beta break-alpha"', output.getvalue())
+                (scenarios / "break-alpha.jsonl").write_text(json.dumps({"scenario": "break-alpha", "mutation": None}) + "\n")
+                with self.assertRaises(SystemExit):
+                    qa_parity.ci_units()
 
     def test_pull_requests_run_parity_only_when_either_twin_can_change(self):
         cases = [
@@ -215,6 +237,20 @@ class CiShardingTests(unittest.TestCase):
                 self.assertEqual(touches_parity(paths), expected)
 
 
+class ScenarioChoiceTests(unittest.TestCase):
+    def test_a_name_is_a_mutation_patch_or_else_a_scenario(self):
+        with tempfile.TemporaryDirectory() as directory:
+            scenarios = Path(directory)
+            (scenarios / "alpha.jsonl").write_text(json.dumps({"scenario": "alpha", "mutation": "break-alpha"}) + "\n")
+            (scenarios / "beta.jsonl").write_text(json.dumps({"scenario": "beta", "mutation": None}) + "\n")
+            with mock.patch.object(qa_parity, "SCENARIOS", scenarios):
+                chosen = qa_parity.chosen_scenarios(["break-alpha", "beta", "alpha"])
+                self.assertEqual([(s.name, s.unit) for s in chosen],
+                                 [("alpha", "break-alpha"), ("beta", "beta"), ("alpha", "break-alpha")])
+                with self.assertRaises(SystemExit):
+                    qa_parity.chosen_scenarios(["gamma"])
+
+
 class AggregateTests(unittest.TestCase):
     STATE = {"view_mode": "Columns", "directory": "d", "panes": [], "focused": None,
              "focused_pane": None, "dialog": None}
@@ -229,9 +265,10 @@ class AggregateTests(unittest.TestCase):
         for name in ("alpha", "beta"):
             (scenarios / f"{name}.jsonl").write_text(json.dumps({"scenario": name, "mutation": f"break-{name}"}) + "\n")
             (mutations / f"break-{name}.patch").write_text("+++ b/src/main.rs\n")
+        (scenarios / "gamma.jsonl").write_text(json.dumps({"scenario": "gamma", "mutation": None}) + "\n")
         self.shards = root / "shards"
         for name, value in (("SCENARIOS", scenarios), ("MUTATIONS", mutations),
-                            ("OUTPUT", root / "untouched"), ("CI_SHARDS", 2)):
+                            ("OUTPUT", root / "untouched"), ("CI_SHARDS", 3)):
             patcher = mock.patch.object(qa_parity, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -243,7 +280,7 @@ class AggregateTests(unittest.TestCase):
         quiet.__enter__()
         self.addCleanup(quiet.__exit__, None, None, None)
 
-    def write_shard(self, index, scenario, attempt=1):
+    def write_shard(self, index, scenario, attempt=1, mutated=True):
         tree = self.shards / f"qa-parity-{attempt}-shard-{index}"
         twin = f"tests/e2e/scenarios/test_{scenario}.py::test_{scenario}[columns]"
         stem = qa_parity.node_file_name(twin)
@@ -271,37 +308,43 @@ class AggregateTests(unittest.TestCase):
         for kind, text in (("input", "key 36 down\nkey 36 up\n"), ("state", json.dumps({"app": self.STATE}))):
             (tree / "baseline" / "python" / kind).mkdir()
             (tree / "baseline" / "python" / kind / f"{stem}.{'log' if kind == 'input' else 'json'}").write_text(text)
-        side(tree / "mutations" / f"break-{scenario}", failed=True)
+        if mutated:
+            side(tree / "mutations" / f"break-{scenario}", failed=True)
         (tree / "summary.md").write_text("...\n\n1 of 1 pairs agree (1.5 minutes).\n")
 
     def test_one_verdict_requires_every_planned_shard_to_agree(self):
         self.write_shard(0, "alpha")
+        self.write_shard(1, "beta")
         self.assertEqual(qa_parity.aggregate(self.shards), 1)
         summary = (self.shards / "summary.md").read_text()
-        self.assertIn("1 of 2 pairs agree", summary)
-        self.assertIn("shard 1 uploaded no parity report", summary)
+        self.assertIn("2 of 3 pairs agree", summary)
+        self.assertIn("shard 2 uploaded no parity report", summary)
         self.assertIn("| 0 | break-alpha | 1.5 | agree |", summary)
 
-        self.write_shard(1, "beta")
+        self.write_shard(2, "gamma", mutated=False)
         self.assertEqual(qa_parity.aggregate(self.shards), 0)
         self.assertFalse((self.shards.parent / "untouched").exists())
-        self.assertIn("2 of 2 pairs agree", (self.shards / "summary.md").read_text())
+        summary = (self.shards / "summary.md").read_text()
+        self.assertIn("3 of 3 pairs agree", summary)
+        self.assertIn("| gamma | – | 1 | agree | n/a | n/a | agree | agree |", summary)
 
-        (self.shards / "qa-parity-1-shard-2").mkdir()
+        (self.shards / "qa-parity-1-shard-3").mkdir()
         self.assertEqual(qa_parity.aggregate(self.shards), 1)
         self.assertIn("not in this checkout's shard plan", (self.shards / "summary.md").read_text())
 
     def test_a_shard_that_did_not_finish_fails_even_when_its_reports_agree(self):
         self.write_shard(0, "alpha")
         self.write_shard(1, "beta")
+        self.write_shard(2, "gamma", mutated=False)
         summary = self.shards / "qa-parity-1-shard-1" / "summary.md"
         summary.write_text("Parity did not finish: could not restore src/main.rs\n")
         self.assertEqual(qa_parity.aggregate(self.shards), 1)
-        self.assertIn("2 of 2 pairs agree", (self.shards / "summary.md").read_text())
+        self.assertIn("3 of 3 pairs agree", (self.shards / "summary.md").read_text())
         self.assertIn("DISAGREE: Parity did not finish", (self.shards / "summary.md").read_text())
 
     def test_each_shard_counts_only_its_newest_attempt(self):
         self.write_shard(0, "alpha")
+        self.write_shard(2, "gamma", mutated=False)
         self.write_shard(1, "beta", attempt=1)
         (self.shards / "qa-parity-1-shard-1" / "summary.md").write_text("Parity did not finish: runner lost\n")
         self.write_shard(1, "beta", attempt=2)

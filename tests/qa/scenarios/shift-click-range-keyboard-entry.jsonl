@@ -1,0 +1,10 @@
+{"scenario":"shift-click-range-keyboard-entry","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_selection.py::test_shift_click_ranges_from_the_listing_selected_entry[keyboard-entry-$target-$mode]","mutation":null,"known_bug":null,"variants":[{"id":"content","vars":{"target":"content"}},{"id":"row-space","vars":{"target":"row-space"}}]}
+{"select_with_keyboard":"documents"}
+{"key":"Return"}
+{"wait":{"directory":"documents"},"message":"the browser to be working in 'documents'"}
+{"settle":{"pane":"documents"}}
+{"wait":{"entry":"spreadsheet.csv","dir":"documents"},"message":"the entry 'spreadsheet.csv' in 'documents' to appear"}
+{"click":{"entry":"spreadsheet.csv","dir":"documents","part":"icon"},"at":["start-6","50%"],"mods":["shift"],"modes":["icons"],"variants":["row-space"]}
+{"click":{"entry":"spreadsheet.csv","part":"label","dir":"documents"},"mods":["shift"],"at":[-2,"50%"],"modes":["columns","list"],"variants":["row-space"]}
+{"click":{"entry":"spreadsheet.csv","dir":"documents"},"mods":["shift"],"variants":["content"]}
+{"wait":{"selected":["notes.txt","report.md","spreadsheet.csv"],"dir":"documents"},"message":"the selection to become ['notes.txt', 'report.md', 'spreadsheet.csv']"}

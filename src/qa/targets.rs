@@ -10,7 +10,7 @@ use gtk::{glib, prelude::*};
 
 use super::{
     input::Injector,
-    protocol::{At, FieldRef, Target},
+    protocol::{At, EntryPart, FieldRef, Target},
     state::{self, Scene},
 };
 use crate::ui::accessibility_qa as names;
@@ -115,20 +115,37 @@ pub(crate) fn locate(
                             .unwrap_or_default()
                     ))
                 })?;
-            if aim == Aim::DragOrigin {
-                let icon = presented(&row).into_iter().find(|widget| {
+            let icon = || {
+                presented(&row).into_iter().find(|widget| {
                     role_name(widget) == "image" && state::rendered_bounds(widget).is_some()
-                });
-                let rect = screen_rect(icon.as_ref().unwrap_or(&row), injector)?;
-                return Ok(Located {
-                    widget: row,
-                    rect,
-                    point: rect.centre(),
-                });
+                })
+            };
+            match entry.part {
+                Some(EntryPart::Label) => first_rendered(&row, |widget| {
+                    role_name(widget) == "label" && accessible_name(widget) == entry.entry
+                })
+                .ok_or_else(|| missing(format!("no name label on {:?}", entry.entry)))?,
+                Some(EntryPart::Icon) => {
+                    icon().ok_or_else(|| missing(format!("no icon on {:?}", entry.entry)))?
+                }
+                None if aim == Aim::DragOrigin => {
+                    let rect = screen_rect(icon().as_ref().unwrap_or(&row), injector)?;
+                    return Ok(Located {
+                        widget: row,
+                        rect,
+                        point: rect.centre(),
+                    });
+                }
+                None => row,
             }
-            row
         }
-        Target::Role { role, name } => find(root, role, name)?,
+        Target::Role { role, name, within } => match within {
+            None => find(root, role, name)?,
+            Some(within) => {
+                let scope = locate(window, injector, memory, within, None, Aim::Point)?.widget;
+                find(&scope, role, name)?
+            }
+        },
         Target::Sidebar(name) | Target::Header(name) => find(root, "button", name)?,
         Target::MenuItem(label) => {
             let menu = first_rendered(root, |widget| role_name(widget) == "menu");
@@ -174,6 +191,26 @@ pub(crate) fn locate(
             });
         }
         Target::Background { dir } => return background(&scene, injector, dir.as_deref()),
+        Target::Window { y_of } => {
+            let rect = screen_rect(root, injector)?;
+            let (x, mut y) = rect.point(at);
+            if let Some(other) = y_of {
+                y = locate(window, injector, memory, other, None, Aim::Point)?
+                    .rect
+                    .centre()
+                    .1;
+            }
+            return Ok(Located {
+                widget: root.clone(),
+                rect,
+                point: (x, y),
+            });
+        }
+        Target::Preview => {
+            let label = crate::i18n::tr(crate::ui::PREVIEW_LABEL);
+            first_rendered(root, |widget| accessible_name(widget) == label)
+                .ok_or_else(|| missing("the preview is not open"))?
+        }
         Target::Viewport { dir } => {
             let container = pane(&scene, dir.as_deref())?
                 .container

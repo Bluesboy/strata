@@ -37,6 +37,11 @@ pub(crate) enum Command {
         count: u32,
         modifiers: Vec<Modifier>,
         at: Option<At>,
+        /// A box kept by `remember`: the aim's left edge is never left of its own.
+        left_bound: Option<String>,
+        /// `click_releasing_modifiers_before_up`: the modifiers come up between
+        /// the button's press and release.
+        release_modifiers_first: bool,
     },
     /// Click an entry until it reports itself selected, as `select_entry` does.
     Select(EntryTarget),
@@ -62,15 +67,36 @@ pub(crate) enum Command {
     /// Whether a predicate holds now, as `result`; never a failure. The
     /// runner uses it for a step's `when`.
     Holds(Predicate),
-    /// Keeps the widget a target names now, as a scenario keeps a node in a
-    /// variable; `{"field":"<name>"}` refers to it later.
+    /// Keeps what a target names now, as a scenario keeps a node in a
+    /// variable: a field's widget, which `{"field":"<name>"}` refers to later,
+    /// or any other target's box, which `left_bound` and `moved` refer to.
     Remember {
         target: Target,
         name: String,
     },
+    /// A value read from the window, returned as `result` for the runner to
+    /// keep under `name`, as a twin keeps `names = strata.entry_names()`.
+    Note {
+        value: Accessor,
+        dir: Option<String>,
+        /// Polls until the value is not null, as `strata.wait(accessor)` returns it.
+        wait: Option<Duration>,
+        message: Option<String>,
+        /// For a list: only the part from this name through `through`.
+        from: Option<String>,
+        through: Option<String>,
+        /// For `middle_visible`: no answer while the first visible entry is this one.
+        unless_first: Option<String>,
+    },
     Move {
         target: Target,
         at: Option<At>,
+        left_bound: Option<String>,
+    },
+    /// `Pointer.move_to` the pointer's own position plus an offset.
+    MoveBy {
+        x: i16,
+        y: i16,
     },
     Wheel {
         target: Target,
@@ -82,25 +108,45 @@ pub(crate) enum Command {
     Drag {
         from: Target,
         to: Target,
+        from_at: Option<At>,
+        to_at: Option<At>,
         steps: u32,
         release: bool,
         modifiers: Vec<Modifier>,
+        /// `drag_points(after_press=...)`: checked once right after the press;
+        /// a mismatch lets go of the button and fails the step.
+        after_press: Option<Predicate>,
+        message: Option<String>,
     },
-    /// Lets go of a button a `drag` with `release: false` left held.
+    /// Presses a button where the pointer is, as `connection.button(n, True)`.
+    ButtonDown(u8),
+    /// Lets go of a held button, as `connection.button(n, False)`.
     ButtonUp(u8),
+    /// Sets the first horizontal or vertical scroll bar's value, as
+    /// `Atspi.Value.set_current_value` sets it, with no pointer input.
+    SetScrollbar {
+        orientation: Orientation,
+        value: f64,
+    },
+    /// `time.sleep`: the main loop keeps running.
+    Sleep(Duration),
     Resize {
         width: u16,
         height: u16,
     },
-    /// Waits for a target to stop moving and remembers where it came to rest.
+    /// Waits for a target to stop moving and remembers where it came to rest,
+    /// under `name` when given.
     Settle {
         target: Target,
         timeout: Duration,
+        name: Option<String>,
     },
     Wait {
         predicate: Predicate,
         timeout: Duration,
         message: Option<String>,
+        /// Polls in a row the predicate must hold, as a twin's steady-sample wait.
+        samples: usize,
     },
     /// `message` names the twin's assertion, as a wait's names its `strata.wait`.
     Expect {
@@ -110,7 +156,7 @@ pub(crate) enum Command {
     Query(Query),
 }
 
-pub(crate) const COMMANDS: [&str; 18] = [
+pub(crate) const COMMANDS: [&str; 23] = [
     "key",
     "type",
     "click",
@@ -120,10 +166,15 @@ pub(crate) const COMMANDS: [&str; 18] = [
     "activate",
     "holds",
     "remember",
+    "note",
     "move",
+    "move_by",
     "wheel",
     "drag",
+    "button_down",
     "button_up",
+    "set_scrollbar",
+    "sleep",
     "resize",
     "settle",
     "wait",
@@ -184,6 +235,23 @@ struct RememberFields {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct NoteFields {
+    note: Accessor,
+    /// The runner keeps the result under this name; the process ignores it.
+    #[serde(rename = "as")]
+    name: String,
+    dir: Option<String>,
+    #[serde(default)]
+    until_found: bool,
+    timeout_ms: Option<u64>,
+    message: Option<String>,
+    from: Option<String>,
+    through: Option<String>,
+    unless_first: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ClickFields {
     click: Target,
     #[serde(default = "first_button")]
@@ -193,6 +261,9 @@ struct ClickFields {
     #[serde(default)]
     mods: Vec<String>,
     at: Option<At>,
+    left_bound: Option<String>,
+    #[serde(default)]
+    release_mods_first: bool,
 }
 
 #[derive(Deserialize)]
@@ -207,6 +278,41 @@ struct MoveFields {
     #[serde(rename = "move")]
     target: Target,
     at: Option<At>,
+    left_bound: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MoveByFields {
+    move_by: [i16; 2],
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ButtonDownFields {
+    button_down: u8,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetScrollbarFields {
+    set_scrollbar: Orientation,
+    value: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SleepFields {
+    /// Milliseconds.
+    sleep: u64,
+}
+
+/// A scroll bar's orientation, AT-SPI's `horizontal` or `vertical` state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Orientation {
+    Horizontal,
+    Vertical,
 }
 
 #[derive(Deserialize)]
@@ -240,13 +346,19 @@ struct DragFields {
     release: bool,
     #[serde(default)]
     mods: Vec<String>,
+    after_press: Option<Predicate>,
+    message: Option<String>,
 }
 
+/// An entry `from` without `from_at` starts on its icon, `drag_origin`;
+/// `from_at` and `to_at` aim like a click's `at`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DragEnds {
     from: Target,
     to: Target,
+    from_at: Option<At>,
+    to_at: Option<At>,
 }
 
 #[derive(Deserialize)]
@@ -273,6 +385,8 @@ struct Size {
 struct SettleFields {
     settle: Target,
     timeout_ms: Option<u64>,
+    #[serde(rename = "as")]
+    name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -281,6 +395,8 @@ struct WaitFields {
     wait: Predicate,
     timeout_ms: Option<u64>,
     message: Option<String>,
+    #[serde(default = "one_sample")]
+    samples: usize,
 }
 
 #[derive(Deserialize)]
@@ -297,6 +413,10 @@ struct QueryFields {
 }
 
 fn one() -> u32 {
+    1
+}
+
+fn one_sample() -> usize {
     1
 }
 
@@ -380,7 +500,7 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
         }
         "activate" => {
             let fields: ActivateFields = serde_json::from_value(fields).map_err(invalid)?;
-            if !matches!(fields.activate, Target::Role { .. }) {
+            if !matches!(fields.activate, Target::Role { within: None, .. }) {
                 return Err("activate takes a role target".to_owned());
             }
             Ok(Command::Activate {
@@ -394,8 +514,10 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
         }
         "remember" => {
             let fields: RememberFields = serde_json::from_value(fields).map_err(invalid)?;
-            if !matches!(fields.remember, Target::Field(None)) {
-                return Err("remember keeps the focused field: {\"field\":true}".to_owned());
+            if matches!(fields.remember, Target::Field(Some(_))) {
+                return Err(
+                    "remember keeps the focused field, {\"field\":true}, or a box".to_owned(),
+                );
             }
             if fields.name.is_empty() {
                 return Err("remember needs a name in as".to_owned());
@@ -405,10 +527,47 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
                 name: fields.name,
             })
         }
+        "note" => {
+            let fields: NoteFields = serde_json::from_value(fields).map_err(invalid)?;
+            if fields.name.is_empty() {
+                return Err("note needs a name in as".to_owned());
+            }
+            if fields.dir.is_some() && !fields.note.takes_directory() {
+                return Err(format!(
+                    "dir does not apply to note {:?}",
+                    fields.note.name()
+                ));
+            }
+            if (fields.from.is_some() || fields.through.is_some()) && !fields.note.is_list() {
+                return Err("from and through slice a list".to_owned());
+            }
+            if fields.unless_first.is_some() != (fields.note == Accessor::MiddleVisible) {
+                return Err("unless_first belongs to, and is needed by, middle_visible".to_owned());
+            }
+            if !fields.until_found && (fields.timeout_ms.is_some() || fields.message.is_some()) {
+                return Err("timeout_ms and message apply to a note with until_found".to_owned());
+            }
+            Ok(Command::Note {
+                value: fields.note,
+                dir: fields.dir,
+                wait: fields.until_found.then(|| {
+                    fields
+                        .timeout_ms
+                        .map_or(DEFAULT_WAIT, Duration::from_millis)
+                }),
+                message: fields.message,
+                from: fields.from,
+                through: fields.through,
+                unless_first: fields.unless_first,
+            })
+        }
         "click" => {
             let fields: ClickFields = serde_json::from_value(fields).map_err(invalid)?;
             if !matches!(fields.button, 1 | 3) || !matches!(fields.count, 1 | 2) {
                 return Err("click takes button 1 or 3 and count 1 or 2".to_owned());
+            }
+            if fields.release_mods_first && (fields.count != 1 || fields.mods.is_empty()) {
+                return Err("release_mods_first takes one click with mods".to_owned());
             }
             fields.click.accepts(fields.at.as_ref())?;
             Ok(Command::Click {
@@ -417,6 +576,8 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
                 count: fields.count,
                 modifiers: modifiers(&fields.mods)?,
                 at: fields.at,
+                left_bound: fields.left_bound,
+                release_modifiers_first: fields.release_mods_first,
             })
         }
         "select" => {
@@ -429,7 +590,31 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
             Ok(Command::Move {
                 target: fields.target,
                 at: fields.at,
+                left_bound: fields.left_bound,
             })
+        }
+        "move_by" => {
+            let fields: MoveByFields = serde_json::from_value(fields).map_err(invalid)?;
+            let [x, y] = fields.move_by;
+            Ok(Command::MoveBy { x, y })
+        }
+        "button_down" => {
+            let fields: ButtonDownFields = serde_json::from_value(fields).map_err(invalid)?;
+            if !matches!(fields.button_down, 1..=3) {
+                return Err("button_down takes button 1, 2, or 3".to_owned());
+            }
+            Ok(Command::ButtonDown(fields.button_down))
+        }
+        "set_scrollbar" => {
+            let fields: SetScrollbarFields = serde_json::from_value(fields).map_err(invalid)?;
+            Ok(Command::SetScrollbar {
+                orientation: fields.set_scrollbar,
+                value: fields.value,
+            })
+        }
+        "sleep" => {
+            let fields: SleepFields = serde_json::from_value(fields).map_err(invalid)?;
+            Ok(Command::Sleep(Duration::from_millis(fields.sleep)))
         }
         "wheel" => {
             let fields: WheelFields = serde_json::from_value(fields).map_err(invalid)?;
@@ -450,12 +635,21 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
             if fields.steps == 0 {
                 return Err("drag needs at least one step".to_owned());
             }
+            if fields.message.is_some() && fields.after_press.is_none() {
+                return Err("a drag's message names its after_press check".to_owned());
+            }
+            fields.drag.from.accepts(fields.drag.from_at.as_ref())?;
+            fields.drag.to.accepts(fields.drag.to_at.as_ref())?;
             Ok(Command::Drag {
                 from: fields.drag.from,
                 to: fields.drag.to,
+                from_at: fields.drag.from_at,
+                to_at: fields.drag.to_at,
                 steps: fields.steps,
                 release: fields.release,
                 modifiers: modifiers(&fields.mods)?,
+                after_press: fields.after_press,
+                message: fields.message,
             })
         }
         "button_up" => {
@@ -482,16 +676,21 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
                 timeout: fields
                     .timeout_ms
                     .map_or(DEFAULT_WAIT, Duration::from_millis),
+                name: fields.name,
             })
         }
         "wait" => {
             let fields: WaitFields = serde_json::from_value(fields).map_err(invalid)?;
+            if fields.samples == 0 {
+                return Err("a wait needs at least one sample".to_owned());
+            }
             Ok(Command::Wait {
                 predicate: fields.wait,
                 timeout: fields
                     .timeout_ms
                     .map_or(DEFAULT_WAIT, Duration::from_millis),
                 message: fields.message,
+                samples: fields.samples,
             })
         }
         "expect" => {
@@ -521,7 +720,9 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
 
 /// Where on a target a pointer event lands: `[x, y]` from the target's
 /// top-left corner, each a pixel offset (negative counts back from the far
-/// edge) or a share of the extent such as `"80%"`. Without it, the centre.
+/// edge), a share of the extent such as `"80%"` or `"2/3"`, or `"start-6"`
+/// for a pixel offset from the near edge that may lie outside the box.
+/// Without it, the centre.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct At {
     pub(crate) x: Offset,
@@ -532,6 +733,10 @@ pub(crate) struct At {
 pub(crate) enum Offset {
     Pixels(i32),
     Percent(u8),
+    /// `extent * numerator // denominator`, as `bounds.width * 2 // 3`.
+    Fraction(u16, u16),
+    /// Pixels from the near edge, either way: `bounds.x - 6`.
+    FromStart(i32),
 }
 
 impl Offset {
@@ -541,13 +746,32 @@ impl Offset {
                 .map(Self::Pixels)
                 .map_err(|_| format!("{pixels} is out of range"));
         }
-        let percent = value
-            .as_str()
-            .and_then(|text| text.strip_suffix('%'))
+        let text = value.as_str().unwrap_or_default();
+        let percent = text
+            .strip_suffix('%')
             .and_then(|number| number.parse::<u8>().ok())
-            .filter(|percent| *percent <= 100);
-        percent.map(Self::Percent).ok_or_else(|| {
-            format!("an offset is whole pixels or a percentage like \"80%\", not {value}")
+            .filter(|percent| *percent <= 100)
+            .map(Self::Percent);
+        let fraction = text
+            .split_once('/')
+            .and_then(|(numerator, denominator)| {
+                Some((
+                    numerator.parse::<u16>().ok()?,
+                    denominator.parse::<u16>().ok()?,
+                ))
+            })
+            .filter(|(numerator, denominator)| *denominator > 0 && numerator <= denominator)
+            .map(|(numerator, denominator)| Self::Fraction(numerator, denominator));
+        let from_start = text
+            .strip_prefix("start")
+            .filter(|offset| offset.starts_with(['+', '-']))
+            .and_then(|offset| offset.parse::<i32>().ok())
+            .map(Self::FromStart);
+        percent.or(fraction).or(from_start).ok_or_else(|| {
+            format!(
+                "an offset is whole pixels, a share like \"80%\" or \"2/3\", \
+                 or \"start-6\", not {value}"
+            )
         })
     }
 
@@ -555,9 +779,29 @@ impl Offset {
     pub(crate) fn resolve(self, start: f64, extent: f64) -> f64 {
         match self {
             Self::Pixels(pixels) if pixels < 0 => start + extent + f64::from(pixels),
-            Self::Pixels(pixels) => start + f64::from(pixels),
+            Self::Pixels(pixels) | Self::FromStart(pixels) => start + f64::from(pixels),
             Self::Percent(percent) => start + (extent * f64::from(percent) / 100.0).floor(),
+            Self::Fraction(numerator, denominator) => {
+                start + (extent * f64::from(numerator) / f64::from(denominator)).floor()
+            }
         }
+    }
+}
+
+impl Offset {
+    fn to_json(self) -> Value {
+        match self {
+            Self::Pixels(pixels) => json!(pixels),
+            Self::Percent(percent) => json!(format!("{percent}%")),
+            Self::Fraction(numerator, denominator) => json!(format!("{numerator}/{denominator}")),
+            Self::FromStart(pixels) => json!(format!("start{pixels:+}")),
+        }
+    }
+}
+
+impl Serialize for At {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        json!([self.x.to_json(), self.y.to_json()]).serialize(serializer)
     }
 }
 
@@ -578,7 +822,7 @@ impl<'de> Deserialize<'de> for At {
 }
 
 /// The target kinds, each named by the one key that selects it.
-pub(crate) const TARGET_KINDS: [&str; 11] = [
+pub(crate) const TARGET_KINDS: [&str; 13] = [
     "entry",
     "result",
     "role",
@@ -590,6 +834,8 @@ pub(crate) const TARGET_KINDS: [&str; 11] = [
     "header",
     "menu_item",
     "dialog_button",
+    "window",
+    "preview",
 ];
 
 /// Names a widget the way a person sees it, never by screen position. Each
@@ -598,8 +844,13 @@ pub(crate) const TARGET_KINDS: [&str; 11] = [
 pub(crate) enum Target {
     /// An entry row; `entry(name, directory)`.
     Entry(EntryTarget),
-    /// The first showing widget with this AT-SPI role name and accessible name.
-    Role { role: String, name: String },
+    /// The first showing widget with this AT-SPI role name and accessible
+    /// name, inside `within` when given, as `strata.preview().find(...)`.
+    Role {
+        role: String,
+        name: String,
+        within: Option<Box<Target>>,
+    },
     /// The entry list below its last entry; `background_point(directory)`.
     Background { dir: Option<String> },
     /// A browser pane; points at `empty_point(directory)` unless `at` is given.
@@ -620,6 +871,11 @@ pub(crate) enum Target {
     MenuItem(String),
     /// `dialog_button(label)`: a button in the open dialog.
     DialogButton(String),
+    /// The main window, `strata.window`; with `y_of`, a point's height is
+    /// that target's centre, as `(window.x + ..., pane.center[1])`.
+    Window { y_of: Option<Box<Target>> },
+    /// The quick preview drawer, `strata.preview()`.
+    Preview,
 }
 
 impl Target {
@@ -647,12 +903,24 @@ impl Target {
         struct RoleFields {
             role: String,
             name: String,
+            within: Option<Target>,
         }
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct BackgroundFields {
             background: bool,
             dir: Option<String>,
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct WindowFields {
+            window: bool,
+            y_of: Option<Target>,
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct PreviewFields {
+            preview: bool,
         }
         let directory = |value: Value| -> Result<Option<String>, String> {
             let mut object = value.as_object().cloned().unwrap_or_default();
@@ -673,6 +941,7 @@ impl Target {
                 Ok(Self::Role {
                     role: fields.role,
                     name: fields.name,
+                    within: fields.within.map(Box::new),
                 })
             }
             "background" => {
@@ -700,6 +969,22 @@ impl Target {
             "sidebar" => label(value).map(Self::Sidebar),
             "header" => label(value).map(Self::Header),
             "menu_item" => label(value).map(Self::MenuItem),
+            "window" => {
+                let fields: WindowFields = serde_json::from_value(value).map_err(invalid)?;
+                if !fields.window {
+                    return Err("invalid window target: window must be true".to_owned());
+                }
+                Ok(Self::Window {
+                    y_of: fields.y_of.map(Box::new),
+                })
+            }
+            "preview" => {
+                let fields: PreviewFields = serde_json::from_value(value).map_err(invalid)?;
+                if !fields.preview {
+                    return Err("invalid preview target: preview must be true".to_owned());
+                }
+                Ok(Self::Preview)
+            }
             _ => label(value).map(Self::DialogButton),
         }
     }
@@ -707,7 +992,16 @@ impl Target {
     pub(crate) fn to_json(&self) -> Value {
         match self {
             Self::Entry(entry) => json!(entry),
-            Self::Role { role, name } => json!({ "role": role, "name": name }),
+            Self::Role {
+                role,
+                name,
+                within: None,
+            } => json!({ "role": role, "name": name }),
+            Self::Role {
+                role,
+                name,
+                within: Some(within),
+            } => json!({ "role": role, "name": name, "within": within.to_json() }),
             Self::Background { dir: None } => json!({ "background": true }),
             Self::Background { dir } => json!({ "background": true, "dir": dir }),
             Self::Pane { dir } => json!({ "pane": dir }),
@@ -719,6 +1013,11 @@ impl Target {
             Self::Header(name) => json!({ "header": name }),
             Self::MenuItem(name) => json!({ "menu_item": name }),
             Self::DialogButton(name) => json!({ "dialog_button": name }),
+            Self::Window { y_of: None } => json!({ "window": true }),
+            Self::Window { y_of: Some(target) } => {
+                json!({ "window": true, "y_of": target.to_json() })
+            }
+            Self::Preview => json!({ "preview": true }),
         }
     }
 }
@@ -741,13 +1040,73 @@ impl Serialize for Target {
     }
 }
 
-/// An entry row by name, in the named pane or in any pane on screen.
+/// An entry row by name, in the named pane or in any pane on screen; with
+/// `part`, its name label (`entry.find(role="label", name=name)`) or its
+/// icon (`entry.find(role="image")`).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct EntryTarget {
     pub(crate) entry: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) dir: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) part: Option<EntryPart>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum EntryPart {
+    Label,
+    Icon,
+}
+
+/// What a `note` reads, each a page-object accessor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Accessor {
+    /// `current_directory()`.
+    Directory,
+    /// `pane().name`.
+    Pane,
+    /// `pane_names()`.
+    Panes,
+    /// `entry_names(dir)`.
+    Entries,
+    /// `selected_names(dir)`.
+    Selected,
+    /// `all_selected_names()`.
+    AllSelected,
+    /// `matches(dir)`.
+    Matches,
+    /// `focused_name()`.
+    Focused,
+    /// `focused_pane().name`.
+    FocusedPane,
+    /// The middle entry the deepest pane's scroll viewport shows, once the
+    /// first visible entry is no longer `unless_first`; the reversing-scroll
+    /// scenario's `middle_entry`.
+    MiddleVisible,
+}
+
+impl Accessor {
+    pub(crate) fn name(self) -> String {
+        serde_json::to_value(self)
+            .ok()
+            .and_then(|value| value.as_str().map(str::to_owned))
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn takes_directory(self) -> bool {
+        matches!(self, Self::Entries | Self::Selected | Self::Matches)
+    }
+
+    /// Lists of names; the rest are one name or null.
+    pub(crate) fn is_list(self) -> bool {
+        matches!(
+            self,
+            Self::Panes | Self::Entries | Self::Selected | Self::AllSelected | Self::Matches
+        )
+    }
 }
 
 /// An expectation about window state, shared by `wait` and `expect`.
@@ -763,7 +1122,7 @@ pub(crate) struct Predicate {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Check {
     Directory(Option<String>),
-    Panes(Vec<String>),
+    Panes(Names),
     /// The deepest pane's name; `strata.pane().name`.
     Pane(Option<String>),
     Entries(Names),
@@ -772,8 +1131,12 @@ pub(crate) enum Check {
     /// `wait_for_entry_gone(name, dir)`.
     EntryGone(String),
     Selected(Names),
+    /// `all_selected_names()`: the selected entries of every pane, left to right.
+    AllSelected(Names),
     /// The focused entry, `focused_name()`: a name, `true` for any, or null.
     Focused(Presence),
+    /// `focused_name() in matches()`.
+    FocusedInMatches(bool),
     /// The pane holding keyboard focus, `focused_pane()`.
     FocusedPane(Presence),
     ViewMode(String),
@@ -782,8 +1145,11 @@ pub(crate) enum Check {
     Dialog(Presence),
     /// The open menu's items, `menu_items()`; null while no menu is open.
     MenuItems(Option<Names>),
-    /// Text the quick preview shows, `preview_shows(text)`; null while closed.
-    Preview(Option<String>),
+    /// Text the quick preview shows, `preview_shows(text)`; `true` while it
+    /// is open, null while it is closed.
+    Preview(Presence),
+    /// Whether the folder peek is open, `peek() is not None`.
+    Peek(bool),
     /// What a recursive filter lists, `matches(dir)`.
     Matches(Names),
     /// A field's text, caret, selection, and focus.
@@ -803,6 +1169,13 @@ pub(crate) enum Check {
     Absent(Target),
     /// Where a target is now, against where the last `settle` on it ended.
     Moved(Movement),
+    /// `on_screen(node)`: the target lies within the window's height.
+    OnScreen(Target),
+    /// A point on a target lands on nothing inside it but panels and fillers,
+    /// as `_blank_preview_point` asserts.
+    Blank(BlankCheck),
+    /// Holds when the predicate does not.
+    Not(Box<Predicate>),
 }
 
 impl Check {
@@ -826,19 +1199,24 @@ impl Check {
             | Self::Field(_)
             | Self::Pref(_)
             | Self::EditorWithinViewport(_)
-            | Self::State(_) => true,
+            | Self::State(_)
+            | Self::OnScreen(_)
+            | Self::Blank(_) => true,
             Self::Any(predicates) => predicates.iter().any(|predicate| predicate.check.is_live()),
+            Self::Not(predicate) => predicate.check.is_live(),
             _ => false,
         }
     }
 }
 
-/// Null, `true` for anything, or a name.
+/// Null, `true` for anything, a name, or `{"one_of":[...]}` for any of
+/// several names, as `focused_name() in shown`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Presence {
     Absent,
     Any,
     Named(String),
+    OneOf(Vec<String>),
 }
 
 impl Presence {
@@ -847,18 +1225,29 @@ impl Presence {
             Self::Absent => actual.is_none(),
             Self::Any => actual.is_some(),
             Self::Named(name) => actual == Some(name.as_str()),
+            Self::OneOf(names) => {
+                actual.is_some_and(|actual| names.iter().any(|name| name == actual))
+            }
         }
     }
 }
 
 impl<'de> Deserialize<'de> for Presence {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct OneOf {
+            one_of: Vec<String>,
+        }
         match Value::deserialize(deserializer)? {
             Value::Null => Ok(Self::Absent),
             Value::Bool(true) => Ok(Self::Any),
             Value::String(name) => Ok(Self::Named(name)),
+            Value::Object(object) => serde_json::from_value::<OneOf>(Value::Object(object))
+                .map(|names| Self::OneOf(names.one_of))
+                .map_err(serde::de::Error::custom),
             other => Err(serde::de::Error::custom(format!(
-                "expected a name, true for any, or null, not {other}"
+                "expected a name, true for any, null, or {{\"one_of\":[...]}}, not {other}"
             ))),
         }
     }
@@ -870,6 +1259,7 @@ impl Serialize for Presence {
             Self::Absent => serializer.serialize_none(),
             Self::Any => serializer.serialize_bool(true),
             Self::Named(name) => serializer.serialize_str(name),
+            Self::OneOf(names) => json!({ "one_of": names }).serialize(serializer),
         }
     }
 }
@@ -907,6 +1297,9 @@ pub(crate) struct FieldCheck {
     pub(crate) selection: Option<Option<[i32; 2]>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) focused: Option<bool>,
+    /// AT-SPI's `showing`: the field is mapped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) showing: Option<bool>,
 }
 
 impl FieldCheck {
@@ -942,6 +1335,9 @@ pub(crate) struct TextPattern {
     pub(crate) ends_with: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) contains: Option<String>,
+    /// Part of the lower-cased text, as `"q" in field.text.lower()`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) lowercase_contains: Option<String>,
 }
 
 impl TextMatch {
@@ -961,6 +1357,10 @@ impl TextMatch {
                         .contains
                         .as_deref()
                         .is_none_or(|part| actual.contains(part))
+                    && pattern
+                        .lowercase_contains
+                        .as_deref()
+                        .is_none_or(|part| actual.to_lowercase().contains(part))
             }
         }
     }
@@ -1007,11 +1407,27 @@ pub(crate) struct StateCheck {
     pub(crate) sensitive: Option<bool>,
 }
 
+/// Where the target is against the box a `settle` kept for it, or the one
+/// `settle` or `remember` kept under `since`; with `y_within`, `none` allows
+/// that many pixels of vertical drift and ignores the rest, as
+/// `abs(restored.y - y) <= 2` does.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Movement {
     pub(crate) target: Target,
     pub(crate) direction: Direction,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) since: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) y_within: Option<u16>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct BlankCheck {
+    pub(crate) target: Target,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) at: Option<At>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -1043,6 +1459,12 @@ pub(crate) struct NameFilter {
     /// How many names, duplicates included.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) count: Option<usize>,
+    /// At least this many names, as `len(...) >= 2`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) at_least: Option<usize>,
+    /// The last names, in order, as `pane_names()[-2:] == [...]`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) ends_with: Vec<String>,
 }
 
 impl Names {
@@ -1053,6 +1475,8 @@ impl Names {
                 filter.contains.iter().all(|name| actual.contains(name))
                     && !filter.excludes.iter().any(|name| actual.contains(name))
                     && filter.count.is_none_or(|count| count == actual.len())
+                    && filter.at_least.is_none_or(|least| actual.len() >= least)
+                    && actual.ends_with(&filter.ends_with)
             }
         }
     }

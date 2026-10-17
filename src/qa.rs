@@ -29,8 +29,8 @@ use serde_json::{Value, json};
 use self::{
     input::{Event, Injector},
     protocol::{
-        At, Check, Chord, Command, Direction, EntryTarget, Failure, FieldRef, Modifier, Predicate,
-        Query, Reply, Target,
+        Accessor, At, Check, Chord, Command, Direction, EntryTarget, Failure, FieldRef, Modifier,
+        Orientation, Predicate, Query, Reply, Target,
     },
     state::FieldState,
     targets::{Aim, LookupError, Memory, Rect},
@@ -40,6 +40,9 @@ use self::{
 /// stable prefix `usage: strata --qa`, and the QA job checks a `qa` build does;
 /// `scripts/test_qa_parity.py` requires both checks' pattern to prefix this text.
 const USAGE: &str = "usage: strata --qa <directory>";
+/// `ui::browser::peek::PEEK_LABEL`, whose module is private to the browser; the
+/// Python harness names it alike, and a peek test fails if the two drift apart.
+pub(crate) const PEEK_LABEL: &str = "Folder peek";
 const READY_TIMEOUT: Duration = Duration::from_secs(60);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const FRAME_TIMEOUT: Duration = Duration::from_millis(250);
@@ -174,7 +177,8 @@ struct Controller {
     protocol: File,
     injector: Option<Injector>,
     previous: Option<Value>,
-    /// Where each target came to rest in its last `settle`, keyed by its JSON.
+    /// Where each target came to rest in its last `settle`, keyed by its JSON,
+    /// and the boxes `settle` and `remember` kept under a name.
     settled: RefCell<HashMap<String, Rect>>,
     memory: RefCell<Memory>,
 }
@@ -304,6 +308,7 @@ impl Controller {
             injector,
             window: &window,
             memory: &self.memory,
+            boxes: &self.settled,
         };
         match command {
             Command::Key { chord, repeat } => {
@@ -346,28 +351,108 @@ impl Controller {
             },
             Command::Remember { target, name } => match input.find(&target, None, Aim::Point).await
             {
-                Ok(located) => {
+                Ok(located) if matches!(target, Target::Field(None)) => {
                     self.memory
                         .borrow_mut()
                         .insert(name, located.widget.downgrade());
                     Outcome::default()
                 }
+                Ok(located) => {
+                    self.settled.borrow_mut().insert(name, located.rect);
+                    Outcome::default()
+                }
                 Err(error) => Outcome::error(error),
             },
+            Command::Note {
+                value,
+                dir,
+                wait,
+                message,
+                from,
+                through,
+                unless_first,
+            } => {
+                let read = || {
+                    note(
+                        &window,
+                        value,
+                        dir.as_deref(),
+                        from.as_deref(),
+                        through.as_deref(),
+                        unless_first.as_deref(),
+                    )
+                };
+                let Some(timeout) = wait else {
+                    return read().map_or_else(Outcome::error, |result| Outcome {
+                        result,
+                        ..Outcome::default()
+                    });
+                };
+                let deadline = Instant::now() + timeout;
+                loop {
+                    match read() {
+                        Err(error) => return Outcome::error(error),
+                        Ok(Value::Null) if Instant::now() >= deadline => {
+                            let failure = Failure {
+                                predicate: json!({ "note": value }),
+                                actual: Value::Null,
+                                message,
+                            };
+                            return Outcome::timed_out(&window, failure, timeout);
+                        }
+                        Ok(Value::Null) => glib::timeout_future(POLL_INTERVAL).await,
+                        Ok(result) => {
+                            return Outcome {
+                                result,
+                                ..Outcome::default()
+                            };
+                        }
+                    }
+                }
+            }
             Command::Click {
                 target,
                 button,
                 count,
                 modifiers,
                 at,
+                left_bound,
+                release_modifiers_first,
+            } => {
+                let aim = Aimed {
+                    target: &target,
+                    at: at.as_ref(),
+                    left_bound: left_bound.as_deref(),
+                };
+                Outcome::from(if release_modifiers_first {
+                    input
+                        .click_releasing_modifiers_first(&aim, button, &modifiers)
+                        .await
+                } else {
+                    input.click(&aim, button, count, &modifiers).await
+                })
+            }
+            Command::Select(target) => input.select(&target).await,
+            Command::Move {
+                target,
+                at,
+                left_bound,
             } => Outcome::from(
                 input
-                    .click(&target, button, count, &modifiers, at.as_ref())
+                    .move_onto(&Aimed {
+                        target: &target,
+                        at: at.as_ref(),
+                        left_bound: left_bound.as_deref(),
+                    })
                     .await,
             ),
-            Command::Select(target) => input.select(&target).await,
-            Command::Move { target, at } => {
-                Outcome::from(input.move_onto(&target, at.as_ref()).await)
+            Command::MoveBy { x, y } => Outcome::from(input.move_by(x, y).await),
+            Command::Sleep(duration) => {
+                glib::timeout_future(duration).await;
+                Outcome::default()
+            }
+            Command::SetScrollbar { orientation, value } => {
+                Outcome::from(set_scrollbar(&window, orientation, value))
             }
             Command::Wheel {
                 target,
@@ -383,10 +468,49 @@ impl Controller {
             Command::Drag {
                 from,
                 to,
+                from_at,
+                to_at,
                 steps,
                 release,
                 modifiers,
-            } => Outcome::from(input.drag(&from, &to, steps, release, &modifiers).await),
+                after_press,
+                message,
+            } => {
+                let check = || {
+                    after_press
+                        .as_ref()
+                        .map_or(Ok(Ok(())), |predicate| self.check(&input, predicate))
+                };
+                let ends = DragEnds {
+                    from: &from,
+                    to: &to,
+                    from_at: from_at.as_ref(),
+                    to_at: to_at.as_ref(),
+                };
+                match input.drag(&ends, steps, release, &modifiers, &check).await {
+                    Ok(None) => Outcome::default(),
+                    Ok(Some(mut failure)) => {
+                        failure.message = message;
+                        Outcome {
+                            failures: vec![failure],
+                            error: Some("the check after the press failed".to_owned()),
+                            ..Outcome::default()
+                        }
+                    }
+                    Err(error) => Outcome::error(error),
+                }
+            }
+            Command::ButtonDown(number) => Outcome::from(
+                input
+                    .emit(
+                        Event::Button {
+                            number,
+                            pressed: true,
+                        },
+                        Duration::ZERO,
+                    )
+                    .await,
+            ),
             Command::ButtonUp(number) => Outcome::from(
                 input
                     .emit(
@@ -406,25 +530,44 @@ impl Controller {
                 settle(Some(&window)).await;
                 Outcome::from(resized)
             }
-            Command::Settle { target, timeout } => {
-                self.settle_target(&input, &target, timeout).await
-            }
+            Command::Settle {
+                target,
+                timeout,
+                name,
+            } => self.settle_target(&input, &target, timeout, name).await,
             Command::Wait {
                 predicate,
                 timeout,
                 message,
+                samples,
             } => {
                 let deadline = Instant::now() + timeout;
+                let mut steady = 0;
                 loop {
                     match self.check(&input, &predicate) {
                         Err(error) => return Outcome::error(error),
-                        Ok(Ok(())) => return Outcome::default(),
+                        Ok(Ok(())) => {
+                            steady += 1;
+                            if steady >= samples {
+                                return Outcome::default();
+                            }
+                            if Instant::now() >= deadline {
+                                let failure = Failure {
+                                    predicate: serde_json::to_value(&predicate)
+                                        .unwrap_or(Value::Null),
+                                    actual: json!(format!("held for {steady} of {samples} polls")),
+                                    message,
+                                };
+                                return Outcome::timed_out(&window, failure, timeout);
+                            }
+                        }
                         Ok(Err(mut failure)) if Instant::now() >= deadline => {
                             failure.message = message;
                             return Outcome::timed_out(&window, failure, timeout);
                         }
-                        Ok(Err(_)) => glib::timeout_future(POLL_INTERVAL).await,
+                        Ok(Err(_)) => steady = 0,
                     }
+                    glib::timeout_future(POLL_INTERVAL).await;
                 }
             }
             Command::Expect {
@@ -475,7 +618,8 @@ impl Controller {
         until: &Predicate,
         message: Option<String>,
     ) -> Outcome {
-        if let Err(error) = input.click(target, 1, 1, &[], None).await {
+        let aim = Aimed::plain(target);
+        if let Err(error) = input.click(&aim, 1, 1, &[]).await {
             return Outcome::error(error);
         }
         let mut clicked = Instant::now();
@@ -497,7 +641,7 @@ impl Controller {
                 .locate_now(target, None, Aim::Point)
                 .is_ok_and(|located| targets::states(&located.widget).checked);
             if clicked.elapsed() > MENU_RETRY_AFTER && !checked {
-                if let Err(error) = input.click(target, 1, 1, &[], None).await {
+                if let Err(error) = input.click(&aim, 1, 1, &[]).await {
                     return Outcome::error(error);
                 }
                 clicked = Instant::now();
@@ -513,6 +657,7 @@ impl Controller {
         input: &Input<'_>,
         target: &Target,
         timeout: Duration,
+        name: Option<String>,
     ) -> Outcome {
         let deadline = Instant::now() + timeout;
         let mut history: Vec<Option<[i64; 4]>> = Vec::new();
@@ -529,9 +674,11 @@ impl Controller {
                 && history.len() == SETTLE_SAMPLES
                 && history.iter().all(|sample| *sample == history[0])
             {
-                self.settled
-                    .borrow_mut()
-                    .insert(target.to_json().to_string(), located.rect);
+                let mut settled = self.settled.borrow_mut();
+                settled.insert(target.to_json().to_string(), located.rect);
+                if let Some(name) = name {
+                    settled.insert(name, located.rect);
+                }
                 return Outcome::default();
             }
             if Instant::now() >= deadline {
@@ -654,25 +801,76 @@ impl Controller {
                 None => Ok(()),
             },
             Check::Moved(movement) => {
-                let key = movement.target.to_json().to_string();
+                let key = movement
+                    .since
+                    .clone()
+                    .unwrap_or_else(|| movement.target.to_json().to_string());
                 let Some(before) = self.settled.borrow().get(&key).copied() else {
-                    return Err(format!("moved needs an earlier settle on {key}"));
+                    return Err(format!(
+                        "moved needs an earlier settle or remember on {key}"
+                    ));
                 };
                 match locate(&movement.target)? {
                     None => Err(mismatch(json!("not on screen"))),
                     Some(now) => {
                         let (settled, now) = (before.pixels(), now.rect.pixels());
-                        let moved = match movement.direction {
-                            Direction::Up => now[1] < settled[1],
-                            Direction::Down => now[1] > settled[1],
-                            Direction::Left => now[0] < settled[0],
-                            Direction::Right => now[0] > settled[0],
-                            Direction::None => now == settled,
+                        let moved = match (movement.direction, movement.y_within) {
+                            (Direction::Up, _) => now[1] < settled[1],
+                            (Direction::Down, _) => now[1] > settled[1],
+                            (Direction::Left, _) => now[0] < settled[0],
+                            (Direction::Right, _) => now[0] > settled[0],
+                            (Direction::None, None) => now == settled,
+                            (Direction::None, Some(within)) => {
+                                (now[1] - settled[1]).abs() <= i64::from(within)
+                            }
                         };
                         verdict(moved, json!({ "settled": settled, "now": now }))
                     }
                 }
             }
+            Check::OnScreen(target) => match locate(target)? {
+                None => Err(mismatch(json!("not on screen"))),
+                Some(located) => {
+                    let window = targets::screen_rect(input.window.upcast_ref(), input.injector)
+                        .map_err(|error| error.message().to_owned())?
+                        .pixels();
+                    let bounds = located.rect.pixels();
+                    verdict(
+                        state::on_screen(bounds, window),
+                        json!({ "bounds": bounds, "window": window }),
+                    )
+                }
+            },
+            Check::Blank(blank) => match locate(&blank.target)? {
+                None => Err(mismatch(json!("not on screen"))),
+                Some(located) => {
+                    let point = located.rect.point(blank.at.as_ref());
+                    let point = (point.0.floor() as i64, point.1.floor() as i64);
+                    let mut covering = Vec::new();
+                    for widget in targets::presented(&located.widget).into_iter().skip(1) {
+                        let role = targets::role_name(&widget);
+                        if matches!(role, "panel" | "filler" | "group")
+                            || state::rendered_bounds(&widget).is_none()
+                        {
+                            continue;
+                        }
+                        let Ok(rect) = targets::screen_rect(&widget, input.injector) else {
+                            continue;
+                        };
+                        if state::contains(rect.pixels(), point) {
+                            covering.push(json!({
+                                "role": role,
+                                "name": targets::accessible_name(&widget),
+                            }));
+                        }
+                    }
+                    verdict(covering.is_empty(), json!(covering))
+                }
+            },
+            Check::Not(inner) => match self.check(input, inner)? {
+                Ok(()) => Err(mismatch(json!("the negated predicate holds"))),
+                Err(_) => Ok(()),
+            },
             _ => state::scan(input.window).observation.evaluate(predicate),
         })
     }
@@ -691,6 +889,138 @@ fn preferences() -> Result<Value, String> {
         .map_err(|error| format!("cannot parse {}: {error}", path.display()))?;
     serde_json::to_value(table).map_err(|error| error.to_string())
 }
+
+/// A page-object accessor's value now, for `note`; see [`Accessor`].
+fn note(
+    window: &gtk::Window,
+    value: Accessor,
+    directory: Option<&str>,
+    from: Option<&str>,
+    through: Option<&str>,
+    unless_first: Option<&str>,
+) -> Result<Value, String> {
+    let scene = state::scan(window);
+    let observation = &scene.observation;
+    // `names[names.index(from):names.index(through) + 1]`.
+    let list = |names: Vec<String>| -> Result<Value, String> {
+        let index = |name: &str| {
+            names
+                .iter()
+                .position(|candidate| candidate == name)
+                .ok_or_else(|| format!("{name:?} is not in {names:?}"))
+        };
+        let start = from.map(index).transpose()?.unwrap_or(0);
+        let end = through
+            .map(index)
+            .transpose()?
+            .map_or(names.len(), |end| end + 1);
+        Ok(json!(names.get(start..end.max(start)).unwrap_or_default()))
+    };
+    match value {
+        Accessor::Directory => Ok(json!(observation.directory())),
+        Accessor::Pane => Ok(json!(observation.panes.last().map(|pane| &pane.name))),
+        Accessor::Panes => list(
+            observation
+                .panes
+                .iter()
+                .map(|pane| pane.name.clone())
+                .collect(),
+        ),
+        Accessor::Entries => list(observation.entry_names(directory)),
+        Accessor::Selected => list(observation.selected_names(directory)),
+        Accessor::AllSelected => list(observation.all_selected()),
+        Accessor::Matches => list(observation.matches(directory)),
+        Accessor::Focused => Ok(json!(observation.focused_entry)),
+        Accessor::FocusedPane => Ok(json!(observation.focused_pane_name())),
+        Accessor::MiddleVisible => {
+            let root = window.upcast_ref::<gtk::Widget>();
+            let bounds = |widget: &gtk::Widget| {
+                widget.compute_bounds(root).map(|bounds| {
+                    [bounds.x(), bounds.y(), bounds.width(), bounds.height()]
+                        .map(|value| f64::from(value).floor() as i64)
+                })
+            };
+            let (Some(pane), Some(widgets)) = (observation.pane(None), scene.pane_widgets(None))
+            else {
+                return Ok(Value::Null);
+            };
+            let viewport = widgets.container.as_ref().and_then(|container| {
+                std::iter::successors(container.parent(), WidgetExt::parent)
+                    .find(|widget| widget.is::<gtk::ScrolledWindow>())
+            });
+            let Some(viewport) = viewport.as_ref().and_then(bounds) else {
+                return Ok(Value::Null);
+            };
+            let entries: Vec<(String, [i64; 4])> = pane
+                .entries
+                .iter()
+                .zip(&widgets.entries)
+                .filter_map(|(entry, widget)| Some((entry.name.clone(), bounds(widget)?)))
+                .collect();
+            Ok(json!(state::middle_visible(
+                &entries,
+                viewport,
+                unless_first.unwrap_or_default()
+            )))
+        }
+    }
+}
+
+/// `Atspi.Value.set_current_value` on the first scroll bar with this
+/// orientation, which GTK applies to the scroll bar's adjustment.
+fn set_scrollbar(window: &gtk::Window, orientation: Orientation, value: f64) -> Result<(), String> {
+    let wanted = match orientation {
+        Orientation::Horizontal => gtk::Orientation::Horizontal,
+        Orientation::Vertical => gtk::Orientation::Vertical,
+    };
+    let scrollbar = targets::presented(window.upcast_ref())
+        .into_iter()
+        .find_map(|widget| {
+            widget
+                .downcast::<gtk::Scrollbar>()
+                .ok()
+                .filter(|scrollbar| scrollbar.orientation() == wanted)
+        })
+        .ok_or_else(|| format!("no {orientation:?} scroll bar"))?;
+    let adjustment = scrollbar.adjustment();
+    adjustment.set_value(value);
+    // The twin asserts `set_current_value` reports success.
+    if (adjustment.value() - value).abs() > f64::EPSILON {
+        return Err(format!(
+            "the {orientation:?} scroll bar took {} instead of {value}",
+            adjustment.value()
+        ));
+    }
+    Ok(())
+}
+
+/// A pointer aim: the target, `at` on it, and the name of a kept box whose
+/// left edge the aim may not pass, as `max(bounds.x, browser_left) + 12`.
+struct Aimed<'a> {
+    target: &'a Target,
+    at: Option<&'a At>,
+    left_bound: Option<&'a str>,
+}
+
+impl<'a> Aimed<'a> {
+    fn plain(target: &'a Target) -> Self {
+        Self {
+            target,
+            at: None,
+            left_bound: None,
+        }
+    }
+}
+
+struct DragEnds<'a> {
+    from: &'a Target,
+    to: &'a Target,
+    from_at: Option<&'a At>,
+    to_at: Option<&'a At>,
+}
+
+/// A predicate checked once, for `drag`'s `after_press`.
+type PressCheck<'a> = dyn Fn() -> Result<Result<(), Failure>, String> + 'a;
 
 /// Lets queued X events, the idle work they schedule, and the next frame's
 /// layout run before the next event or the reply.
@@ -715,6 +1045,8 @@ struct Input<'a> {
     injector: &'a Injector,
     window: &'a gtk::Window,
     memory: &'a RefCell<Memory>,
+    /// Boxes `settle` and `remember` kept, for `left_bound`.
+    boxes: &'a RefCell<HashMap<String, Rect>>,
 }
 
 impl Input<'_> {
@@ -816,7 +1148,7 @@ impl Input<'_> {
     /// invokes its default action, which GTK's AT-SPI bridge maps to
     /// `gtk_widget_activate`.
     async fn activate(&self, target: &Target, message: Option<&str>) -> Result<(), String> {
-        let Target::Role { role, name } = target else {
+        let Target::Role { role, name, .. } = target else {
             return Err("activate takes a role target".to_owned());
         };
         let deadline = Instant::now() + LOCATE_TIMEOUT;
@@ -962,7 +1294,10 @@ impl Input<'_> {
         }
     }
 
-    /// Waits for the target like the Python lookups do.
+    /// Waits for the target like the Python lookups do, and for its box to
+    /// come through a painted frame unchanged: a row a listing has just added
+    /// or replaced can report a box before its first allocation lands, which
+    /// the Python lookups, slower by an accessibility round trip, never see.
     async fn find(
         &self,
         target: &Target,
@@ -972,7 +1307,22 @@ impl Input<'_> {
         let deadline = Instant::now() + LOCATE_TIMEOUT;
         loop {
             match self.locate_now(target, at, aim) {
-                Ok(located) => return Ok(located),
+                Ok(located) => {
+                    settle(Some(self.window)).await;
+                    match self.locate_now(target, at, aim) {
+                        Ok(painted) if painted.rect.pixels() == located.rect.pixels() => {
+                            return Ok(painted);
+                        }
+                        Err(LookupError::Broken(error)) => return Err(error),
+                        _ if Instant::now() >= deadline => {
+                            return Err(format!(
+                                "the target kept moving for {} s",
+                                LOCATE_TIMEOUT.as_secs()
+                            ));
+                        }
+                        _ => {}
+                    }
+                }
                 Err(LookupError::Broken(error)) => return Err(error),
                 Err(LookupError::Missing(error)) if Instant::now() >= deadline => {
                     return Err(format!("{error} after {} s", LOCATE_TIMEOUT.as_secs()));
@@ -993,16 +1343,36 @@ impl Input<'_> {
         Ok((coordinate(x)?, coordinate(y)?))
     }
 
+    /// Waits for the aim's target, then the X screen point it names.
+    async fn aim(&self, aim: &Aimed<'_>) -> Result<(i16, i16), String> {
+        let located = self.find(aim.target, aim.at, Aim::Point).await?;
+        let (x, y) = match aim.left_bound {
+            None => located.point,
+            Some(name) => {
+                let bound = self.boxes.borrow().get(name).copied().ok_or_else(|| {
+                    format!("left_bound needs a box kept as {name:?} by remember or settle")
+                })?;
+                let left = located.rect.x.max(bound.x);
+                Rect {
+                    x: left,
+                    width: located.rect.x + located.rect.width - left,
+                    ..located.rect
+                }
+                .point(aim.at)
+            }
+        };
+        Ok((coordinate(x)?, coordinate(y)?))
+    }
+
     /// `Pointer.click` and `double_click`: aim, hold the modifiers, tap, let go.
     async fn click(
         &self,
-        target: &Target,
+        aim: &Aimed<'_>,
         button: u8,
         count: u32,
         modifiers: &[Modifier],
-        at: Option<&At>,
     ) -> Result<(), String> {
-        let (x, y) = self.locate(target, at, Aim::Point).await?;
+        let (x, y) = self.aim(aim).await?;
         self.move_to(x, y).await?;
         let held = self.hold(modifiers).await?;
         let mut result = Ok(());
@@ -1041,9 +1411,47 @@ impl Input<'_> {
         Ok(())
     }
 
-    async fn move_onto(&self, target: &Target, at: Option<&At>) -> Result<(), String> {
-        let (x, y) = self.locate(target, at, Aim::Point).await?;
+    /// `click_releasing_modifiers_before_up`: the modifiers come up while
+    /// the button is held, and once more after it, as the twin's `finally` does.
+    async fn click_releasing_modifiers_first(
+        &self,
+        aim: &Aimed<'_>,
+        button: u8,
+        modifiers: &[Modifier],
+    ) -> Result<(), String> {
+        let (x, y) = self.aim(aim).await?;
+        self.move_to(x, y).await?;
+        let held = self.hold(modifiers).await?;
+        let pressed = self.injector.send(Event::Button {
+            number: button,
+            pressed: true,
+        });
+        let mut result = pressed;
+        if result.is_ok() {
+            glib::timeout_future(BUTTON_HOLD).await;
+            self.release(&held).await;
+            result = self.injector.send(Event::Button {
+                number: button,
+                pressed: false,
+            });
+            self.injector.record_release();
+            self.pause(EVENT_GAP).await;
+        }
+        self.release(&held).await;
+        self.pause(POINTER_GAP).await;
+        result
+    }
+
+    async fn move_onto(&self, aim: &Aimed<'_>) -> Result<(), String> {
+        let (x, y) = self.aim(aim).await?;
         self.move_to(x, y).await
+    }
+
+    /// `Pointer.move_to` the pointer's position plus an offset.
+    async fn move_by(&self, x: i16, y: i16) -> Result<(), String> {
+        let (from_x, from_y) = self.injector.pointer_position()?;
+        self.move_to(from_x.saturating_add(x), from_y.saturating_add(y))
+            .await
     }
 
     /// `Pointer.scroll`: buttons 4 and 5 are the wheel turning up and down.
@@ -1074,18 +1482,27 @@ impl Input<'_> {
     /// `Pointer.drag` and `drag_points`: press on the source's icon, cross to
     /// the target in even steps so GTK passes its drag threshold and the drop
     /// site sees the hover, then release unless asked to keep holding.
+    /// A failed `after_press` check comes back as the failure, with the
+    /// button already let go.
     async fn drag(
         &self,
-        from: &Target,
-        to: &Target,
+        ends: &DragEnds<'_>,
         steps: u32,
         release: bool,
         modifiers: &[Modifier],
-    ) -> Result<(), String> {
-        let start = self.locate(from, None, Aim::DragOrigin).await?;
-        let end = self.locate(to, None, Aim::Point).await?;
+        after_press: &PressCheck<'_>,
+    ) -> Result<Option<Failure>, String> {
+        let origin = if ends.from_at.is_some() {
+            Aim::Point
+        } else {
+            Aim::DragOrigin
+        };
+        let start = self.locate(ends.from, ends.from_at, origin).await?;
+        let end = self.locate(ends.to, ends.to_at, Aim::Point).await?;
         let held = self.hold(modifiers).await?;
-        let result = self.drag_between(start, end, steps, release).await;
+        let result = self
+            .drag_between(start, end, steps, release, after_press)
+            .await;
         self.release(&held).await;
         result
     }
@@ -1096,7 +1513,8 @@ impl Input<'_> {
         end: (i16, i16),
         steps: u32,
         release: bool,
-    ) -> Result<(), String> {
+        after_press: &PressCheck<'_>,
+    ) -> Result<Option<Failure>, String> {
         self.move_to(start.0, start.1).await?;
         if let Some(remaining) = self
             .injector
@@ -1113,6 +1531,14 @@ impl Input<'_> {
             POINTER_GAP,
         )
         .await?;
+        let checked = after_press();
+        if !matches!(checked, Ok(Ok(()))) {
+            self.injector.send(Event::Button {
+                number: 1,
+                pressed: false,
+            })?;
+            return checked.map(Result::err);
+        }
         let travel = async {
             for step in 1..=steps {
                 let x = step_towards(start.0, end.0, step, steps);
@@ -1133,7 +1559,7 @@ impl Input<'_> {
             )
             .await?;
         }
-        travelled
+        travelled.map(|()| None)
     }
 
     async fn select(&self, target: &EntryTarget) -> Outcome {
@@ -1144,7 +1570,7 @@ impl Input<'_> {
                 .entry_selected(&target.entry, target.dir.as_deref())
         };
         for patience in [SELECT_RETRY_AFTER, protocol::DEFAULT_WAIT] {
-            if let Err(error) = self.click(&wanted, 1, 1, &[], None).await {
+            if let Err(error) = self.click(&Aimed::plain(&wanted), 1, 1, &[]).await {
                 return Outcome::error(error);
             }
             let deadline = Instant::now() + patience;

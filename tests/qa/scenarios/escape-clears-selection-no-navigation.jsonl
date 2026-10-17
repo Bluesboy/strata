@@ -1,0 +1,16 @@
+{"scenario":"escape-clears-selection-no-navigation","modes":["columns","icons","list"],"prefs":{"single_click_previews":false},"layout":"us","twin":"tests/e2e/scenarios/test_escape_selection.py::test_escape_clears_selection_without_navigation[$multiple-$mode]","mutation":null,"known_bug":null,"variants":[{"id":"one","vars":{"multiple":"False"}},{"id":"two","vars":{"multiple":"True"}}]}
+{"select":{"entry":"todo.txt","dir":"$root"},"variants":["two"]}
+{"click":{"entry":"readme.md","dir":"$root"},"mods":["ctrl"],"variants":["two"]}
+{"select":{"entry":"readme.md","dir":"$root"},"variants":["one"]}
+{"wait":{"selected":["readme.md","todo.txt"],"dir":"$root"},"message":"the selection to become ['readme.md', 'todo.txt']","variants":["two"]}
+{"wait":{"selected":["readme.md"],"dir":"$root"},"message":"the selection to become ['readme.md']","variants":["one"]}
+{"note":"panes","as":"panes"}
+{"key":"Escape"}
+{"wait":{"selected":[],"dir":"$root"},"message":"the selection to become []"}
+{"wait":{"focused":"readme.md"},"message":"keyboard focus to reach 'readme.md'"}
+{"expect":{"panes":"$panes"}}
+{"key":"Down","modes":["columns"]}
+{"key":"Right","modes":["icons"]}
+{"key":"Down","modes":["list"]}
+{"wait":{"selected":["todo.txt"],"dir":"$root"},"message":"the selection to become ['todo.txt']"}
+{"wait":{"focused":"todo.txt"},"message":"keyboard focus to reach 'todo.txt'"}

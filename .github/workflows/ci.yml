@@ -613,7 +613,7 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Shard by mutation patch; a pull request runs only when parity inputs changed
+      - name: Shard by scenario; a pull request runs only when parity inputs changed
         id: plan
         env:
           BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
@@ -662,14 +662,14 @@ jobs:
           restore-keys: |
             strata-quality-v1-${{ needs.quality-build.outputs.inputs }}-${{ hashFiles('Cargo.toml', 'Cargo.lock') }}-
 
-      - name: Compare both twins unmodified and under the assigned patches
+      - name: Compare the assigned scenario pairs, unmodified and under their patches
         env:
           STRATA_CONTAINER_ENGINE: docker
           STRATA_E2E_IMAGE: ${{ needs.quality-build.outputs.environment_image }}
           STRATA_E2E_CARGO_CACHE: target/quality-container
-          PATCHES: ${{ matrix.patches }}
+          NAMES: ${{ matrix.names }}
         run: |
-          read -ra names <<< "$PATCHES"
+          read -ra names <<< "$NAMES"
           ./scripts/qa-parity.sh "${names[@]}"
 
       - name: Upload the shard's parity reports and runs even on failure

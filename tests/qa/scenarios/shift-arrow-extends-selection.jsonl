@@ -1,0 +1,11 @@
+{"scenario":"shift-arrow-extends-selection","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_keyboard_navigation.py::test_shift_arrow_extends_the_selection[$mode]","mutation":null,"known_bug":null}
+{"select":{"entry":"readme.md"}}
+{"wait":{"focused":"readme.md"},"message":"keyboard focus to reach 'readme.md'"}
+{"key":"shift+Down","modes":["columns"]}
+{"key":"shift+Right","modes":["icons"]}
+{"key":"shift+Down","modes":["list"]}
+{"wait":{"selected":["readme.md","todo.txt"]},"message":"shift and an arrow to extend the selection"}
+{"key":"shift+Up","modes":["columns"]}
+{"key":"shift+Left","modes":["icons"]}
+{"key":"shift+Up","modes":["list"]}
+{"wait":{"selected":["readme.md"]},"message":"shift and the opposite arrow to shrink the selection again"}

@@ -644,34 +644,49 @@ for one zero-padded file per number whose text has `{}` replaced by the number;
 `images` (`{"beta/thumb.png":{"width":64,"height":64,"rgb":[230,40,60]}}`)
 then adds solid-colour PNGs, as a fixture saves a PIL image.
 Every later line is one step; a step with `"modes":["icons","list"]` runs only
-in those views, which is how a scenario mirrors a twin's `if mode == ...`, and a
-step with `"when":PREDICATE` runs only if the predicate holds just before it
-(the runner asks the process with `{"holds":PREDICATE}`), which mirrors a
-twin's `if node.has_state(...)`.
+in those views, which is how a scenario mirrors a twin's `if mode == ...`; a step
+with `"variants":["row-space"]` runs only in those header variants, as a twin's
+`if target == ...`; and a step with `"when":PREDICATE` runs only if the
+predicate holds just before it (the runner asks the process with
+`{"holds":PREDICATE}`), which mirrors a twin's `if node.has_state(...)`.
+A `note` keeps what an accessor reads, as a twin keeps
+`names = strata.entry_names()`: later steps say `$names`, which becomes the
+value itself where a string is exactly `$names` (so a list stays a list) and
+its text elsewhere (a list as Python prints it). A note may only be used after
+the step that keeps it, may not hide a variable, and any other unknown `$name`
+fails the scenario before it runs.
 
 | Step | Runs in | Meaning |
 | --- | --- | --- |
 | `{"key":"ctrl+x","repeat":2}` | process | US key positions, as in `harness/interaction.py` |
 | `{"type":"nested-notes"}` | process | `keyboard.type_text`: one key per character |
-| `{"click":TARGET,"button":1,"count":1,"mods":["shift"],"at":[4,"50%"]}` | process | `pointer.click`, `right_click` (`button` 3), `double_click` (`count` 2), `click_entry_with` |
+| `{"click":TARGET,"button":1,"count":1,"mods":["shift"],"at":[4,"50%"]}` | process | `pointer.click`, `right_click` (`button` 3), `double_click` (`count` 2), `click_entry_with`; `"release_mods_first":true` is `click_releasing_modifiers_before_up`; `"left_bound":"browser"` (also on `move`) keeps the aim's left edge right of a remembered box, as `max(bounds.x, browser_left) + 12` |
 | `{"select":{"entry":"readme.md"}}` | process | clicks until the entry is selected, as `select_entry` does |
 | `{"select_with_keyboard":"todo.txt","message":"..."}` | process | `select_entry_with_keyboard`: Home, then Down (Right in Icons) until the entry has focus |
 | `{"open_menu":TARGET,"until":PREDICATE,"message":"..."}` | process | `open_appearance_menu`: clicks, and clicks again each second the menu stays closed while the target is not checked |
 | `{"activate":{"role":"toggle button","name":"..."},"message":"..."}` | process | `Node.activate`: the default action, no pointer input; the control may be scrolled away |
 | `{"holds":PREDICATE}` | process | `true` or `false` in `result`, never a failure |
-| `{"remember":{"field":true},"as":"filter"}` | process | keeps the focused field, as a twin keeps `field = strata.editable_field()` |
+| `{"remember":{"field":true},"as":"filter"}` | process | keeps the focused field, as a twin keeps `field = strata.editable_field()`; any other target keeps its box, for `left_bound` and `moved` |
+| `{"note":"entries","dir":"$root","as":"names"}` | process | an accessor's value for later `$names`: `directory`, `pane`, `panes`, `entries`, `selected`, `all_selected`, `matches`, `focused`, `focused_pane`; `from`/`through` slice a list as `names[names.index(a):names.index(b) + 1]`; `"until_found":true` (with `message`, `timeout_ms`) polls until it is not null, as `strata.wait(accessor)` returns it; `middle_visible` with `unless_first` is the reversing-scroll scenario's `middle_entry` |
+| `{"increment":"first","as":"next"}` | runner | a noted name with its trailing number one higher, `f"folder-{n + 1:03}"` |
 | `{"move":TARGET,"at":[...]}` | process | `pointer.move_to` |
+| `{"move_by":[2,0]}` | process | `pointer.move_to` the pointer's own position plus an offset |
 | `{"wheel":TARGET,"clicks":3,"direction":"down","at":[...]}` | process | `pointer.scroll` |
 | `{"drag":{"from":TARGET,"to":TARGET},"steps":16,"release":true,"mods":[]}` | process | `pointer.drag`; an entry `from` starts on its icon (`drag_origin`); `release:false` keeps the button held |
-| `{"button_up":1}` | process | lets go of a held button, as `abandon_drag` ends |
+| `{"drag":{"from":TARGET,"from_at":[...],"to":TARGET,"to_at":[...]},"after_press":PREDICATE,"message":"..."}` | process | `drag_points(start, end, after_press=...)`: the predicate is checked once after the press; a mismatch lets go and fails the step |
+| `{"button_down":1}`, `{"button_up":1}` | process | `connection.button(n, True/False)` where the pointer is; `button_up` also ends `abandon_drag` |
+| `{"set_scrollbar":"horizontal","value":0}` | process | `Atspi.Value.set_current_value` on the first scroll bar with that orientation; no pointer input |
+| `{"sleep":600}` | process | `time.sleep(0.6)`; the main loop keeps running |
 | `{"resize":{"width":420,"height":300}}` | process | `resize_surface` on the main window |
-| `{"settle":TARGET,"timeout_ms":15000}` | process | `strata.settle`: waits for the bounds to repeat three polls and remembers them |
-| `{"wait":PREDICATE,"timeout_ms":15000,"message":"..."}` | process | stops the run on timeout, with the widget tree |
+| `{"settle":TARGET,"timeout_ms":15000,"as":"entered"}` | process | `strata.settle`: waits for the bounds to repeat three polls and remembers them, under `as` too when given |
+| `{"wait":PREDICATE,"timeout_ms":15000,"message":"...","samples":10}` | process | stops the run on timeout, with the widget tree; `samples` polls in a row must hold, as a twin's steady-sample condition (both poll about every 50 ms, `tree.POLL_INTERVAL`) |
 | `{"expect":[PREDICATE,...],"message":"..."}` | process | reports mismatches and continues; `message` names the twin's assertion message |
 | `{"query":"state"}`, `"tree"`, `"prefs"` | process | snapshot, widget tree, or `settings.toml` as JSON in `result` |
 | `{"layout":"ru"}` | runner | `setxkbmap` and a group lock on the run's Xvfb |
 | `{"fs":{"path":"archive/todo.txt","exists":true},"timeout_ms":15000,"message":"..."}` | runner | waits for `exists`, `text`, `names`, `is` (`file`, `dir`, `symlink`), `empty`, or `unchanged` (equal to a remembered listing); `timeout_ms` 0 is a plain assertion |
 | `{"fs":{"path":"archive/todo.txt","write":"existing\n"}}`, `{"fs":{"path":".","remember":"original"}}` | runner | acts at once: writes a file, or keeps `fixture.listing()` under a name |
+| `{"fs":{"path":"archive/folder-{000..159}","mkdir":true}}`, `{"fs":{"path":".","populate":TREE}}` | runner | `Path.mkdir()`, once per number of a range in the last component; `FixtureTree.populate`, which also pins the times below `path` |
+| `{"fs":{"path":"photo.png","image":{"width":1600,"height":900,"rgb":[0,128,0]}}}`, `{"fs":{"path":"sound.wav","ffmpeg":["-f","lavfi",...]}}` | runner | a solid-colour PNG, written in place in one write as PIL's buffered save writes it (written in pieces, the listing would see it grow and replace its row), or `ffmpeg -v error -y <ffmpeg...> <path>` |
 
 `fs` paths are relative to the fixture directory unless absolute, so
 `$data/Trash/files` is the run's isolated trash. Every timeout defaults to 15
@@ -683,13 +698,17 @@ Pointer timings, the approach-then-confirm move, the drag's intermediate
 points, and the pause after a release before a drag all follow
 `harness/interaction.py`. A target is never a screen point; it is resolved from
 the widget's bounds in its native surface plus that surface's X origin, which
-covers popovers, and is waited for up to 15 seconds as the Python lookups wait:
+covers popovers, and is waited for up to 15 seconds as the Python lookups wait.
+The pointer aims only once that box comes through a painted frame unchanged: a
+row a listing has just added or replaced can report a box before its first
+allocation lands, which the slower Python lookups never see.
 
 | Target | Python lookup |
 | --- | --- |
 | `{"entry":"todo.txt","dir":"archive"}` | `entry(name, directory)`; any pane without `dir` |
 | `{"result":"beta/match-note.txt"}` | `test_filter_results.result`: a filter result by its path |
 | `{"role":"check menu item","name":"Folders first"}` | `window.find(role=..., name=...)` |
+| `{"role":"button","name":"Next video","within":{"preview":true}}` | `strata.preview().find(role=..., name=...)`: the search starts at another target |
 | `{"sidebar":"Home"}`, `{"header":"Choose sort field"}` | `sidebar_button`, `header_button` |
 | `{"menu_item":"New File"}` | `menu_item`: in the open menu if there is one |
 | `{"dialog_button":"Close"}` | `dialog_button` |
@@ -697,10 +716,14 @@ covers popovers, and is waited for up to 15 seconds as the Python lookups wait:
 | `{"background":true,"dir":...}` | `background_point`: a point, so it takes no `at` |
 | `{"pane":"archive"}` | the pane; aims at `empty_point` unless `at` is given |
 | `{"viewport":null}` | the scroll viewport around a pane's entry list |
+| `{"entry":"todo.txt","part":"label"}`, `"part":"icon"` | `entry.find(role="label", name=name)`, `entry.find(role="image")` |
+| `{"window":true}`, `{"window":true,"y_of":TARGET}` | `strata.window`; with `y_of`, the point's height is that target's centre, as `(window.x + window.width - 40, pane.center[1])` |
+| `{"preview":true}` | `strata.preview()`, the quick preview drawer |
 
 `at` is `[x, y]` from the target's top-left corner, each in pixels (negative
-counts back from the far edge) or a percentage such as `"80%"`; without it the
-pointer aims at the centre. Role names are AT-SPI's, with `push button` spelled
+counts back from the far edge), a share such as `"80%"` or `"2/3"` (rounded
+down, as `width * 2 // 3`), or `"start-6"` for pixels from the near edge that
+may lie outside the target; without it the pointer aims at the centre. Role names are AT-SPI's, with `push button` spelled
 `button`; names are the labels `src/ui/accessibility.rs` records (an entry row's
 is its list item's, and `set_labelled_by` joins its labels' names), a label's
 own text, or children's names for buttons and menu items; a menu button's inner
@@ -731,9 +754,20 @@ Predicates mirror the page object's accessors:
 | `{"present":TARGET}`, `{"absent":TARGET}` | `window.find(...)` is or is not `None` |
 | `{"moved":{"target":TARGET,"direction":"up"}}` | bounds against the last `settle`; also `down`, `left`, `right`, or `none` |
 | `{"any":[PREDICATE,...]}` | `a or b` |
+| `{"not":PREDICATE}` | `not ...` |
+| `{"all_selected":NAMES}` | `all_selected_names()`: every pane's selection, left to right |
+| `{"focused":{"one_of":[...]}}`, `{"focused_in_matches":true}` | `focused_name() in names`, `focused_name() in matches()` |
+| `{"preview":true}`, `{"peek":true}` | `preview() is not None`, `peek() is not None` |
+| `{"on_screen":TARGET}` | `on_screen(node)`: within the window's height |
+| `{"blank":{"target":TARGET,"at":[...]}}` | `_blank_preview_point`: the point lands on nothing inside the target but panels and fillers |
 
 `NAMES` is an exact list in visual order or
-`{"contains":[...],"excludes":[...],"count":4}`. A `field` check reads the
+`{"contains":[...],"excludes":[...],"count":4,"at_least":2,"ends_with":[...]}`;
+`panes` takes one too. `moved` takes `"since":"entered"` to compare with a box
+`settle` or `remember` kept under that name, and with direction `none`,
+`"y_within":2` allows that much vertical drift and ignores the rest, as
+`abs(restored.y - y) <= 2`. A `field` check also takes `showing` (the field is
+mapped), and `text` also `{"lowercase_contains":...}`. A `field` check reads the
 field remembered as `of`, else the first on screen with that accessible `name`
 (never both), else the focused one; each property it gives must match, `text` exactly or as
 `{"starts_with"|"ends_with"|"contains":...}` and `caret` exactly or as
@@ -842,9 +876,12 @@ agree. It runs only `scripts/qa.sh` and `scripts/e2e.sh`, one after the other
 because they share `target/e2e-container`, and never a host binary:
 
 ```bash
-./scripts/qa-parity.sh                 # every scenario pair
-./scripts/qa-parity.sh clipboard       # the pair a mutation belongs to
-python3 scripts/qa_parity.py report    # compare the saved runs again, no rebuild
+./scripts/qa-parity.sh                       # every scenario pair
+./scripts/qa-parity.sh clipboard             # the pair a mutation belongs to
+./scripts/qa-parity.sh two-clicks-open       # a pair by its scenario's name
+./scripts/qa-parity.sh --baseline            # every pair, unmodified checks only
+python3 scripts/qa_parity.py baseline NAME   # the same as --baseline NAME
+python3 scripts/qa_parity.py report          # compare the saved runs again, no rebuild
 ```
 
 Both runners get `STRATA_PARITY_FIXTURES=1`, the QA runs keep their artifacts,
@@ -853,8 +890,9 @@ and the Python runs write input logs and state dumps. Before any run starts,
 outside libtest's output capture. The runs map to pytest node ids through those
 lines and the `(twin ...)` on the `PASS` and failed lines; a planned run with no
 result line, a `KNOWN BUG` result, a missing `result.json`, or a `qa.sh` exit
-status its results do not account for is a disagreement. Five checks must hold
-for every run:
+status its results do not account for is a disagreement. A scenario with a
+`mutation` is held to all five checks; one without, or any scenario under
+`--baseline`, to baseline parity: pass, input, and state.
 
 | Check | Holds when |
 | --- | --- |
@@ -866,8 +904,10 @@ for every run:
 
 Everything lands in `target/qa-parity`: `baseline/` and `mutations/<patch>/`
 hold each side's log, the QA artifacts, and the Python JUnit report, input logs,
-and state dumps; `<patch>.md` tabulates one pair, mapping each run's Python wait
-message to the QA step's message and line; `summary.md` has one row per pair.
+and state dumps; `<unit>.md`, named after the scenario's patch or else the
+scenario, tabulates one pair, mapping each run's Python wait message to the QA
+step's message and line; `summary.md` has one row per pair, with `n/a` for
+checks baseline parity leaves out.
 Both are deleted when a run starts, and a run that cannot finish leaves a
 `summary.md` saying why.
 The script exits 0 only when every pair agrees, 1 when any disagrees, 2 on a
@@ -878,8 +918,14 @@ script runs unattended.
 While both suites exist, a behaviour change updates a Python test and its QA
 twin together, including any step `message` that mirrors a `strata.wait`
 message.
-CI runs parity, sharded by patch, on pull requests that can change either
+CI runs parity, sharded by scenario, on pull requests that can change either
 twin; see "QA in CI".
+
+### Python-only tests
+
+The Python scenarios are being given QA twins side by side, file by file. A
+test stays Python-only only for a concrete technical reason, such as checking
+the AT-SPI surface itself, and is listed here with that reason. None are so far.
 
 ## In CI
 
@@ -969,9 +1015,10 @@ a red QA job never blocks a merge. The Python suite remains the merge gate.
   request, parity runs only when the merge commit's changes touch `PARITY_PATHS`
   in `scripts/qa_parity.py` (`src/`, `data/`, `tests/e2e/`, `tests/qa/`,
   `tests/qa.rs`, the runners, and this workflow among them); a dispatch always
-  runs it. The plan spreads the scenarios' mutation patches over at most
-  `CI_SHARDS` (10) shards.
-- **QA parity shard N** runs `./scripts/qa-parity.sh <its patches>` on a fresh
+  runs it. The plan spreads the scenarios over at most `CI_SHARDS` (10)
+  shards, each named by its mutation patch (full parity) or, without one, by
+  its own name (baseline parity); a scenario never needs a patch to be planned.
+- **QA parity shard N** runs `./scripts/qa-parity.sh <its names>` on a fresh
   checkout with the same environment and cache: a baseline of its own pairs,
   then each patch. It uploads `target/qa-parity` as
   `qa-parity-<attempt>-shard-<N>` even when it fails.
@@ -990,9 +1037,9 @@ the job log (`PASS` and failed lines name each run's twin), then the artifacts:
 `qa-artifacts-<attempt>` has the per-run bundle described in "Replies and the
 state snapshot", and a parity shard's artifact has `<patch>.md`, `summary.md`,
 `baseline/`, and `mutations/<patch>/` as described in "QA parity". Copy one into
-`target/qa-parity` and run `python3 scripts/qa_parity.py report <patches>` to
+`target/qa-parity` and run `python3 scripts/qa_parity.py report <names>` to
 re-compare it locally, or reproduce a shard with
-`./scripts/qa-parity.sh <patches>`.
+`./scripts/qa-parity.sh <names>`.
 
 **Promotion is pending.** The owner makes **QA scenarios** a required check
 after a two-week informational window with zero unexplained failures and a

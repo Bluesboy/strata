@@ -11,7 +11,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::{
-    protocol::{Check, Failure, FieldCheck, Predicate},
+    protocol::{Check, Failure, FieldCheck, Predicate, Presence},
     targets,
 };
 use crate::ui::accessibility_qa::{self as names, Mark};
@@ -30,6 +30,8 @@ pub(crate) struct Observation {
     pub(crate) menu: Option<Vec<String>>,
     /// Every name and text inside the open quick preview, in tree order.
     pub(crate) preview: Option<Vec<String>>,
+    /// Whether the folder peek is on screen.
+    pub(crate) peek: bool,
     /// The rows of a `Search results` collection, when one is on screen.
     pub(crate) results: Option<Vec<String>>,
     /// The focused editable field, `editable_field()`.
@@ -45,6 +47,9 @@ pub(crate) struct FieldState {
     pub(crate) caret: i32,
     pub(crate) selection: Option<[i32; 2]>,
     pub(crate) focused: bool,
+    /// AT-SPI's `showing`; a diagnostic the snapshot leaves out.
+    #[serde(skip)]
+    pub(crate) showing: bool,
 }
 
 impl FieldState {
@@ -59,6 +64,7 @@ impl FieldState {
                 .filter(|(start, end)| start != end)
                 .map(|(start, end)| [start.min(end), start.max(end)]),
             focused: targets::editable_focused(widget),
+            showing: widget.is_mapped(),
         })
     }
 }
@@ -80,6 +86,7 @@ pub(crate) fn field_matches(check: &FieldCheck, field: Option<&FieldState>) -> b
             .selection
             .is_none_or(|selection| selection == field.selection)
         && check.focused.is_none_or(|focused| focused == field.focused)
+        && check.showing.is_none_or(|showing| showing == field.showing)
 }
 
 /// `assert_editor_constrained`: the editor starts inside the pane and the
@@ -88,6 +95,39 @@ pub(crate) fn field_matches(check: &FieldCheck, field: Option<&FieldState>) -> b
 pub(crate) fn within_viewport(editor: [i64; 4], pane_x: i64, window_width: i64) -> bool {
     let [x, _, width, height] = editor;
     height > 0 && pane_x <= x && x < window_width && 0 < width && width <= window_width - pane_x
+}
+
+/// `on_screen(node)`: a box `[x, y, width, height]` with height, inside the
+/// window's height.
+pub(crate) fn on_screen(bounds: [i64; 4], window: [i64; 4]) -> bool {
+    let [_, y, _, height] = bounds;
+    height > 0 && y >= window[1] && y + height <= window[1] + window[3]
+}
+
+/// Whether a box `[x, y, width, height]` holds a point, its far edges excluded.
+pub(crate) fn contains(bounds: [i64; 4], point: (i64, i64)) -> bool {
+    let [x, y, width, height] = bounds;
+    x <= point.0 && point.0 < x + width && y <= point.1 && point.1 < y + height
+}
+
+/// The middle of the entries lying wholly inside a scroll viewport,
+/// `[(name, [x, y, width, height]), ...]` in visual order, once the first of
+/// them is no longer `unless_first`: the scrolling scenario's `middle_entry`.
+pub(crate) fn middle_visible(
+    entries: &[(String, [i64; 4])],
+    viewport: [i64; 4],
+    unless_first: &str,
+) -> Option<String> {
+    let [_, top, _, height] = viewport;
+    let visible: Vec<&String> = entries
+        .iter()
+        .filter(|(_, bounds)| top < bounds[1] && bounds[1] < top + height - bounds[3])
+        .map(|(name, _)| name)
+        .collect();
+    visible
+        .first()
+        .filter(|first| first.as_str() != unless_first)
+        .map(|_| visible[visible.len() / 2].clone())
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -189,6 +229,16 @@ impl Observation {
             .map(|pane| pane.name.as_str())
     }
 
+    /// `all_selected_names()`: every pane's selection, left to right.
+    pub(crate) fn all_selected(&self) -> Vec<String> {
+        self.panes
+            .iter()
+            .flat_map(|pane| &pane.entries)
+            .filter(|entry| entry.selected)
+            .map(|entry| entry.name.clone())
+            .collect()
+    }
+
     pub(crate) fn selected_names(&self, directory: Option<&str>) -> Vec<String> {
         self.pane(directory).map_or_else(Vec::new, |pane| {
             pane.entries
@@ -239,8 +289,8 @@ impl Observation {
                 (expected.as_deref() == actual, json!(actual))
             }
             Check::Panes(expected) => {
-                let actual: Vec<&str> = self.panes.iter().map(|pane| pane.name.as_str()).collect();
-                (*expected == actual, json!(actual))
+                let actual: Vec<String> = self.panes.iter().map(|pane| pane.name.clone()).collect();
+                (expected.matches(&actual), json!(actual))
             }
             Check::Pane(expected) => {
                 let actual = self.panes.last().map(|pane| pane.name.as_str());
@@ -265,7 +315,13 @@ impl Observation {
             | Check::Field(_)
             | Check::Pref(_)
             | Check::EditorWithinViewport(_)
-            | Check::State(_) => (false, json!("needs the live window")),
+            | Check::State(_)
+            | Check::OnScreen(_)
+            | Check::Blank(_) => (false, json!("needs the live window")),
+            Check::Not(inner) => match self.evaluate(inner) {
+                Ok(()) => (false, json!("the negated predicate holds")),
+                Err(failure) => (true, failure.actual),
+            },
             Check::Any(predicates) => {
                 let actual: Vec<Value> = predicates
                     .iter()
@@ -298,12 +354,19 @@ impl Observation {
             ),
             Check::Preview(expected) => (
                 match (expected, &self.preview) {
-                    (None, None) => true,
-                    (Some(text), Some(shown)) => shown.iter().any(|shown| shown.contains(text)),
+                    (Presence::Absent, None) => true,
+                    (Presence::Any, Some(_)) => true,
+                    (Presence::Named(text), Some(shown)) => {
+                        shown.iter().any(|shown| shown.contains(text.as_str()))
+                    }
+                    (Presence::OneOf(texts), Some(shown)) => texts
+                        .iter()
+                        .any(|text| shown.iter().any(|shown| shown.contains(text.as_str()))),
                     _ => false,
                 },
                 json!(self.preview),
             ),
+            Check::Peek(expected) => (*expected == self.peek, json!(self.peek)),
             Check::Matches(expected) => {
                 let actual = self.matches(directory);
                 (expected.matches(&actual), json!(actual))
@@ -316,10 +379,25 @@ impl Observation {
                 let actual = self.selected_names(directory);
                 (expected.matches(&actual), json!(actual))
             }
+            Check::AllSelected(expected) => {
+                let actual = self.all_selected();
+                (expected.matches(&actual), json!(actual))
+            }
             Check::Focused(expected) => (
                 expected.matches(self.focused_entry.as_deref()),
                 json!(self.focused_entry),
             ),
+            Check::FocusedInMatches(expected) => {
+                let matches = self.matches(None);
+                let among = self
+                    .focused_entry
+                    .as_ref()
+                    .is_some_and(|focused| matches.contains(focused));
+                (
+                    among == *expected,
+                    json!({ "focused": self.focused_entry, "matches": matches }),
+                )
+            }
             Check::ViewMode(expected) => {
                 let actual = self.view_mode();
                 (Some(expected.as_str()) == actual, json!(actual))
@@ -505,6 +583,10 @@ pub(crate) fn scan(window: &gtk::Window) -> Scene {
                 .map(|dialog| targets::accessible_name(&dialog)),
             menu: open_menu(&presented),
             preview: open_preview(&presented),
+            peek: presented.iter().any(|widget| {
+                rendered_bounds(widget).is_some()
+                    && targets::accessible_name(widget) == crate::i18n::tr(super::PEEK_LABEL)
+            }),
             results: search_results(&presented),
             field: targets::focused_field(&presented).and_then(|field| FieldState::read(&field)),
         },

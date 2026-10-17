@@ -2,7 +2,9 @@
 
 //! Accessible semantics for browser widgets whose nested content has no useful derived name.
 
-use gtk::prelude::*;
+use std::cell::RefCell;
+
+use gtk::{glib, prelude::*};
 
 use crate::model::{EntryKind, FileEntry};
 
@@ -19,6 +21,68 @@ pub(super) fn set_label(widget: &impl IsA<gtk::Accessible>, label: &str) {
     widget.update_property(&[gtk::accessible::Property::Label(label)]);
     #[cfg(feature = "qa")]
     qa::record(widget, |naming| naming.label = Some(label.to_owned()));
+}
+
+thread_local! {
+    /// Widgets whose label is their own, which a stand-in must never replace.
+    static OWN_LABELS: RefCell<Vec<glib::WeakRef<gtk::Widget>>> = RefCell::default();
+    /// Widgets wearing a stand-in label for a name their layout hides.
+    static STAND_INS: RefCell<Vec<glib::WeakRef<gtk::Widget>>> = RefCell::default();
+}
+
+fn holds(list: &RefCell<Vec<glib::WeakRef<gtk::Widget>>>, widget: &gtk::Widget) -> bool {
+    let mut list = list.borrow_mut();
+    list.retain(|kept| kept.upgrade().is_some());
+    list.iter()
+        .any(|kept| kept.upgrade().as_ref() == Some(widget))
+}
+
+/// A label that is the widget's own; [`set_stand_in_label`] leaves it alone.
+pub(super) fn set_own_label(widget: &impl IsA<gtk::Widget>, label: &str) {
+    let widget = widget.upcast_ref::<gtk::Widget>();
+    OWN_LABELS.with(|own| {
+        if !holds(own, widget) {
+            own.borrow_mut().push(widget.downgrade());
+        }
+    });
+    STAND_INS.with(|stand_ins| {
+        stand_ins
+            .borrow_mut()
+            .retain(|kept| kept.upgrade().as_ref() != Some(widget));
+    });
+    set_label(widget, label);
+}
+
+/// Names a widget whose visible name its layout hides, unless it has a label of its own.
+pub(super) fn set_stand_in_label(widget: &impl IsA<gtk::Widget>, label: &str) {
+    let widget = widget.upcast_ref::<gtk::Widget>();
+    if OWN_LABELS.with(|own| holds(own, widget)) {
+        return;
+    }
+    STAND_INS.with(|stand_ins| {
+        if !holds(stand_ins, widget) {
+            stand_ins.borrow_mut().push(widget.downgrade());
+        }
+    });
+    set_label(widget, label);
+}
+
+/// Drops a stand-in label, so the name is derived from content again; any
+/// other label stays.
+pub(super) fn clear_stand_in_label(widget: &impl IsA<gtk::Widget>) {
+    let widget = widget.upcast_ref::<gtk::Widget>();
+    let wore_one = STAND_INS.with(|stand_ins| {
+        let held = holds(stand_ins, widget);
+        stand_ins
+            .borrow_mut()
+            .retain(|kept| kept.upgrade().as_ref() != Some(widget));
+        held
+    });
+    if wore_one {
+        widget.reset_property(gtk::AccessibleProperty::Label);
+        #[cfg(feature = "qa")]
+        qa::record(widget, |naming| naming.label = None);
+    }
 }
 
 pub(super) fn set_description(widget: &impl IsA<gtk::Accessible>, description: Option<&str>) {

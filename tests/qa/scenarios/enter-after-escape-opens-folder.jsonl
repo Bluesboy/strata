@@ -1,0 +1,10 @@
+{"scenario":"enter-after-escape-opens-folder","modes":["columns","icons","list"],"prefs":{"single_click_previews":false},"layout":"us","twin":"tests/e2e/scenarios/test_escape_selection.py::test_enter_after_escape_opens_the_focused_folder[$mode]","mutation":null,"known_bug":null}
+{"select_with_keyboard":"documents"}
+{"wait":{"focused":"documents"},"message":"keyboard focus to reach 'documents'"}
+{"key":"Escape"}
+{"wait":{"selected":[],"dir":"$root"},"message":"the selection to become []"}
+{"wait":{"focused":"documents"},"message":"keyboard focus to reach 'documents'"}
+{"key":"Return"}
+{"wait":{"directory":"documents"},"message":"the browser to be working in 'documents'"}
+{"settle":{"pane":"documents"}}
+{"wait":{"entries":["notes.txt","report.md","spreadsheet.csv"],"dir":"documents"},"message":"the pane to list ['notes.txt', 'report.md', 'spreadsheet.csv']"}

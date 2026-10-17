@@ -43,7 +43,7 @@ if [[ "$group_id" != 0 ]]; then
   printf 'strata-e2e:x:%s:\n' "$group_id" >> "$accounts/group"
 fi
 
-# Scenario names select tests (hyphens or underscores); flags pass to libtest unchanged.
+# Scenario names select tests exactly (hyphens or underscores); flags pass to libtest unchanged.
 scenarios="$repository/tests/qa/scenarios"
 arguments=()
 while (($#)); do
@@ -64,10 +64,16 @@ while (($#)); do
         exit 2
       fi
       arguments+=("${name//-/_}")
+      named=1
       shift
       ;;
   esac
 done
+# A name selects only its own scenario, never every one it prefixes; --exact
+# makes a --skip match whole names too.
+if ((${named:-0})); then
+  arguments+=(--exact)
+fi
 
 options=(--rm --platform=linux/amd64 --user "$user_id:$group_id" --shm-size=512m)
 if [[ "$(basename "$engine")" == podman ]]; then

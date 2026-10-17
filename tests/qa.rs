@@ -51,25 +51,78 @@ macro_rules! scenarios {
 
 // One test per file in tests/qa/scenarios, named after it with underscores.
 scenarios! {
+    alt_up_and_history,
     appearance_menu_switches_view,
     arrow_keys_move_focus,
+    arrow_keys_move_focus_remaining,
+    arrow_scope_toggles_live,
+    background_click_clears_selection,
+    background_press_clears_before_drag,
+    beside_last_column_clears,
+    click_after_navigating_reanchors,
     click_mode_preference_live,
+    click_then_double_click_no_rename,
+    clicking_open_folder_focuses_column,
+    columns_home_end_mirror,
+    columns_return_selects_source_folder,
+    control_click_toggles,
     copy_leaves_source,
     cut_moves_only_after_paste,
     delete_to_trash,
+    disabled_transport_click,
+    double_click_leaves_folder_open_focused,
     drag_file_onto_folder,
+    empty_column_clears_other_columns,
+    enter_after_escape_opens_folder,
+    escape_clears_selection_no_navigation,
+    escape_dismisses_transient,
+    escape_only_clears_active_column,
     escape_preserves_name,
     filter_updates_retain_state,
+    focus_usable_after_view_change,
     keep_both_then_undo,
+    keyboard_only_copy_paste,
+    keyboard_open_selects_first_child,
+    keyboard_selection_in_single_click_mode,
+    leftover_click_honors_modifiers,
+    list_typed_file_path,
     long_rename_keeps_caret,
+    modifier_click_focuses_target,
     new_file_collision_dialog,
+    one_click_only_selects,
     panel_wheel_routing,
+    parent_pane_anchors_first_entry,
+    preview_blank_click_keeps_selection,
+    refresh_keeps_cursor_and_viewport,
+    refresh_keeps_filter_focus,
     rename_commits_on_click_away,
     rename_commits_on_enter,
     rename_onto_existing_rejected,
+    return_restores_nested_scroll,
+    right_click_keeps_multi_selection,
+    right_click_selects_entry,
+    second_selection_replaces_first,
+    select_all_selects_every_entry,
+    shift_after_escape_starts_on_focused,
+    shift_arrow_extends_selection,
     shift_click_range,
+    shift_click_range_keyboard_entry,
+    shift_click_revisits_after_folder,
+    sidebar_navigation_range_anchor,
+    sidebar_selection_depends_on_activation,
+    single_click_clipped_parent_column,
     single_click_opens_directory,
+    single_click_opens_directory_group,
     space_previews_filtered_result,
+    tenxer_escape_closes_peek,
+    tenxer_escape_filter_preview_fill,
+    tenxer_icons_edges_search_peek,
+    tenxer_keeps_location_edit,
+    tenxer_sidebar_header_round_trips,
+    tenxer_space_toggles_cursor,
+    tenxer_visual_ranges,
+    two_clicks_open,
+    two_slow_clicks_do_not_open,
     typed_path_navigates,
 }
 
@@ -92,9 +145,16 @@ const DEFAULT_LAYOUT: &str = "us";
 const ALL_MODIFIERS: u16 = 0xff;
 /// The error `strata --qa` replies with before it exits on a harness bug.
 const CONTROLLER_PANIC: &str = "the QA controller panicked";
-const RUNNER_COMMANDS: [&str; 2] = ["layout", "fs"];
+const RUNNER_COMMANDS: [&str; 3] = ["layout", "fs", "increment"];
+/// What a run-time note stands for while steps are checked before the launch.
+const NOTED_PLACEHOLDER: &str = "noted";
+/// `ffmpeg` writing a generated media file, as a twin's `subprocess.run(..., timeout=30)`.
+const FFMPEG_TIMEOUT: Duration = Duration::from_secs(30);
 /// A step key the runner reads and strips: the modes the step runs in.
 const STEP_MODES: &str = "modes";
+/// A step key the runner reads and strips: the header variants the step runs
+/// in, as a twin's `if target == "row-space"` branches.
+const STEP_VARIANTS: &str = "variants";
 /// A step key the runner reads and strips: a predicate the step runs only
 /// while it holds, checked through the process's `holds` just before, as a
 /// twin's `if node.has_state(...)` branches.
@@ -434,6 +494,15 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
                 view_name(mode).map_err(|error| format!("line {}: {error}", index + 1))?;
             }
         }
+        if let Some(variants) = object.get(STEP_VARIANTS) {
+            let variants: Vec<String> = serde_json::from_value(variants.clone())
+                .map_err(|error| format!("line {}: variants: {error}", index + 1))?;
+            for variant in &variants {
+                if !header.variants.iter().any(|known| known.id == *variant) {
+                    return Err(format!("line {}: no variant {variant:?}", index + 1));
+                }
+            }
+        }
         steps.push((index + 1, step));
     }
     match (&header.known_bug, header.known_bug_step) {
@@ -481,6 +550,8 @@ fn run_steps(
     variables: &[(String, String)],
 ) -> Result<Vec<(usize, Value)>, String> {
     let mut steps = Vec::new();
+    // Each note a step keeps, with a stand-in of its type for checking later steps.
+    let mut notes: Vec<(String, Value)> = Vec::new();
     for (line, step) in &scenario.steps {
         let mut step = substitute(step, variables);
         let Some(object) = step.as_object_mut() else {
@@ -493,7 +564,27 @@ fn run_steps(
         {
             continue;
         }
-        check_step(&step).map_err(|error| format!("line {line}: {error}"))?;
+        if let Some(variants) = object.remove(STEP_VARIANTS)
+            && !variants
+                .as_array()
+                .is_some_and(|variants| variants.iter().any(|id| *id == *run.variant.id))
+        {
+            continue;
+        }
+        let checked = substitute_notes(&step, &notes);
+        check_step(&checked).map_err(|error| format!("line {line}: {error}"))?;
+        if let Some(token) = unknown_variable(&checked) {
+            return Err(format!(
+                "line {line}: ${token} is neither a variable nor an earlier note"
+            ));
+        }
+        if let Some((name, placeholder)) = kept_note(&checked, &notes)? {
+            if variables.iter().any(|(variable, _)| *variable == name) {
+                return Err(format!("line {line}: the note {name:?} hides a variable"));
+            }
+            notes.retain(|(existing, _)| *existing != name);
+            notes.push((name, placeholder));
+        }
         steps.push((*line, step));
     }
     if let Some(line) = scenario.header.known_bug_step
@@ -507,11 +598,139 @@ fn run_steps(
     Ok(steps)
 }
 
+/// The name a `note` or `increment` step keeps its result under, with a
+/// stand-in of the result's type: a list for list accessors, else text.
+fn kept_note(step: &Value, notes: &[(String, Value)]) -> Result<Option<(String, Value)>, String> {
+    let name = || step["as"].as_str().unwrap_or_default().to_owned();
+    if step.get("note").is_some() {
+        let Ok(protocol::Command::Note { value, .. }) = protocol::parse_command(&step.to_string())
+        else {
+            return Err("invalid note step".to_owned());
+        };
+        let placeholder = if value.is_list() {
+            json!([NOTED_PLACEHOLDER])
+        } else {
+            json!(NOTED_PLACEHOLDER)
+        };
+        return Ok(Some((name(), placeholder)));
+    }
+    if let Some(source) = step.get("increment") {
+        let source = source.as_str().unwrap_or_default();
+        if !notes
+            .iter()
+            .any(|(note, value)| note == source && value.is_string())
+        {
+            return Err(format!(
+                "increment needs an earlier note of a name, {source:?}"
+            ));
+        }
+        return Ok(Some((name(), json!(NOTED_PLACEHOLDER))));
+    }
+    Ok(None)
+}
+
+/// A `$name` left in any string once variables and notes were replaced.
+fn unknown_variable(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => text.split('$').skip(1).find_map(|rest| {
+            let token: String = rest
+                .chars()
+                .take_while(|character| character.is_ascii_alphanumeric() || *character == '_')
+                .collect();
+            (!token.is_empty()).then_some(token)
+        }),
+        Value::Array(items) => items.iter().find_map(unknown_variable),
+        Value::Object(object) => object.values().find_map(unknown_variable),
+        _ => None,
+    }
+}
+
+/// Replaces notes kept while the run goes: a string that is exactly `$name`
+/// becomes the note's value, list or not; elsewhere `$name` is its text.
+fn substitute_notes(value: &Value, notes: &[(String, Value)]) -> Value {
+    if notes.is_empty() {
+        return value.clone();
+    }
+    match value {
+        Value::String(text) => {
+            if let Some((_, noted)) = text
+                .strip_prefix('$')
+                .and_then(|name| notes.iter().find(|(note, _)| note == name))
+            {
+                return noted.clone();
+            }
+            let texts: Vec<(String, String)> = notes
+                .iter()
+                .map(|(name, noted)| (name.clone(), python_text(noted)))
+                .collect();
+            Value::String(substitute_text(text, &texts))
+        }
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| substitute_notes(item, notes))
+                .collect(),
+        ),
+        Value::Object(object) => Value::Object(
+            object
+                .iter()
+                .map(|(key, item)| (key.clone(), substitute_notes(item, notes)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+/// A note as a twin's f-string shows it: text as is, a list as `['a', 'b']`.
+fn python_text(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Null => "None".to_owned(),
+        Value::Array(items) => format!(
+            "[{}]",
+            items
+                .iter()
+                .map(|item| match item {
+                    Value::String(text) => format!("'{text}'"),
+                    other => python_text(other),
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        other => other.to_string(),
+    }
+}
+
+/// `f"folder-{int(name.removeprefix('folder-')) + 1:03}"`: the text with its
+/// trailing number one higher, zero-padded to the same width.
+fn increment(text: &str) -> Result<String, String> {
+    let digits = text.chars().rev().take_while(char::is_ascii_digit).count();
+    let (prefix, number) = text.split_at(text.len() - digits);
+    let value: u64 = number
+        .parse()
+        .map_err(|_| format!("{text:?} does not end in a number"))?;
+    Ok(format!("{prefix}{:0width$}", value + 1, width = digits))
+}
+
 fn check_step(step: &Value) -> Result<(), String> {
+    if step.get("increment").is_some() {
+        let object = step.as_object().ok_or("a step must be an object")?;
+        let valid = object.len() == 2
+            && step["increment"].is_string()
+            && step["as"].as_str().is_some_and(|name| !name.is_empty());
+        return if valid {
+            Ok(())
+        } else {
+            Err("increment names a note and the name to keep the result as".to_owned())
+        };
+    }
     if step.get("holds").is_some() {
         return Err("holds is the runner's own check; a step uses when".to_owned());
     }
     if let Some(condition) = step.get(STEP_WHEN) {
+        if step.get("note").is_some() || step.get("increment").is_some() {
+            return Err("a note or increment always runs; it takes no when".to_owned());
+        }
         protocol::parse_command(&json!({ "holds": condition }).to_string())
             .map_err(|error| format!("when: {error}"))?;
         let mut step = step.clone();
@@ -1046,7 +1265,11 @@ struct FsStep {
 /// One check or action about `path`, relative to the fixture root unless
 /// absolute: wait for `exists`, `text`, `names`, `is` (`file`, `dir`, or
 /// `symlink`), or `empty`; compare with an earlier listing (`unchanged`); or
-/// act at once: `write` text, or `remember` the tree's listing under a name.
+/// act at once: `write` text, `remember` the tree's listing under a name,
+/// `mkdir` (`Path.mkdir()`; a last component like `folder-{000..159}` makes
+/// one directory per number), `populate` a tree there and pin its times as
+/// `FixtureTree.populate` does, save a solid-colour PNG (`image`), or run
+/// `ffmpeg -v error -y <ffmpeg...> <path>`, both in place as the twins write.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FsCheck {
@@ -1059,6 +1282,10 @@ struct FsCheck {
     unchanged: Option<String>,
     write: Option<String>,
     remember: Option<String>,
+    mkdir: Option<bool>,
+    populate: Option<Value>,
+    image: Option<Image>,
+    ffmpeg: Option<Vec<String>>,
 }
 
 enum FsKind<'a> {
@@ -1070,6 +1297,10 @@ enum FsKind<'a> {
     Unchanged(&'a str),
     Write(&'a str),
     Remember(&'a str),
+    Mkdir,
+    Populate(&'a Value),
+    Image(&'a Image),
+    Ffmpeg(&'a [String]),
 }
 
 /// `fixture.listing()` taken by `remember`, by name.
@@ -1105,21 +1336,49 @@ impl FsCheck {
         if let Some(name) = &self.remember {
             kinds.push(FsKind::Remember(name));
         }
+        match self.mkdir {
+            Some(true) => kinds.push(FsKind::Mkdir),
+            Some(false) => return Err("mkdir is true or left out".to_owned()),
+            None => {}
+        }
+        if let Some(tree) = &self.populate {
+            expand_directory(tree)?;
+            kinds.push(FsKind::Populate(tree));
+        }
+        if let Some(image) = &self.image {
+            kinds.push(FsKind::Image(image));
+        }
+        if let Some(arguments) = &self.ffmpeg {
+            kinds.push(FsKind::Ffmpeg(arguments));
+        }
         match kinds.len() {
             1 => Ok(kinds.remove(0)),
             _ => Err(
                 "fs needs a path and exactly one of exists, text, names, is, empty, \
-                 unchanged, write, or remember"
+                 unchanged, write, remember, mkdir, populate, image, or ffmpeg"
                     .to_owned(),
             ),
         }
     }
 
     fn acts(&self) -> bool {
-        matches!(self.kind(), Ok(FsKind::Write(_) | FsKind::Remember(_)))
+        matches!(
+            self.kind(),
+            Ok(FsKind::Write(_)
+                | FsKind::Remember(_)
+                | FsKind::Mkdir
+                | FsKind::Populate(_)
+                | FsKind::Image(_)
+                | FsKind::Ffmpeg(_))
+        )
     }
 
-    fn observe(&self, root: &Path, listings: &mut Listings) -> Result<(), String> {
+    fn observe(
+        &self,
+        root: &Path,
+        fixture_time: SystemTime,
+        listings: &mut Listings,
+    ) -> Result<(), String> {
         let path = root.join(&self.path);
         match self.kind()? {
             FsKind::Exists(exists) => {
@@ -1179,6 +1438,64 @@ impl FsCheck {
                 listings.insert(name.to_owned(), listing(&path));
                 Ok(())
             }
+            FsKind::Mkdir => {
+                let parent = path.parent().unwrap_or(root);
+                let name = path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                for name in expand_name(&name)? {
+                    fs::create_dir(parent.join(&name))
+                        .map_err(|error| format!("{name}: {error}"))?;
+                }
+                Ok(())
+            }
+            FsKind::Populate(tree) => {
+                fs::create_dir_all(&path).map_err(|error| error.to_string())?;
+                populate(&path, &expand_directory(tree)?);
+                pin_times(&path, fixture_time);
+                Ok(())
+            }
+            // PIL's buffered save writes a file this small in one write; written in
+            // pieces, the listing would see it grow and replace its row.
+            FsKind::Image(image) => {
+                let mut png = std::io::Cursor::new(Vec::new());
+                image::RgbImage::from_pixel(image.width, image.height, image::Rgb(image.rgb))
+                    .write_to(&mut png, image::ImageFormat::Png)
+                    .map_err(|error| error.to_string())?;
+                fs::write(&path, png.into_inner()).map_err(|error| error.to_string())
+            }
+            FsKind::Ffmpeg(arguments) => ffmpeg(arguments, &path),
+        }
+    }
+}
+
+fn ffmpeg(arguments: &[String], output: &Path) -> Result<(), String> {
+    let mut child = spawn(
+        Command::new("ffmpeg")
+            .args(["-v", "error", "-y"])
+            .args(arguments)
+            .arg(output)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped()),
+    )?;
+    let deadline = Instant::now() + FFMPEG_TIMEOUT;
+    loop {
+        match child.try_wait().map_err(|error| error.to_string())? {
+            Some(status) if status.success() => return Ok(()),
+            Some(status) => {
+                let mut errors = String::new();
+                if let Some(mut stderr) = child.stderr.take() {
+                    let _ = std::io::Read::read_to_string(&mut stderr, &mut errors);
+                }
+                return Err(format!("ffmpeg exited with {status}: {}", errors.trim()));
+            }
+            None if Instant::now() >= deadline => {
+                terminate(&mut child);
+                return Err(format!("ffmpeg ran past {} s", FFMPEG_TIMEOUT.as_secs()));
+            }
+            None => std::thread::sleep(POLL_INTERVAL),
         }
     }
 }
@@ -1349,6 +1666,7 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
             manifest,
             display: &display,
             fixture: fixture.path(),
+            fixture_time: fixture_time(manifest),
         },
         &mut layout,
     );
@@ -1555,11 +1873,6 @@ fn expand_directory(directory: &Value) -> Result<Value, String> {
     };
     let mut expanded = Map::new();
     for (name, value) in entries {
-        let range = name.split_once('{').and_then(|(prefix, rest)| {
-            let (range, suffix) = rest.split_once('}')?;
-            let (first, last) = range.split_once("..")?;
-            Some((prefix, first, last.parse::<u32>().ok()?, suffix))
-        });
         let child = match value {
             Value::Object(_) => expand_directory(value)?,
             Value::String(_) => value.clone(),
@@ -1569,25 +1882,46 @@ fn expand_directory(directory: &Value) -> Result<Value, String> {
                 ));
             }
         };
-        let Some((prefix, first, last, suffix)) = range else {
-            expanded.insert(name.clone(), child);
-            continue;
-        };
-        let start: u32 = first
-            .parse()
-            .map_err(|_| format!("fixture {name}: the range must be numeric"))?;
-        for number in start..=last {
-            let contents = match &child {
-                Value::String(text) => Value::String(text.replace("{}", &number.to_string())),
-                other => other.clone(),
+        for (expanded_name, number) in numbered(name)? {
+            let contents = match (&child, number) {
+                (Value::String(text), Some(number)) => {
+                    Value::String(text.replace("{}", &number.to_string()))
+                }
+                (other, _) => other.clone(),
             };
-            expanded.insert(
-                format!("{prefix}{number:0width$}{suffix}", width = first.len()),
-                contents,
-            );
+            expanded.insert(expanded_name, contents);
         }
     }
     Ok(Value::Object(expanded))
+}
+
+/// A name, or the names a `{000..199}` range in it stands for.
+fn expand_name(name: &str) -> Result<Vec<String>, String> {
+    Ok(numbered(name)?.into_iter().map(|(name, _)| name).collect())
+}
+
+/// Each name a `{first..last}` range stands for, zero-padded to the width
+/// `first` is written in, with its number; a name without one stands alone.
+fn numbered(name: &str) -> Result<Vec<(String, Option<u32>)>, String> {
+    let range = name.split_once('{').and_then(|(prefix, rest)| {
+        let (range, suffix) = rest.split_once('}')?;
+        let (first, last) = range.split_once("..")?;
+        Some((prefix, first, last.parse::<u32>().ok()?, suffix))
+    });
+    let Some((prefix, first, last, suffix)) = range else {
+        return Ok(vec![(name.to_owned(), None)]);
+    };
+    let start: u32 = first
+        .parse()
+        .map_err(|_| format!("fixture {name}: the range must be numeric"))?;
+    Ok((start..=last)
+        .map(|number| {
+            (
+                format!("{prefix}{number:0width$}{suffix}", width = first.len()),
+                Some(number),
+            )
+        })
+        .collect())
 }
 
 fn fixture_time(manifest: &Manifest) -> SystemTime {
@@ -1612,6 +1946,8 @@ struct Context<'a> {
     manifest: &'a Manifest,
     display: &'a Display,
     fixture: &'a Path,
+    /// The manifest's pinned time, which an fs `populate` gives its tree.
+    fixture_time: SystemTime,
 }
 
 fn drive(application: &mut Application, context: &Context, layout: &mut String) -> Outcome {
@@ -1641,7 +1977,9 @@ fn drive(application: &mut Application, context: &Context, layout: &mut String) 
             }
         }
     }
+    let mut notes: Vec<(String, Value)> = Vec::new();
     for (line, step) in context.steps {
+        let step = &substitute_notes(step, &notes);
         let label = format!("line {line} {step}");
         let mut object = step.as_object().cloned().unwrap_or_default();
         if let Some(condition) = object.remove(STEP_WHEN) {
@@ -1675,8 +2013,28 @@ fn drive(application: &mut Application, context: &Context, layout: &mut String) 
             }
             continue;
         }
+        if let Some(source) = object.get("increment") {
+            let name = object["as"].as_str().unwrap_or_default().to_owned();
+            let noted = notes
+                .iter()
+                .find(|(note, _)| Some(note.as_str()) == source.as_str())
+                .and_then(|(_, value)| value.as_str())
+                .ok_or_else(|| format!("no note of a name called {source}"))
+                .and_then(increment);
+            match noted {
+                Ok(text) => {
+                    notes.retain(|(note, _)| *note != name);
+                    notes.push((name, json!(text)));
+                    continue;
+                }
+                Err(error) => {
+                    file_failure(&mut outcome, *line, &label, &error);
+                    return outcome;
+                }
+            }
+        }
         let result = if object.contains_key("fs") {
-            wait_for_fs(step, context.fixture, &mut listings)
+            wait_for_fs(step, context.fixture, context.fixture_time, &mut listings)
         } else {
             let timeout = match object.get("timeout_ms").and_then(Value::as_u64) {
                 Some(ms) => (Duration::from_millis(ms) + WAIT_MARGIN).max(COMMAND_TIMEOUT),
@@ -1684,7 +2042,18 @@ fn drive(application: &mut Application, context: &Context, layout: &mut String) 
             };
             // No reply at all is the harness failing, not the scenario.
             match application.send(step, timeout) {
-                Ok(reply) => record(&mut outcome, Some(*line), &label, step, reply),
+                Ok(reply) => {
+                    let result = reply["result"].clone();
+                    let recorded = record(&mut outcome, Some(*line), &label, step, reply);
+                    if recorded.is_ok()
+                        && let Some(name) = object.get("note").and(object.get("as"))
+                    {
+                        let name = name.as_str().unwrap_or_default().to_owned();
+                        notes.retain(|(note, _)| *note != name);
+                        notes.push((name, result));
+                    }
+                    recorded
+                }
                 Err(error) => {
                     outcome.errors.push(format!("{label}: {error}"));
                     return outcome;
@@ -1769,18 +2138,23 @@ fn record(
 
 /// Steps were checked when the run's steps were built, so a bad body here
 /// would be a runner bug. An action runs once; a check is polled.
-fn wait_for_fs(step: &Value, fixture: &Path, listings: &mut Listings) -> Result<(), String> {
+fn wait_for_fs(
+    step: &Value,
+    fixture: &Path,
+    fixture_time: SystemTime,
+    listings: &mut Listings,
+) -> Result<(), String> {
     let step: FsStep = serde_json::from_value(step.clone())
         .map_err(|error| format!("invalid fs step: {error}"))?;
     if step.fs.acts() {
         return step
             .fs
-            .observe(fixture, listings)
+            .observe(fixture, fixture_time, listings)
             .map_err(|error| format!("{}: {error}", step.fs.path));
     }
     let deadline = Instant::now() + step.timeout_ms.map_or(DEFAULT_WAIT, Duration::from_millis);
     loop {
-        match step.fs.observe(fixture, listings) {
+        match step.fs.observe(fixture, fixture_time, listings) {
             Ok(()) => return Ok(()),
             Err(actual) if Instant::now() >= deadline => {
                 return Err(format!(
@@ -1943,6 +2317,145 @@ fn a_run_keeps_its_own_mode_steps_and_rejects_a_malformed_one() {
 }
 
 #[test]
+fn notes_stand_in_for_what_a_run_reads_and_unknown_variables_are_rejected() {
+    let header = || -> Header {
+        serde_json::from_value(json!({
+            "scenario": "example", "modes": ["columns"], "twin": "x", "mutation": null,
+            "known_bug": null, "variants": [{ "id": "name" }, { "id": "row-space" }],
+        }))
+        .expect("the header should parse")
+    };
+    let runs = runs(&header());
+    let row_space = runs
+        .iter()
+        .find(|run| run.variant.id == "row-space")
+        .expect("a row-space run");
+    let check = |steps: Vec<Value>| {
+        let scenario = Scenario {
+            header: header(),
+            steps: steps.into_iter().enumerate().collect(),
+        };
+        run_steps(&scenario, row_space, &variables(row_space, &placeholders()))
+    };
+    let kept = check(vec![
+        json!({ "note": "entries", "dir": "$root", "as": "names" }),
+        json!({ "wait": { "entries": "$names" } }),
+        json!({ "note": "middle_visible", "unless_first": "a", "as": "first" }),
+        json!({ "increment": "first", "as": "first_next" }),
+        json!({ "fs": { "path": "archive/$first/x", "mkdir": true } }),
+        json!({ "wait": { "focused": "$first_next" } }),
+        json!({ "key": "Escape", "variants": ["name"] }),
+    ])
+    .expect("notes should stand in for their values");
+    assert_eq!(
+        kept.len(),
+        6,
+        "the name variant's step stays out of the row-space run"
+    );
+    assert_eq!(kept[1].1, json!({ "wait": { "entries": "$names" } }));
+    for broken in [
+        vec![json!({ "wait": { "focused": "$cursor" } })],
+        vec![
+            json!({ "wait": { "focused": "$cursor" } }),
+            json!({ "note": "focused", "as": "cursor" }),
+        ],
+        vec![json!({ "note": "focused", "as": "root" })],
+        vec![json!({ "note": "focused", "as": "cursor", "when": { "dialog": null } })],
+        vec![json!({ "increment": "names", "as": "next" })],
+        vec![
+            json!({ "note": "entries", "as": "names" }),
+            json!({ "increment": "names", "as": "next" }),
+        ],
+    ] {
+        assert!(
+            check(broken.clone()).is_err(),
+            "{broken:?} should be rejected"
+        );
+    }
+
+    let directory = tempfile::tempdir().expect("a scratch directory");
+    let path = directory.path().join("example.jsonl");
+    fs::write(
+        &path,
+        "{\"scenario\":\"example\",\"modes\":[\"columns\"],\"twin\":\"x\",\"mutation\":null,\
+         \"variants\":[{\"id\":\"name\"}]}\n{\"key\":\"Escape\",\"variants\":[\"missing\"]}\n",
+    )
+    .expect("the scenario should be written");
+    assert!(
+        load_scenario(&path).is_err(),
+        "an unknown step variant is a typo"
+    );
+
+    let notes = vec![
+        ("names".to_owned(), json!(["a.txt", "b.txt"])),
+        ("first".to_owned(), json!("folder-087")),
+    ];
+    assert_eq!(
+        substitute_notes(
+            &json!({ "wait": { "selected": "$names" }, "message": "to become $names in $first" }),
+            &notes
+        ),
+        json!({
+            "wait": { "selected": ["a.txt", "b.txt"] },
+            "message": "to become ['a.txt', 'b.txt'] in folder-087",
+        })
+    );
+    assert_eq!(increment("folder-087"), Ok("folder-088".to_owned()));
+    assert_eq!(increment("folder-099"), Ok("folder-100".to_owned()));
+    assert!(increment("readme").is_err());
+}
+
+#[test]
+fn fs_actions_make_numbered_directories_and_pin_a_populated_tree() {
+    let root = tempfile::tempdir().expect("a scratch directory");
+    let act = |step: Value| {
+        let step: FsStep = serde_json::from_value(step).expect("the step should parse");
+        step.fs.observe(
+            root.path(),
+            SystemTime::UNIX_EPOCH + Duration::from_secs(1_000),
+            &mut Listings::new(),
+        )
+    };
+    fs::create_dir(root.path().join("archive")).expect("the directory should be created");
+    act(json!({ "fs": { "path": "archive/folder-{08..10}", "mkdir": true } }))
+        .expect("numbered directories should be made");
+    let mut made: Vec<String> = fs::read_dir(root.path().join("archive"))
+        .expect("the directory should list")
+        .map(|entry| {
+            entry
+                .expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    made.sort();
+    assert_eq!(made, ["folder-08", "folder-09", "folder-10"]);
+    assert!(
+        act(json!({ "fs": { "path": "archive/folder-09", "mkdir": true } })).is_err(),
+        "Path.mkdir() refuses an existing directory"
+    );
+    act(json!({ "fs": { "path": ".", "populate": { "docs": { "{1..2}.txt": "n{}" } } } }))
+        .expect("the tree should be populated");
+    assert_eq!(
+        fs::read_to_string(root.path().join("docs/2.txt")).expect("the file should exist"),
+        "n2"
+    );
+    let pinned = |path: &str| {
+        fs::metadata(root.path().join(path))
+            .and_then(|metadata| metadata.modified())
+            .expect("the time should be readable")
+    };
+    let expected = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
+    assert_eq!(pinned("docs/1.txt"), expected);
+    assert_eq!(
+        pinned("archive/folder-08"),
+        expected,
+        "populate pins everything below it"
+    );
+}
+
+#[test]
 fn a_variable_replaces_only_its_whole_token() {
     let variables = [
         ("view".to_owned(), "Icons".to_owned()),
@@ -1992,7 +2505,8 @@ fn an_empty_check_counts_a_missing_directory_as_empty() {
         let step: FsStep =
             serde_json::from_value(json!({ "fs": { "path": path, "empty": empty } }))
                 .expect("the step should parse");
-        step.fs.observe(root.path(), &mut Listings::new())
+        step.fs
+            .observe(root.path(), SystemTime::UNIX_EPOCH, &mut Listings::new())
     };
     assert!(check("missing", true).is_ok());
     assert!(check("missing", false).is_err());

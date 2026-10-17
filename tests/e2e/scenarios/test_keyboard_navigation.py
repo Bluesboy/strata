@@ -110,6 +110,9 @@ def test_tenxer_icons_stay_on_tiles_at_edges_in_search_and_peek(strata):
 
     empty = strata.fixture.path("empty-icons")
     empty.mkdir()
+    # The monitor lists the folder first; its update arriving after the reload
+    # would replace the row while the click below is taking it.
+    strata.entry("empty-icons")
     strata.keyboard.press("F5")
     strata.select_entry("empty-icons")
     strata.keyboard.press("o")

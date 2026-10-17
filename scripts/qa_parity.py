@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: MIT
 """Proves the `--qa` scenarios and their Python twins agree.
 
-For every scenario in tests/qa/scenarios (or the ones whose `mutation` is
-named), inside the pinned container runners and one after the other:
+For every scenario in tests/qa/scenarios (or the ones named, each by its
+`mutation` patch or by its own name), inside the pinned container runners and
+one after the other:
 
 - pass parity: both sides pass on the unmodified tree, run by run;
 - fail parity: under the scenario's mutation patch, each run fails on both
@@ -14,9 +15,13 @@ named), inside the pinned container runners and one after the other:
   in order, pointer positions within one pixel;
 - final-state parity: the compared keys of the final state snapshots agree.
 
+A scenario without a `mutation`, or any scenario under `--baseline`, gets
+baseline parity: pass, input, and state only.
+
 QA runs map to pytest node ids through the `(twin ...)` on their PASS and
-failed lines. Reports go to target/qa-parity: one `<patch>.md` per patch and
-`summary.md`. See "QA parity" in docs/e2e-testing.md.
+failed lines. Reports go to target/qa-parity: one `<unit>.md` per scenario,
+named after its patch or else after the scenario, and `summary.md`. See
+"QA parity" in docs/e2e-testing.md.
 
 `scripts/e2e-mutation-check.sh --qa` reuses the `scenario`, `twins`, and
 `verdict` subcommands for pass and fail parity alone.
@@ -71,6 +76,12 @@ class Scenario:
     name: str
     mutation: str | None
 
+    @property
+    def unit(self) -> str:
+        """What names the scenario on the command line, in reports, and in CI shards."""
+
+        return self.mutation or self.name
+
 
 def scenarios() -> list[Scenario]:
     found = []
@@ -85,6 +96,21 @@ def scenario_for(patch: str) -> Scenario:
     if len(matching) != 1:
         raise SystemExit(f"{patch}: expected one QA scenario naming it as its mutation, found {len(matching)}")
     return matching[0]
+
+
+def scenario_named(name: str) -> Scenario:
+    """The scenario a mutation patch belongs to, or else the scenario of that name."""
+
+    found = scenarios()
+    by_patch = [scenario for scenario in found if scenario.mutation == name]
+    if len(by_patch) > 1:
+        raise SystemExit(f"{name}: {len(by_patch)} QA scenarios name it as their mutation")
+    if by_patch:
+        return by_patch[0]
+    by_name = [scenario for scenario in found if scenario.name == name]
+    if not by_name:
+        raise SystemExit(f"{name}: neither a scenario's mutation nor a scenario in {SCENARIOS}")
+    return by_name[0]
 
 
 def node_file_name(node_id: str) -> str:
@@ -478,19 +504,35 @@ class Mutation:
 
 # --------------------------------------------------------------------- report
 
+CHECKS = ("pass", "fail", "signature", "input", "state")
+# What a scenario without a mutation, or a `--baseline` run, is held to.
+BASELINE_CHECKS = ("pass", "input", "state")
+
+
 @dataclass
 class PairReport:
     scenario: str
-    patch: str
+    patch: str | None
     results: dict[str, Comparison] = field(default_factory=dict)
     baseline: list[RunPair] = field(default_factory=list)
     mutated: list[RunPair] = field(default_factory=list)
     inputs: dict[str, Comparison] = field(default_factory=dict)
     states: dict[str, Comparison] = field(default_factory=dict)
+    baseline_only: bool = False
+
+    @property
+    def unit(self) -> str:
+        return self.patch or self.scenario
+
+    @property
+    def checks(self) -> tuple[str, ...]:
+        return BASELINE_CHECKS if self.baseline_only else CHECKS
 
     @property
     def agree(self) -> bool:
-        return all(comparison.agree for comparison in self.results.values())
+        return all(
+            check in self.results and self.results[check].agree for check in self.checks
+        ) and all(comparison.agree for comparison in self.results.values())
 
 
 def compare_baseline(report: PairReport, destination: Path) -> None:
@@ -525,7 +567,9 @@ def compare_baseline(report: PairReport, destination: Path) -> None:
     report.results["state"] = combined(report.states)
 
 
-def mark(comparison: Comparison | None) -> str:
+def mark(comparison: Comparison | None, applies: bool = True) -> str:
+    if not applies:
+        return "n/a"
     if comparison is None:
         return "not run"
     return "agree" if comparison.agree else "DISAGREE"
@@ -535,24 +579,33 @@ def write_patch_report(report: PairReport, output: Path = OUTPUT) -> Path:
     def cell(text: str) -> str:
         return text.replace("|", "\\|").replace("\n", " ") or "–"
 
+    if report.patch:
+        source = f"patch `tests/e2e/mutations/{report.patch}.patch`"
+        if report.baseline_only:
+            source += ", baseline parity only"
+    else:
+        source = "no mutation patch, so baseline parity only"
     lines = [
-        f"# {report.patch}",
+        f"# {report.unit}",
         "",
-        f"QA scenario `{report.scenario}`; patch `tests/e2e/mutations/{report.patch}.patch`.",
+        f"QA scenario `{report.scenario}`; {source}.",
         "",
         "| Check | Result | Notes |",
         "| --- | --- | --- |",
     ]
-    for check in ("pass", "fail", "signature", "input", "state"):
+    for check in CHECKS:
         comparison = report.results.get(check)
-        lines.append(f"| {check} | {mark(comparison)} | {cell(comparison.note if comparison else '')} |")
-    lines += [
-        "",
-        "## Failure signatures under the patch",
-        "",
-        "| Run | Twin | Python | Python wait message | QA | QA step message | QA step |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
-    ]
+        applies = check in report.checks
+        note = comparison.note if comparison and applies else ""
+        lines.append(f"| {check} | {mark(comparison, applies)} | {cell(note)} |")
+    if not report.baseline_only:
+        lines += [
+            "",
+            "## Failure signatures under the patch",
+            "",
+            "| Run | Twin | Python | Python wait message | QA | QA step message | QA step |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
     for pair in report.mutated:
         lines.append(
             f"| {cell(pair.label)} | `{cell(pair.twin)}` | {pair.python.status} | "
@@ -578,7 +631,7 @@ def write_patch_report(report: PairReport, output: Path = OUTPUT) -> Path:
             f"{cell(described(report.inputs.get(pair.label)))} | "
             f"{cell(described(report.states.get(pair.label)))} |"
         )
-    path = output / f"{report.patch}.md"
+    path = output / f"{report.unit}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
@@ -590,8 +643,8 @@ def write_summary(reports: list[PairReport], elapsed: float | None, extra: list[
     lines = [header, "| --- | --- | --- | --- | --- | --- | --- | --- |"]
     for report in reports:
         lines.append(
-            f"| {report.scenario} | {report.patch} | {len(report.baseline)} | "
-            + " | ".join(mark(report.results.get(check)) for check in ("pass", "fail", "signature", "input", "state"))
+            f"| {report.scenario} | {report.patch or '–'} | {len(report.baseline)} | "
+            + " | ".join(mark(report.results.get(check), check in report.checks) for check in CHECKS)
             + " |"
         )
     agreeing = sum(report.agree for report in reports)
@@ -606,9 +659,9 @@ def write_summary(reports: list[PairReport], elapsed: float | None, extra: list[
 
 # ----------------------------------------------------------------------- main
 
-def chosen_scenarios(patches: list[str]) -> list[Scenario]:
-    if patches:
-        return [scenario_for(patch) for patch in patches]
+def chosen_scenarios(names: list[str]) -> list[Scenario]:
+    if names:
+        return [scenario_named(name) for name in names]
     return scenarios()
 
 
@@ -617,7 +670,7 @@ def baseline_pairs(scenario: Scenario, qa: dict[str, QaRun], python: dict[str, R
     return pairs(own, {twin: python.get(twin, Result("missing")) for twin in own})
 
 
-def collect(chosen: list[Scenario]) -> None:
+def collect(chosen: list[Scenario], baseline_only: bool = False) -> None:
     """Runs both sides, unmodified and under each patch, into target/qa-parity."""
 
     baseline = OUTPUT / "baseline"
@@ -629,7 +682,7 @@ def collect(chosen: list[Scenario]) -> None:
     run_python(sorted(qa), baseline)
     python = load_python(baseline)
     for scenario in chosen:
-        if not scenario.mutation:
+        if not scenario.mutation or baseline_only:
             continue
         destination = OUTPUT / "mutations" / scenario.mutation
         shutil.rmtree(destination, ignore_errors=True)
@@ -643,24 +696,28 @@ def collect(chosen: list[Scenario]) -> None:
             run_python([pair.twin for pair in found], destination)
 
 
-def evaluate(chosen: list[Scenario], output: Path = OUTPUT) -> list[PairReport]:
-    """Compares what `collect` saved under `output`; writes `<patch>.md` there for each pair."""
+def evaluate(chosen: list[Scenario], output: Path = OUTPUT, baseline_only: bool = False) -> list[PairReport]:
+    """Compares what `collect` saved under `output`; writes `<unit>.md` there for each pair."""
 
     baseline = output / "baseline"
     qa, python = load_qa(baseline), load_python(baseline)
     baseline_exit = exit_accounted(load_qa_status(baseline), qa.values())
     reports = []
     for scenario in chosen:
-        report = PairReport(scenario.name, scenario.mutation or "(none)")
+        report = PairReport(
+            scenario.name, scenario.mutation, baseline_only=baseline_only or not scenario.mutation
+        )
         report.baseline = baseline_pairs(scenario, qa, python)
         report.results["pass"] = pass_parity(report.baseline)
         if report.results["pass"].agree and not baseline_exit.agree:
             report.results["pass"] = baseline_exit
         compare_baseline(report, baseline)
-        destination = output / "mutations" / report.patch
-        if not scenario.mutation:
-            report.results["fail"] = Comparison(False, "the scenario names no mutation")
-        elif not (destination / "qa.log").is_file():
+        if report.baseline_only:
+            write_patch_report(report, output)
+            reports.append(report)
+            continue
+        destination = output / "mutations" / scenario.mutation
+        if not (destination / "qa.log").is_file():
             report.results["fail"] = Comparison(False, "not run: the unmodified pair does not pass")
         else:
             twins = [pair.twin for pair in report.baseline]
@@ -675,29 +732,28 @@ def evaluate(chosen: list[Scenario], output: Path = OUTPUT) -> list[PairReport]:
                 report.results["fail"] = exited
             report.results["signature"] = signature_parity(report.mutated)
         report.results.setdefault("signature", Comparison(False, "not run"))
-        if scenario.mutation:
-            write_patch_report(report, output)
+        write_patch_report(report, output)
         reports.append(report)
     return reports
 
 
-def parity(patches: list[str], rerun: bool = True) -> int:
+def parity(names: list[str], rerun: bool = True, baseline_only: bool = False) -> int:
     started = time.monotonic()
-    chosen = chosen_scenarios(patches)
+    chosen = chosen_scenarios(names)
     OUTPUT.mkdir(parents=True, exist_ok=True)
     # A report left from an earlier run must never stand in for this one.
-    for stale in [OUTPUT / "summary.md"] + [OUTPUT / f"{s.mutation}.md" for s in chosen if s.mutation]:
+    for stale in [OUTPUT / "summary.md"] + [OUTPUT / f"{scenario.unit}.md" for scenario in chosen]:
         stale.unlink(missing_ok=True)
     if rerun:
         try:
-            collect(chosen)
+            collect(chosen, baseline_only)
         except (Exception, SystemExit) as error:
             (OUTPUT / "summary.md").write_text(f"Parity did not finish: {error}\n", encoding="utf-8")
             print(f"parity did not finish: {error}", file=sys.stderr)
             return 2 if isinstance(error, SystemExit) else 1
-    reports = evaluate(chosen)
+    reports = evaluate(chosen, baseline_only=baseline_only)
     for report in reports:
-        print(f"   {report.scenario} / {report.patch}: {'agree' if report.agree else 'DISAGREE'}")
+        print(f"   {report.scenario} / {report.patch or 'baseline'}: {'agree' if report.agree else 'DISAGREE'}")
     summary = write_summary(reports, time.monotonic() - started)
     print("\n" + summary)
     return 0 if all(report.agree for report in reports) else 1
@@ -730,41 +786,42 @@ def touches_parity(paths: list[str]) -> bool:
     )
 
 
-def ci_patches() -> list[str]:
-    """Every scenario's mutation, which CI shards by; each scenario needs its own."""
+def ci_units() -> list[str]:
+    """What CI shards by: each mutation scenario's patch, which gets full
+    parity, and each other scenario's name, which gets baseline parity."""
 
     found = scenarios()
     if not found:
         raise SystemExit("no QA scenarios to compare")
-    unnamed = [scenario.name for scenario in found if not scenario.mutation]
-    if unnamed:
-        raise SystemExit(f"scenarios without a mutation cannot be sharded: {', '.join(unnamed)}")
-    patches = sorted(scenario.mutation for scenario in found)
+    patches = [scenario.mutation for scenario in found if scenario.mutation]
     if len(set(patches)) != len(patches):
         raise SystemExit("two QA scenarios name the same mutation")
     unknown = [patch for patch in patches if not (MUTATIONS / f"{patch}.patch").is_file()]
     if unknown:
         raise SystemExit(f"unknown mutations: {', '.join(unknown)}")
-    return patches
+    clashing = sorted({scenario.name for scenario in found if not scenario.mutation} & set(patches))
+    if clashing:
+        raise SystemExit(f"a scenario is named like another's mutation: {', '.join(clashing)}")
+    return sorted(scenario.unit for scenario in found)
 
 
-def shard_patches(patches: list[str], shards: int) -> list[list[str]]:
-    count = min(shards, len(patches))
-    return [patches[index::count] for index in range(count)]
+def shard_units(units: list[str], shards: int) -> list[list[str]]:
+    count = min(shards, len(units))
+    return [units[index::count] for index in range(count)]
 
 
 def ci_plan(base: str | None) -> int:
     """GitHub outputs: whether parity runs, and the shard matrix."""
 
-    shards = shard_patches(ci_patches(), CI_SHARDS)
+    shards = shard_units(ci_units(), CI_SHARDS)
     run = True
     if base is not None:
         changed = git("-c", "core.quotePath=false", "diff", "--no-renames", "--name-only", base, "HEAD")
         if changed.returncode:
             raise SystemExit(f"cannot list the changes since {base}: {changed.stderr.strip()}")
         run = touches_parity(changed.stdout.splitlines())
-    matrix = {"include": [{"shard": index, "patches": " ".join(patches)}
-                          for index, patches in enumerate(shards)]}
+    matrix = {"include": [{"shard": index, "names": " ".join(names)}
+                          for index, names in enumerate(shards)]}
     print(f"run={'true' if run else 'false'}")
     print("matrix=" + json.dumps(matrix, separators=(",", ":")))
     return 0
@@ -776,7 +833,7 @@ def aggregate(root: Path) -> int:
     counts, and a shard that uploaded nothing or did not finish disagrees.
     The combined summary goes to `root/summary.md`, leaving target/qa-parity alone."""
 
-    by_patch = {scenario.mutation: scenario for scenario in scenarios()}
+    by_unit = {scenario.unit: scenario for scenario in scenarios()}
     newest: dict[int, tuple[int, Path]] = {}
     for directory in sorted(root.iterdir()) if root.is_dir() else []:
         if directory.is_dir() and (match := SHARD_DIRECTORY.search(directory.name)):
@@ -786,16 +843,17 @@ def aggregate(root: Path) -> int:
     uploaded = {index: directory for index, (_, directory) in newest.items()}
     unfinished = False
     reports: list[PairReport] = []
-    rows = ["", "| Shard | Patches | Minutes | Result |", "| --- | --- | --- | --- |"]
-    for index, patches in enumerate(shard_patches(ci_patches(), CI_SHARDS)):
-        chosen = [by_patch[patch] for patch in patches]
+    rows = ["", "| Shard | Scenarios | Minutes | Result |", "| --- | --- | --- | --- |"]
+    for index, units in enumerate(shard_units(ci_units(), CI_SHARDS)):
+        chosen = [by_unit[unit] for unit in units]
         directory = uploaded.pop(index, None)
         summary = directory / "summary.md" if directory else None
         if summary is None or not summary.is_file():
             note = f"shard {index} uploaded no parity report"
-            reports += [PairReport(s.name, patch, {"pass": Comparison(False, note)})
-                        for s, patch in zip(chosen, patches)]
-            rows.append(f"| {index} | {' '.join(patches)} | – | {note} |")
+            reports += [PairReport(scenario.name, scenario.mutation, {"pass": Comparison(False, note)},
+                                   baseline_only=not scenario.mutation)
+                        for scenario in chosen]
+            rows.append(f"| {index} | {' '.join(units)} | – | {note} |")
             continue
         text = summary.read_text(encoding="utf-8")
         found = evaluate(chosen, directory)
@@ -805,7 +863,7 @@ def aggregate(root: Path) -> int:
         if text.startswith("Parity did not finish"):
             unfinished = True
             result = f"DISAGREE: {first_line(text)}"
-        rows.append(f"| {index} | {' '.join(patches)} | {minutes[1] if minutes else '–'} | "
+        rows.append(f"| {index} | {' '.join(units)} | {minutes[1] if minutes else '–'} | "
                     f"{result.replace('|', '/')} |")
     for index in sorted(uploaded):
         rows.append(f"| {index} | – | – | DISAGREE: not in this checkout's shard plan |")
@@ -835,10 +893,16 @@ def verdict(stage: str, qa_log: Path, junit: Path, qa_status: int) -> int:
 def main(arguments: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
-    run = commands.add_parser("run", help="full parity for every patch, or the ones named")
-    run.add_argument("patches", nargs="*")
+    run = commands.add_parser(
+        "run", help="parity for every scenario, or the ones named by patch or scenario name"
+    )
+    run.add_argument("names", nargs="*")
+    run.add_argument("--baseline", action="store_true", help="baseline parity only, no patches")
+    baseline = commands.add_parser("baseline", help="baseline parity for every scenario, or the ones named")
+    baseline.add_argument("names", nargs="*")
     again = commands.add_parser("report", help="compare the runs already saved in target/qa-parity")
-    again.add_argument("patches", nargs="*")
+    again.add_argument("names", nargs="*")
+    again.add_argument("--baseline", action="store_true", help="baseline parity only, no patches")
     one = commands.add_parser("scenario", help="the QA scenario a patch belongs to")
     one.add_argument("patch")
     twins = commands.add_parser("twins", help="the planned runs' twin node ids from a QA log")
@@ -868,8 +932,9 @@ def main(arguments: list[str]) -> int:
         return 0 if found else 1
     if options.command == "verdict":
         return verdict(options.stage, options.qa_log, options.junit, options.qa_status)
+    baseline_only = options.command == "baseline" or getattr(options, "baseline", False)
     if options.command == "report":
-        return parity(options.patches, rerun=False)
+        return parity(options.names, rerun=False, baseline_only=baseline_only)
 
     def terminate(_number, _frame):
         raise KeyboardInterrupt
@@ -878,7 +943,7 @@ def main(arguments: list[str]) -> int:
         print("STRATA_BINARY and STRATA_E2E_BUNDLE must be unset; parity builds in the container", file=sys.stderr)
         return 2
     try:
-        return parity(options.patches)
+        return parity(options.names, baseline_only=baseline_only)
     except KeyboardInterrupt:
         print("interrupted", file=sys.stderr)
         return 130

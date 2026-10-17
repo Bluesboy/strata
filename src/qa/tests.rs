@@ -7,8 +7,8 @@ use serde_json::json;
 use super::{
     input,
     protocol::{
-        At, Check, Chord, Command, EntryTarget, FieldCheck, Modifier, Offset, Predicate, Presence,
-        Query, Target, changed_keys, parse_command,
+        Accessor, At, Check, Chord, Command, EntryTarget, FieldCheck, Modifier, Offset, Predicate,
+        Presence, Query, Target, changed_keys, parse_command,
     },
     state::{self, EntryObservation, FieldState, Observation, PaneObservation},
     step_towards,
@@ -56,6 +56,7 @@ fn commands_parse_from_the_scenario_spelling_with_their_defaults() {
             },
             timeout: Duration::from_millis(15_000),
             message: None,
+            samples: 1,
         })
     );
     assert_eq!(
@@ -64,11 +65,14 @@ fn commands_parse_from_the_scenario_spelling_with_their_defaults() {
             target: Target::Entry(EntryTarget {
                 entry: "readme.md".to_owned(),
                 dir: Some("docs".to_owned()),
+                part: None,
             }),
             button: 1,
             count: 1,
             modifiers: Vec::new(),
             at: None,
+            left_bound: None,
+            release_modifiers_first: false,
         })
     );
     assert_eq!(
@@ -80,6 +84,7 @@ fn commands_parse_from_the_scenario_spelling_with_their_defaults() {
         Ok(Command::Select(EntryTarget {
             entry: "readme.md".to_owned(),
             dir: None,
+            part: None,
         }))
     );
     assert_eq!(
@@ -101,6 +106,7 @@ fn commands_parse_from_the_scenario_spelling_with_their_defaults() {
             target: Target::Role {
                 role: "toggle button".to_owned(),
                 name: "Single".to_owned(),
+                within: None,
             },
             message: Some("m".to_owned()),
         })
@@ -155,7 +161,23 @@ fn malformed_commands_are_rejected_instead_of_guessed() {
         r#"{"expect":[]}"#,
         r#"{"type":""}"#,
         r#"{"activate":{"entry":"a"}}"#,
-        r#"{"remember":{"entry":"a"},"as":"x"}"#,
+        r#"{"remember":{"field":"kept"},"as":"x"}"#,
+        r#"{"note":"entries"}"#,
+        r#"{"note":"directory","dir":"x","as":"a"}"#,
+        r#"{"note":"focused","from":"a","as":"b"}"#,
+        r#"{"note":"middle_visible","as":"a"}"#,
+        r#"{"note":"entries","unless_first":"a","as":"b"}"#,
+        r#"{"note":"entries","message":"m","as":"a"}"#,
+        r#"{"click":{"entry":"a"},"release_mods_first":true}"#,
+        r#"{"click":{"entry":"a"},"count":2,"mods":["shift"],"release_mods_first":true}"#,
+        r#"{"click":{"window":false}}"#,
+        r#"{"click":{"entry":"a","part":"name"}}"#,
+        r#"{"button_down":4}"#,
+        r#"{"set_scrollbar":"diagonal","value":0}"#,
+        r#"{"wait":{"focused":"a"},"samples":0}"#,
+        r#"{"wait":{"focused":{"one_of":"a"}}}"#,
+        r#"{"wait":{"not":{"selected":[]},"dir":"x"}}"#,
+        r#"{"drag":{"from":{"entry":"a"},"to":{"entry":"b"}},"message":"m"}"#,
         r#"{"remember":{"field":true}}"#,
         r#"{"click":{"field":false}}"#,
         r#"{"wait":{"dialog":false}}"#,
@@ -170,6 +192,54 @@ fn malformed_commands_are_rejected_instead_of_guessed() {
     ] {
         assert!(parse_command(line).is_err(), "{line} should be rejected");
     }
+}
+
+#[test]
+fn a_note_waits_only_when_asked_and_a_drag_checks_after_its_press() {
+    let Ok(Command::Note {
+        value,
+        dir,
+        wait,
+        from,
+        through,
+        ..
+    }) = parse_command(
+        r#"{"note":"entries","dir":"root","from":"documents","through":"todo.txt","as":"range"}"#,
+    )
+    else {
+        panic!("a sliced note should parse");
+    };
+    assert_eq!(value, Accessor::Entries);
+    assert_eq!(dir.as_deref(), Some("root"));
+    assert_eq!(wait, None);
+    assert_eq!(
+        (from.as_deref(), through.as_deref()),
+        (Some("documents"), Some("todo.txt"))
+    );
+    let Ok(Command::Note { wait, .. }) = parse_command(
+        r#"{"note":"middle_visible","unless_first":"folder-000","until_found":true,"as":"first"}"#,
+    ) else {
+        panic!("a waiting note should parse");
+    };
+    assert_eq!(wait, Some(Duration::from_millis(15_000)));
+    let Ok(Command::Drag {
+        from_at,
+        after_press: Some(after_press),
+        ..
+    }) = parse_command(
+        r#"{"drag":{"from":{"pane":"a"},"from_at":["50%",-60],"to":{"entry":"b"}},"after_press":{"selected":[],"dir":"a"},"message":"m"}"#,
+    )
+    else {
+        panic!("a drag with a check after its press should parse");
+    };
+    assert_eq!(
+        from_at,
+        Some(At {
+            x: Offset::Percent(50),
+            y: Offset::Pixels(-60)
+        })
+    );
+    assert_eq!(after_press.dir.as_deref(), Some("a"));
 }
 
 #[test]
@@ -293,6 +363,7 @@ fn the_snapshot_reports_selection_and_focus_per_pane() {
             caret: 8,
             selection: Some([0, 4]),
             focused: true,
+            showing: true,
         }),
         ..Observation::default()
     };
@@ -338,6 +409,7 @@ fn every_target_kind_parses_from_its_key() {
         Target::Entry(EntryTarget {
             entry: "todo.txt".to_owned(),
             dir: Some("archive".to_owned()),
+            part: None,
         })
     );
     assert_eq!(
@@ -345,6 +417,7 @@ fn every_target_kind_parses_from_its_key() {
         Target::Role {
             role: "button".to_owned(),
             name: "Keep Both".to_owned(),
+            within: None,
         }
     );
     assert_eq!(
@@ -390,6 +463,7 @@ fn every_target_kind_parses_from_its_key() {
         r#"{"background":true}"#,
         r#"{"pane":null}"#,
         r#"{"menu_item":"New File"}"#,
+        r#"{"role":"button","name":"Next video","within":{"preview":true}}"#,
         r#"{"field":"filter"}"#,
         r#"{"result":"beta/match-note.txt"}"#,
     ] {
@@ -431,6 +505,24 @@ fn at_offsets_resolve_like_the_python_points() {
         bounds.point(Some(&at(Offset::Pixels(4), Offset::Pixels(-14)))),
         (104.0, 121.0)
     );
+    // `label.x + label.width * 2 // 3` and `icon.x - 6`.
+    assert_eq!(
+        bounds.point(Some(&at(Offset::Fraction(2, 3), Offset::FromStart(-6)))),
+        (300.0, 34.0)
+    );
+    let Ok(Command::Move {
+        at: Some(parsed), ..
+    }) = parse_command(r#"{"move":{"pane":null},"at":["2/3","start-6"]}"#)
+    else {
+        panic!("fractions and near-edge offsets should parse");
+    };
+    assert_eq!(parsed, at(Offset::Fraction(2, 3), Offset::FromStart(-6)));
+    for bad in [r#"["3/2",0]"#, r#"["end-2",0]"#, r#"["start6",0]"#] {
+        assert!(
+            parse_command(&format!(r#"{{"move":{{"pane":null}},"at":{bad}}}"#)).is_err(),
+            "{bad} should be rejected"
+        );
+    }
 }
 
 #[test]
@@ -503,7 +595,10 @@ fn dialog_menu_preview_and_match_predicates_read_the_snapshot() {
         json!({ "menu_items": {} }),
         json!({ "menu_items": { "contains": ["New Folder"], "excludes": ["Quick preview"] } }),
         json!({ "preview": "beta source" }),
+        json!({ "preview": true }),
+        json!({ "peek": false }),
         json!({ "matches": { "count": 2 } }),
+        json!({ "matches": { "at_least": 2, "ends_with": ["match-note.txt"] } }),
         json!({ "matches": ["match-note.txt", "match-note.txt"] }),
         json!({ "any": [{ "focused": true }, { "focused_pane": true }] }),
     ] {
@@ -517,7 +612,9 @@ fn dialog_menu_preview_and_match_predicates_read_the_snapshot() {
         json!({ "menu_items": null }),
         json!({ "preview": null }),
         json!({ "preview": "alpha source" }),
+        json!({ "peek": true }),
         json!({ "matches": { "count": 3 } }),
+        json!({ "matches": { "at_least": 3 } }),
         json!({ "any": [{ "focused": true }, { "dialog": null }] }),
     ] {
         assert!(
@@ -542,8 +639,85 @@ fn dialog_menu_preview_and_match_predicates_read_the_snapshot() {
     }
     assert!(
         closed
+            .evaluate(&predicate(json!({ "preview": true })))
+            .is_err()
+    );
+    assert!(
+        closed
             .evaluate(&predicate(json!({ "menu_items": {} })))
             .is_err()
+    );
+}
+
+#[test]
+fn selection_focus_and_negated_predicates_read_every_pane() {
+    let mut cursor = entry("notes.txt", false);
+    cursor.focused = true;
+    let observation = Observation {
+        panes: vec![
+            pane(
+                "root",
+                vec![entry("documents", true), entry("todo.txt", true)],
+            ),
+            pane("documents", vec![cursor, entry("report.md", true)]),
+        ],
+        focused_entry: Some("notes.txt".to_owned()),
+        focused_pane: Some(1),
+        results: Some(vec!["notes.txt".to_owned()]),
+        ..Observation::default()
+    };
+    for holding in [
+        json!({ "all_selected": ["documents", "todo.txt", "report.md"] }),
+        json!({ "panes": { "ends_with": ["root", "documents"], "excludes": ["archive"] } }),
+        json!({ "focused": { "one_of": ["readme.md", "notes.txt"] } }),
+        json!({ "focused_in_matches": true }),
+        json!({ "not": { "selected": [], "dir": "root" } }),
+        json!({ "not": { "directory": "root" } }),
+    ] {
+        assert!(
+            observation.evaluate(&predicate(holding.clone())).is_ok(),
+            "{holding} should hold"
+        );
+    }
+    for failing in [
+        json!({ "all_selected": [] }),
+        json!({ "panes": { "ends_with": ["documents", "root"] } }),
+        json!({ "focused": { "one_of": ["readme.md"] } }),
+        json!({ "focused_in_matches": false }),
+        json!({ "not": { "selected": ["report.md"] } }),
+    ] {
+        assert!(
+            observation.evaluate(&predicate(failing.clone())).is_err(),
+            "{failing} should not hold"
+        );
+    }
+}
+
+#[test]
+fn window_geometry_checks_mirror_the_twin_arithmetic() {
+    let window = [0, 0, 1200, 760];
+    assert!(state::on_screen([10, 700, 100, 60], window));
+    assert!(!state::on_screen([10, 701, 100, 60], window));
+    assert!(!state::on_screen([10, 10, 100, 0], window));
+    assert!(state::contains([10, 20, 30, 40], (10, 59)));
+    assert!(!state::contains([10, 20, 30, 40], (40, 30)));
+
+    let rows: Vec<(String, [i64; 4])> = (0..8)
+        .map(|index| (format!("folder-{index:03}"), [0, index * 30, 100, 30]))
+        .collect();
+    // Rows lying wholly between the viewport's edges, as the twin filters them.
+    assert_eq!(
+        state::middle_visible(&rows, [0, 40, 100, 120], "folder-000"),
+        Some("folder-003".to_owned())
+    );
+    assert_eq!(
+        state::middle_visible(&rows, [0, -10, 100, 120], "folder-000"),
+        None,
+        "nothing scrolled yet while the first visible row is the first entry"
+    );
+    assert_eq!(
+        state::middle_visible(&rows, [0, 400, 100, 60], "folder-000"),
+        None
     );
 }
 
@@ -555,6 +729,7 @@ fn a_field_check_matches_only_the_properties_it_names() {
         caret: 6,
         selection: None,
         focused: true,
+        showing: true,
     };
     let check = |json: serde_json::Value| -> FieldCheck {
         serde_json::from_value(json).expect("the field check should parse")

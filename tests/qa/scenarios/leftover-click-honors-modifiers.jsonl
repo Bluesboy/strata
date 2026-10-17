@@ -1,0 +1,14 @@
+{"scenario":"leftover-click-honors-modifiers","modes":["columns","list"],"layout":"us","twin":"tests/e2e/scenarios/test_selection.py::test_leftover_click_honors_the_press_modifiers[$case-$mode]","mutation":null,"known_bug":null,"variants":[{"id":"shift-content","vars":{"case":"shift-content"}},{"id":"shift-row-space","vars":{"case":"shift-row-space"}},{"id":"ctrl-row-space","modes":["columns"],"vars":{"case":"ctrl-row-space"}},{"id":"plain-row-space","vars":{"case":"plain-row-space"}}]}
+{"select":{"entry":"documents","dir":"$root"},"modes":["columns"]}
+{"click":{"entry":"documents","dir":"$root"},"count":2,"modes":["list"]}
+{"wait":{"directory":"documents"},"message":"the browser to be working in 'documents'"}
+{"settle":{"pane":"documents"}}
+{"select":{"entry":"notes.txt","dir":"documents"}}
+{"wait":{"entry":"spreadsheet.csv","dir":"documents"},"message":"the entry 'spreadsheet.csv' in 'documents' to appear"}
+{"click":{"entry":"spreadsheet.csv","part":"label","dir":"documents"},"at":[-2,"50%"],"variants":["plain-row-space"]}
+{"click":{"entry":"spreadsheet.csv","part":"label","dir":"documents"},"mods":["shift"],"release_mods_first":true,"at":[4,"50%"],"variants":["shift-content"]}
+{"click":{"entry":"spreadsheet.csv","part":"label","dir":"documents"},"mods":["shift"],"release_mods_first":true,"at":[-2,"50%"],"variants":["shift-row-space"]}
+{"click":{"entry":"spreadsheet.csv","part":"label","dir":"documents"},"mods":["ctrl"],"release_mods_first":true,"at":[-2,"50%"],"variants":["ctrl-row-space"]}
+{"wait":{"selected":["spreadsheet.csv"],"dir":"documents"},"message":"the selection to become ['spreadsheet.csv']","variants":["plain-row-space"]}
+{"wait":{"selected":["notes.txt","report.md","spreadsheet.csv"],"dir":"documents"},"message":"the selection to become ['notes.txt', 'report.md', 'spreadsheet.csv']","variants":["shift-content","shift-row-space"]}
+{"wait":{"selected":["notes.txt","spreadsheet.csv"],"dir":"documents"},"message":"the selection to become ['notes.txt', 'spreadsheet.csv']","variants":["ctrl-row-space"]}

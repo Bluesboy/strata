@@ -1,0 +1,6 @@
+{"scenario":"two-slow-clicks-do-not-open","modes":["columns","icons","list"],"prefs":{"list_folder_clicks":2,"list_file_clicks":2,"grid_folder_clicks":2,"grid_file_clicks":2,"explorer_folder_clicks":2,"explorer_file_clicks":2},"layout":"us","twin":"tests/e2e/scenarios/test_click_modes.py::test_two_slow_clicks_do_not_open[$mode]","mutation":null,"known_bug":null}
+{"click":{"entry":"documents"}}
+{"sleep":600}
+{"click":{"entry":"documents"}}
+{"wait":{"selected":["documents"]},"message":"the entry to stay selected"}
+{"expect":{"pane":"$root"}}

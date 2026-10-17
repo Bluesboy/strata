@@ -1,0 +1,4 @@
+{"scenario":"one-click-only-selects","modes":["columns","icons","list"],"prefs":{"list_folder_clicks":2,"list_file_clicks":2,"grid_folder_clicks":2,"grid_file_clicks":2,"explorer_folder_clicks":2,"explorer_file_clicks":2},"layout":"us","twin":"tests/e2e/scenarios/test_click_modes.py::test_one_click_only_selects_in_double_click_mode[$mode]","mutation":null,"known_bug":null}
+{"click":{"entry":"documents"}}
+{"wait":{"selected":["documents"]},"message":"one click to select in double-click mode"}
+{"expect":{"pane":"$root"},"message":"one click must not open the directory"}

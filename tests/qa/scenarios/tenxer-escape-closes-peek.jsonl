@@ -1,0 +1,20 @@
+{"scenario":"tenxer-escape-closes-peek","modes":["columns","icons","list"],"prefs":{"tenxer_mode":true,"type_to_search":false,"single_click_previews":false,"filter_include_subfolders":false},"layout":"us","twin":"tests/e2e/scenarios/test_escape_selection.py::test_tenxer_escape_closes_a_peek_but_never_a_column[$mode]","mutation":null,"known_bug":null}
+{"key":"Home"}
+{"wait":{"focused":"archive"},"message":"keyboard focus to reach 'archive'"}
+{"key":"space"}
+{"wait":{"selected":["archive"],"dir":"$root"},"message":"the selection to become ['archive']"}
+{"wait":{"focused":"documents"},"message":"keyboard focus to reach 'documents'"}
+{"key":"i"}
+{"wait":{"panes":["$root","documents"]},"message":"i to open a column","modes":["columns"]}
+{"wait":{"peek":true},"message":"i to open the folder peek","modes":["icons","list"]}
+{"key":"Escape","modes":["icons","list"]}
+{"wait":{"peek":false},"message":"Esc to close the peek","modes":["icons","list"]}
+{"wait":{"selected":["archive"],"dir":"$root"},"message":"the selection to become ['archive']","modes":["icons","list"]}
+{"note":"panes","as":"panes"}
+{"key":"Escape"}
+{"wait":{"selected":[],"dir":"$root"},"message":"the selection to become []"}
+{"wait":{"focused":"documents"},"message":"keyboard focus to reach 'documents'"}
+{"key":"Escape"}
+{"wait":{"selected":[],"dir":"$root"},"message":"the selection to become []"}
+{"expect":{"panes":"$panes"}}
+{"wait":{"focused":"documents"},"message":"keyboard focus to reach 'documents'"}

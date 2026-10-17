@@ -1,0 +1,11 @@
+{"scenario":"sidebar-navigation-range-anchor","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_selection.py::test_keyboard_selection_after_sidebar_navigation_initializes_the_range_anchor[$mode]","mutation":null,"known_bug":null}
+{"fs":{"path":"$home/a.txt","write":"a.txt"}}
+{"fs":{"path":"$home/b.txt","write":"b.txt"}}
+{"fs":{"path":"$home/c.txt","write":"c.txt"}}
+{"click":{"sidebar":"Home"}}
+{"wait":{"directory":"home"},"message":"the browser to be working in 'home'"}
+{"settle":{"pane":"home"}}
+{"key":"Home"}
+{"wait":{"selected":["a.txt"],"dir":"home"},"message":"the selection to become ['a.txt']"}
+{"click":{"entry":"c.txt","dir":"home"},"mods":["shift"]}
+{"wait":{"selected":["a.txt","b.txt","c.txt"],"dir":"home"},"message":"the selection to become ['a.txt', 'b.txt', 'c.txt']"}
