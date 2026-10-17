@@ -55,6 +55,7 @@ mod devices;
 mod drive_dialogs;
 mod drive_ops;
 mod keyboard;
+mod network_location;
 mod open_argument;
 mod pinned_drop;
 mod sidebar;
@@ -1152,6 +1153,9 @@ pub(super) struct SidebarState {
     keycaps: RefCell<Vec<gtk::Label>>,
     keycaps_shown: Cell<bool>,
     visible_pins: RefCell<Vec<Location>>,
+    /// The separator, heading and drop gap of a Pinned section with no pins.
+    empty_pinned_section: RefCell<Vec<glib::WeakRef<gtk::Widget>>>,
+    file_drag_over: Cell<bool>,
     drop_feedback: Rc<sidebar_drop_feedback::SidebarDropFeedback>,
 }
 
@@ -1601,9 +1605,14 @@ impl SidebarState {
                     location.clone(),
                 );
                 self.add_keycap(&row, &place_keycap(super::keys::bindings::GO_NETWORK));
-                self.attach_place_context_menu(&row, location, |state| {
-                    state.preference_manager.set_sidebar_show_network(false);
-                });
+                self.attach_place_context_menu_with(
+                    &row,
+                    location,
+                    |state| {
+                        state.preference_manager.set_sidebar_show_network(false);
+                    },
+                    Some(network_location::menu_extra()),
+                );
                 self.make_place_reorderable(&row, place);
             }
             "recent" => {
@@ -1652,6 +1661,8 @@ impl SidebarState {
             .filter(|(_, (location, _))| !self.local_only || location.native_path().is_some())
             .map(|(index, (location, name))| (index, location.clone(), name.clone()))
             .collect::<Vec<_>>();
+        let empty = pinned.is_empty();
+        let before_section = self.widget.last_child();
         if self.widget.first_child().is_some() {
             self.append_separator();
         }
@@ -1668,6 +1679,30 @@ impl SidebarState {
             }
         }
         pinned_drop::append_gap(self, previous, None, &drag_cache);
+        let section = if empty {
+            let first = match before_section {
+                Some(widget) => widget.next_sibling(),
+                None => self.widget.first_child(),
+            };
+            std::iter::successors(first, gtk::Widget::next_sibling)
+                .inspect(|widget| widget.set_visible(self.file_drag_over.get()))
+                .map(|widget| widget.downgrade())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        self.empty_pinned_section.replace(section);
+    }
+
+    /// With nothing pinned, the Pinned section is only a drop target, so it
+    /// shows just while files are dragged over the sidebar.
+    pub(super) fn set_file_drag_over(&self, over: bool) {
+        self.file_drag_over.set(over);
+        for widget in self.empty_pinned_section.borrow().iter() {
+            if let Some(widget) = widget.upgrade() {
+                widget.set_visible(over);
+            }
+        }
     }
 
     fn append_devices(self: &Rc<Self>) {
@@ -2607,8 +2642,24 @@ impl SidebarState {
         location: Location,
         on_unpin: impl Fn(&Rc<Self>) + 'static,
     ) {
+        self.attach_place_context_menu_with(row, location, on_unpin, None);
+    }
+
+    /// Like [`Self::attach_place_context_menu`], with `extra` above the standard items.
+    fn attach_place_context_menu_with(
+        self: &Rc<Self>,
+        row: &gtk::Button,
+        location: Location,
+        on_unpin: impl Fn(&Rc<Self>) + 'static,
+        extra: Option<PlaceMenuExtra>,
+    ) {
         let menu = super::accessibility::menu_box();
         menu.add_css_class("folder-context-menu");
+        let extra_item = extra.map(|extra| {
+            let button = sidebar_context_option(extra.icon, extra.label, false);
+            menu.append(&button);
+            (button, extra.action)
+        });
         let unpin = sidebar_context_option(crate::assets::icons::PIN, "Unpin", false);
         let properties = sidebar_context_option(crate::assets::icons::INFO, "Properties", false);
         menu.append(&unpin);
@@ -2625,6 +2676,19 @@ impl SidebarState {
             .build();
         popover.add_css_class("folder-context-popover");
         popover.set_parent(row);
+
+        if let Some((button, action)) = extra_item {
+            let popover = popover.downgrade();
+            let weak_state = Rc::downgrade(self);
+            button.connect_clicked(move |_| {
+                if let Some(popover) = popover.upgrade() {
+                    popover.popdown();
+                }
+                if let Some(state) = weak_state.upgrade() {
+                    action(&state);
+                }
+            });
+        }
 
         if let Some((customize, path)) = customize {
             let weak_popover = popover.downgrade();
@@ -4044,6 +4108,14 @@ async fn trash_has_items(root: &gio::File) -> Result<bool, glib::Error> {
         .next_files_future(1, glib::Priority::DEFAULT)
         .await?
         .is_empty())
+}
+
+/// Extra context-menu action placed above the standard place items.
+struct PlaceMenuExtra {
+    icon: &'static str,
+    /// English message key, localized when the menu item is built.
+    label: &'static str,
+    action: fn(&Rc<SidebarState>),
 }
 
 fn sidebar_context_option(icon: &str, label: &str, danger: bool) -> gtk::Button {
