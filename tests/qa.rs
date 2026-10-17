@@ -7,6 +7,12 @@
 //! them. App commands stream to the process; `layout` and `fs` steps run here.
 //! Run through `./scripts/qa.sh`; see `docs/e2e-testing.md`.
 
+// The process's own command parser, so a malformed step fails when the
+// scenario loads, not as a scenario failure a `known_bug` could excuse.
+#[path = "../src/qa/protocol.rs"]
+#[expect(dead_code, reason = "the runner only validates commands")]
+mod protocol;
+
 use std::{
     collections::BTreeMap,
     fmt::Write as _,
@@ -46,13 +52,22 @@ macro_rules! scenarios {
 // One test per file in tests/qa/scenarios, named after it with underscores.
 scenarios! {
     arrow_keys_move_focus,
+    copy_leaves_source,
+    cut_moves_only_after_paste,
+    drag_file_onto_folder,
+    panel_wheel_routing,
+    shift_click_range,
+    single_click_opens_directory,
 }
 
 const REPOSITORY: &str = env!("CARGO_MANIFEST_DIR");
 const BINARY: &str = env!("CARGO_BIN_EXE_strata");
-const DEFAULT_WAIT: Duration = Duration::from_millis(10_000);
+/// `tree.DEFAULT_TIMEOUT`, as long as a Python `strata.wait` waits.
+const DEFAULT_WAIT: Duration = Duration::from_millis(15_000);
 const LAUNCH_TIMEOUT: Duration = Duration::from_secs(90);
-const COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
+/// Covers the slowest command without a `timeout_ms`: `select` waits for its
+/// entry twice and for the selection twice.
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(90);
 /// Covers the process's own wait plus the drains around it.
 const WAIT_MARGIN: Duration = Duration::from_secs(30);
 const EXIT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -64,8 +79,13 @@ const DEFAULT_LAYOUT: &str = "us";
 const ALL_MODIFIERS: u16 = 0xff;
 /// The error `strata --qa` replies with before it exits on a harness bug.
 const CONTROLLER_PANIC: &str = "the QA controller panicked";
-const APP_COMMANDS: [&str; 6] = ["key", "click", "select", "wait", "expect", "query"];
 const RUNNER_COMMANDS: [&str; 2] = ["layout", "fs"];
+/// A step key the runner reads and strips: the modes the step runs in.
+const STEP_MODES: &str = "modes";
+const MODES: [(&str, &str); 3] = [("columns", "Columns"), ("icons", "Icons"), ("list", "List")];
+const DEFAULT_TREE: &str = "canonical";
+/// Synthetic input the process sent, in the format `docs/e2e-testing.md` defines.
+const INPUT_LOG: &str = "input.log";
 /// Per-test paths the manifest leaves out of its static environment.
 const XDG_DIRECTORIES: [(&str, &str); 5] = [
     ("HOME", "home"),
@@ -275,9 +295,14 @@ struct Header {
     twin: String,
     mutation: Option<String>,
     known_bug: Option<String>,
+    /// The file line of the step a `known_bug` run must fail at; a failure
+    /// anywhere else is an error.
+    known_bug_step: Option<usize>,
     /// Runs of the file that differ in preferences, layout, or `$variables`.
     #[serde(default)]
     variants: Vec<Variant>,
+    /// A manifest tree's name, or a tree written out here; see [`expand_tree`].
+    tree: Option<Value>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -299,7 +324,8 @@ fn default_layout() -> String {
 
 struct Scenario {
     header: Header,
-    steps: Vec<Value>,
+    /// With their line numbers in the file.
+    steps: Vec<(usize, Value)>,
 }
 
 fn scenario_path(name: &str) -> PathBuf {
@@ -333,9 +359,10 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
             .iter()
             .flat_map(|variant| variant.modes.iter().flatten()),
     ) {
-        if !matches!(mode.as_str(), "columns" | "icons" | "list") {
-            return Err(format!("unknown mode {mode:?}"));
-        }
+        view_name(mode)?;
+    }
+    if let Some(tree) = &header.tree {
+        expand_tree(tree, &manifest())?;
     }
     let mut steps = Vec::new();
     for (index, line) in lines {
@@ -344,7 +371,7 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
         let Some(object) = step.as_object() else {
             return Err(format!("line {}: a step must be an object", index + 1));
         };
-        let commands: Vec<&str> = APP_COMMANDS
+        let commands: Vec<&str> = protocol::COMMANDS
             .iter()
             .chain(RUNNER_COMMANDS.iter())
             .copied()
@@ -356,9 +383,99 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
                 index + 1
             ));
         }
-        steps.push(step);
+        if let Some(modes) = object.get(STEP_MODES) {
+            let modes: Vec<String> = serde_json::from_value(modes.clone())
+                .map_err(|error| format!("line {}: modes: {error}", index + 1))?;
+            for mode in &modes {
+                view_name(mode).map_err(|error| format!("line {}: {error}", index + 1))?;
+            }
+        }
+        steps.push((index + 1, step));
+    }
+    match (&header.known_bug, header.known_bug_step) {
+        (None, None) => {}
+        (Some(_), Some(line)) => {
+            let step = steps
+                .iter()
+                .find(|(number, _)| *number == line)
+                .map(|(_, step)| step)
+                .ok_or_else(|| format!("known_bug_step {line} is not a step line"))?;
+            if step.get("layout").is_some() {
+                return Err(format!(
+                    "known_bug_step {line} is a layout switch, which cannot fail as a scenario step"
+                ));
+            }
+        }
+        (Some(_), None) => {
+            return Err("known_bug needs known_bug_step: the line expected to fail".to_owned());
+        }
+        (None, Some(_)) => return Err("known_bug_step needs known_bug".to_owned()),
     }
     Ok(Scenario { header, steps })
+}
+
+/// The view a mode draws, as `view_mode` predicates and `$view` spell it.
+fn view_name(mode: &str) -> Result<&'static str, String> {
+    MODES
+        .iter()
+        .find(|(name, _)| *name == mode)
+        .map(|(_, view)| *view)
+        .ok_or_else(|| format!("unknown mode {mode:?}"))
+}
+
+/// The steps one run executes: its mode's, with `$variables` replaced and the
+/// runner-only `modes` key removed. Every step is checked here, before
+/// anything launches.
+fn run_steps(
+    scenario: &Scenario,
+    run: &Run,
+    variables: &[(String, String)],
+) -> Result<Vec<(usize, Value)>, String> {
+    let mut steps = Vec::new();
+    for (line, step) in &scenario.steps {
+        let mut step = substitute(step, variables);
+        let Some(object) = step.as_object_mut() else {
+            continue;
+        };
+        if let Some(modes) = object.remove(STEP_MODES)
+            && !modes
+                .as_array()
+                .is_some_and(|modes| modes.iter().any(|mode| *mode == *run.mode))
+        {
+            continue;
+        }
+        check_step(&step).map_err(|error| format!("line {line}: {error}"))?;
+        steps.push((*line, step));
+    }
+    if let Some(line) = scenario.header.known_bug_step
+        && !steps.iter().any(|(number, _)| *number == line)
+    {
+        return Err(format!(
+            "known_bug_step {line} does not run in the {} run",
+            run.label
+        ));
+    }
+    Ok(steps)
+}
+
+fn check_step(step: &Value) -> Result<(), String> {
+    if let Some(layout) = step.get("layout") {
+        let name = layout.as_str().ok_or("layout names a manifest layout")?;
+        if step.as_object().is_some_and(|object| object.len() != 1) {
+            return Err("layout takes no other fields".to_owned());
+        }
+        return if manifest().layouts.contains_key(name) {
+            Ok(())
+        } else {
+            Err(format!("no layout {name:?} in the manifest"))
+        };
+    }
+    if step.get("fs").is_some() {
+        let step: FsStep = serde_json::from_value(step.clone())
+            .map_err(|error| format!("invalid fs step: {error}"))?;
+        return step.fs.kind().map(|_| ());
+    }
+    protocol::parse_command(&step.to_string()).map(|_| ())
 }
 
 struct Run {
@@ -394,11 +511,15 @@ fn runs(header: &Header) -> Vec<Run> {
         .collect()
 }
 
-/// A run's `$variables`, plus `$root`: the fixture directory's name, which
-/// is also its pane's name.
+/// A run's `$variables`, plus `$root`, the fixture directory's name, which
+/// is also its pane's name, and `$view`, the run's view as `view_mode` names it.
 fn variables(run: &Run, root: &str) -> Vec<(String, String)> {
     let mut variables: Vec<(String, String)> = run.variant.vars.clone().into_iter().collect();
     variables.push(("root".to_owned(), root.to_owned()));
+    variables.push((
+        "view".to_owned(),
+        view_name(&run.mode).unwrap_or_default().to_owned(),
+    ));
     variables.sort_by_key(|(name, _)| std::cmp::Reverse(name.len()));
     variables
 }
@@ -406,13 +527,7 @@ fn variables(run: &Run, root: &str) -> Vec<(String, String)> {
 /// Replaces `$name` in every string of a step; longer names first so `$next` never eats `$nextish`.
 fn substitute(value: &Value, variables: &[(String, String)]) -> Value {
     match value {
-        Value::String(text) => {
-            let mut text = text.clone();
-            for (name, replacement) in variables {
-                text = text.replace(&format!("${name}"), replacement);
-            }
-            Value::String(text)
-        }
+        Value::String(text) => Value::String(substitute_text(text, variables)),
         Value::Array(items) => Value::Array(
             items
                 .iter()
@@ -427,6 +542,29 @@ fn substitute(value: &Value, variables: &[(String, String)]) -> Value {
         ),
         other => other.clone(),
     }
+}
+
+/// `$name` is a whole token: `$view` leaves `$viewport` alone.
+fn substitute_text(text: &str, variables: &[(String, String)]) -> String {
+    let identifier = |character: char| character.is_ascii_alphanumeric() || character == '_';
+    let mut output = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find('$') {
+        output.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        let length = after.find(|c: char| !identifier(c)).unwrap_or(after.len());
+        let token = &after[..length];
+        match variables.iter().find(|(name, _)| name == token) {
+            Some((_, replacement)) if !token.is_empty() => output.push_str(replacement),
+            _ => {
+                output.push('$');
+                output.push_str(token);
+            }
+        }
+        rest = &after[length..];
+    }
+    output.push_str(rest);
+    output
 }
 
 // --------------------------------------------------------------- display
@@ -681,6 +819,7 @@ impl Application {
         display: &Display,
         runtime: &Path,
         log: PathBuf,
+        input_log: &Path,
     ) -> Result<Self, String> {
         let output = File::create(&log).map_err(|error| error.to_string())?;
         let mut command = Command::new(BINARY);
@@ -694,6 +833,7 @@ impl Application {
             .envs(QA_ENVIRONMENT)
             .env("DISPLAY", &display.name)
             .env("XDG_RUNTIME_DIR", runtime)
+            .env("STRATA_INPUT_LOG", input_log)
             .env(
                 "DBUS_SESSION_BUS_ADDRESS",
                 format!("unix:path={}", runtime.join("no-session-bus").display()),
@@ -787,6 +927,8 @@ fn tail(path: &Path) -> String {
 struct FsStep {
     fs: FsCheck,
     timeout_ms: Option<u64>,
+    /// What the step waits for, as the Python twin's `strata.wait` message says it.
+    message: Option<String>,
 }
 
 /// One of `exists`, `text`, or `names` about `path` under the fixture root.
@@ -799,25 +941,37 @@ struct FsCheck {
     names: Option<Vec<String>>,
 }
 
+enum FsKind<'a> {
+    Exists(bool),
+    Text(&'a str),
+    Names(&'a [String]),
+}
+
 impl FsCheck {
-    fn observe(&self, root: &Path) -> Result<Result<(), String>, String> {
-        let path = root.join(&self.path);
+    fn kind(&self) -> Result<FsKind<'_>, String> {
         match (self.exists, &self.text, &self.names) {
-            (Some(exists), None, None) => {
+            (Some(exists), None, None) => Ok(FsKind::Exists(exists)),
+            (None, Some(text), None) => Ok(FsKind::Text(text)),
+            (None, None, Some(names)) => Ok(FsKind::Names(names)),
+            _ => Err("fs needs a path and exactly one of exists, text, or names".to_owned()),
+        }
+    }
+
+    fn observe(&self, root: &Path) -> Result<(), String> {
+        let path = root.join(&self.path);
+        match self.kind()? {
+            FsKind::Exists(exists) => {
                 let actual = path.symlink_metadata().is_ok();
-                Ok((actual == exists)
+                (actual == exists)
                     .then_some(())
-                    .ok_or(format!("exists is {actual}")))
+                    .ok_or(format!("exists is {actual}"))
             }
-            (None, Some(text), None) => {
-                let actual = fs::read_to_string(&path).map_err(|error| error.to_string());
-                Ok(match actual {
-                    Ok(actual) if actual == *text => Ok(()),
-                    Ok(actual) => Err(format!("text is {actual:?}")),
-                    Err(error) => Err(error),
-                })
-            }
-            (None, None, Some(names)) => {
+            FsKind::Text(text) => match fs::read_to_string(&path) {
+                Ok(actual) if actual == text => Ok(()),
+                Ok(actual) => Err(format!("text is {actual:?}")),
+                Err(error) => Err(error.to_string()),
+            },
+            FsKind::Names(names) => {
                 // Sorted with hidden files, as `FixtureTree.names` lists them.
                 let mut actual: Vec<String> = fs::read_dir(&path)
                     .map_err(|error| error.to_string())?
@@ -825,11 +979,10 @@ impl FsCheck {
                     .map(|entry| entry.file_name().to_string_lossy().into_owned())
                     .collect();
                 actual.sort();
-                Ok((actual == *names)
+                (actual == names)
                     .then_some(())
-                    .ok_or(format!("names are {actual:?}")))
+                    .ok_or(format!("names are {actual:?}"))
             }
-            _ => Err("fs needs a path and exactly one of exists, text, or names".to_owned()),
         }
     }
 }
@@ -838,13 +991,21 @@ impl FsCheck {
 
 /// `errors` are the harness's own problems (setup, launch, layouts,
 /// teardown, artifacts) and always fail a run, even one marked `known_bug`;
-/// `failures` are the scenario's.
+/// `failures` are the scenario's, each with the file line of its step.
 #[derive(Default)]
 struct Outcome {
     errors: Vec<String>,
-    failures: Vec<String>,
+    failures: Vec<(Option<usize>, String)>,
+    /// Where the run's artifacts went, when it wrote them.
+    artifacts: Option<PathBuf>,
     last_tree: Option<String>,
     transcript: String,
+}
+
+impl Outcome {
+    fn failure_texts(&self) -> impl Iterator<Item = &String> {
+        self.failures.iter().map(|(_, text)| text)
+    }
 }
 
 fn run_scenario(name: &str) {
@@ -853,41 +1014,50 @@ fn run_scenario(name: &str) {
     let scenario =
         load_scenario(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
     let manifest = manifest();
+    for run in runs(&scenario.header) {
+        if let Err(error) = run_steps(&scenario, &run, &variables(&run, "root")) {
+            panic!("{}/{}: {error}", scenario.header.scenario, run.label);
+        }
+    }
     let mut failed = Vec::new();
     for run in runs(&scenario.header) {
-        let Outcome {
-            errors, failures, ..
-        } = execute(&scenario, &run, &manifest);
-        if !errors.is_empty() {
-            failed.push(format!(
-                "{}/{} could not run:\n  {}",
-                scenario.header.scenario,
-                run.label,
-                errors
-                    .iter()
-                    .chain(&failures)
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join("\n  ")
-            ));
+        let outcome = execute(&scenario, &run, &manifest);
+        let name = format!("{}/{}", scenario.header.scenario, run.label);
+        let details = |heading: &str| {
+            let mut lines: Vec<String> = outcome
+                .errors
+                .iter()
+                .chain(outcome.failure_texts())
+                .cloned()
+                .collect();
+            if let Some(artifacts) = &outcome.artifacts {
+                lines.push(format!("artifacts: {}", artifacts.display()));
+            }
+            format!("{name} {heading}:\n  {}", lines.join("\n  "))
+        };
+        if !outcome.errors.is_empty() {
+            failed.push(details("could not run"));
             continue;
         }
-        match (&scenario.header.known_bug, failures.is_empty()) {
-            (None, true) => println!("PASS {}/{}", scenario.header.scenario, run.label),
-            (Some(bug), false) => println!(
-                "KNOWN BUG {}/{} still fails as expected ({bug})",
-                scenario.header.scenario, run.label
-            ),
+        let header = &scenario.header;
+        match (&header.known_bug, outcome.failures.is_empty()) {
+            (None, true) => println!("PASS {name}"),
+            (None, false) => failed.push(details("failed")),
             (Some(bug), true) => failed.push(format!(
-                "{}/{} passes but is marked known_bug {bug}; remove the marker",
-                scenario.header.scenario, run.label
+                "{name} passes but is marked known_bug {bug}; remove the marker"
             )),
-            (None, false) => failed.push(format!(
-                "{}/{} failed:\n  {}",
-                scenario.header.scenario,
-                run.label,
-                failures.join("\n  ")
-            )),
+            (Some(bug), false)
+                if outcome
+                    .failures
+                    .iter()
+                    .all(|(line, _)| *line == header.known_bug_step) =>
+            {
+                println!("KNOWN BUG {name} still fails as expected ({bug})");
+            }
+            (Some(_), false) => failed.push(details(&format!(
+                "is marked known_bug at line {} but failed elsewhere",
+                header.known_bug_step.unwrap_or_default()
+            ))),
         }
     }
     assert!(failed.is_empty(), "{}", failed.join("\n\n"));
@@ -912,6 +1082,15 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
         ..Outcome::default()
     };
 
+    let root_name = fixture
+        .path()
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let steps = match run_steps(scenario, run, &variables(run, &root_name)) {
+        Ok(steps) => steps,
+        Err(error) => return setup_error(format!("scenario: {error}")),
+    };
     let home = scratch.path().join("home");
     let runtime = scratch.path().join("runtime");
     if let Err(error) = seed(manifest, scenario, run, &home, &runtime, fixture.path()) {
@@ -928,27 +1107,22 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
         &display,
         &runtime,
         scratch.path().join("strata.log"),
+        &scratch.path().join(INPUT_LOG),
     ) {
         Ok(application) => application,
         Err(error) => return setup_error(format!("launch: {error}")),
     };
 
-    let root_name = fixture
-        .path()
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
     let mut layout = DEFAULT_LAYOUT.to_owned();
     let mut outcome = drive(
         &mut application,
         &Context {
-            scenario,
+            steps: &steps,
             initial_layout: run
                 .variant
                 .layout
                 .as_deref()
                 .unwrap_or(&scenario.header.layout),
-            variables: &variables(run, &root_name),
             manifest,
             display: &display,
             fixture: fixture.path(),
@@ -988,12 +1162,16 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
                 "xvfb.log",
                 fs::read_to_string(&display.log).unwrap_or_default(),
             ),
+            (
+                INPUT_LOG,
+                fs::read_to_string(scratch.path().join(INPUT_LOG)).unwrap_or_default(),
+            ),
         ];
         if failed {
             let all: Vec<String> = outcome
                 .errors
                 .iter()
-                .chain(&outcome.failures)
+                .chain(outcome.failure_texts())
                 .cloned()
                 .collect();
             files.push(("failures.txt", all.join("\n")));
@@ -1005,9 +1183,7 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
             let _ = fs::write(artifacts.join(file), contents);
         }
         if failed {
-            outcome
-                .failures
-                .push(format!("artifacts: {}", artifacts.display()));
+            outcome.artifacts = Some(artifacts);
         }
     }
     outcome
@@ -1042,13 +1218,76 @@ fn seed(
     preferences.update("browser_mode", Value::String(run.mode.clone()));
     fs::write(strata.join("settings.toml"), render_toml(&preferences)).map_err(io)?;
 
-    let tree = manifest
-        .trees
-        .get("canonical")
-        .ok_or("no canonical fixture tree")?;
-    populate(fixture, tree);
+    let tree = expand_tree(
+        scenario
+            .header
+            .tree
+            .as_ref()
+            .unwrap_or(&Value::String(DEFAULT_TREE.to_owned())),
+        manifest,
+    )?;
+    populate(fixture, &tree);
     pin_times(fixture, fixture_time(manifest));
     Ok(())
+}
+
+/// A header `tree`: a manifest tree's name, or a tree in the manifest's
+/// shape where a name like `{000..199}.txt` stands for one file per number,
+/// zero-padded to the width written, whose text has `{}` replaced by the
+/// number, as a Python fixture's comprehension writes them.
+fn expand_tree(tree: &Value, manifest: &Manifest) -> Result<Value, String> {
+    match tree {
+        Value::String(name) => manifest
+            .trees
+            .get(name)
+            .cloned()
+            .ok_or_else(|| format!("no fixture tree {name:?} in the manifest")),
+        Value::Object(_) => expand_directory(tree),
+        other => Err(format!(
+            "tree is a manifest tree name or a tree, not {other}"
+        )),
+    }
+}
+
+fn expand_directory(directory: &Value) -> Result<Value, String> {
+    let Value::Object(entries) = directory else {
+        return Err("a fixture directory must be an object".to_owned());
+    };
+    let mut expanded = Map::new();
+    for (name, value) in entries {
+        let range = name.split_once('{').and_then(|(prefix, rest)| {
+            let (range, suffix) = rest.split_once('}')?;
+            let (first, last) = range.split_once("..")?;
+            Some((prefix, first, last.parse::<u32>().ok()?, suffix))
+        });
+        let child = match value {
+            Value::Object(_) => expand_directory(value)?,
+            Value::String(_) => value.clone(),
+            _ => {
+                return Err(format!(
+                    "fixture {name} must be a file's text or a directory"
+                ));
+            }
+        };
+        let Some((prefix, first, last, suffix)) = range else {
+            expanded.insert(name.clone(), child);
+            continue;
+        };
+        let start: u32 = first
+            .parse()
+            .map_err(|_| format!("fixture {name}: the range must be numeric"))?;
+        for number in start..=last {
+            let contents = match &child {
+                Value::String(text) => Value::String(text.replace("{}", &number.to_string())),
+                other => other.clone(),
+            };
+            expanded.insert(
+                format!("{prefix}{number:0width$}{suffix}", width = first.len()),
+                contents,
+            );
+        }
+    }
+    Ok(Value::Object(expanded))
 }
 
 fn fixture_time(manifest: &Manifest) -> SystemTime {
@@ -1067,9 +1306,9 @@ fn switch(manifest: &Manifest, display: &Display, name: &str) -> Result<(), Stri
 }
 
 struct Context<'a> {
-    scenario: &'a Scenario,
+    /// With their file lines.
+    steps: &'a [(usize, Value)],
     initial_layout: &'a str,
-    variables: &'a [(String, String)],
     manifest: &'a Manifest,
     display: &'a Display,
     fixture: &'a Path,
@@ -1078,7 +1317,15 @@ struct Context<'a> {
 fn drive(application: &mut Application, context: &Context, layout: &mut String) -> Outcome {
     let mut outcome = Outcome::default();
     let hello = application.receive(LAUNCH_TIMEOUT);
-    if let Err(error) = record(&mut outcome, "launch", &json!({ "launch": true }), hello) {
+    if let Err(error) = hello.and_then(|hello| {
+        record(
+            &mut outcome,
+            None,
+            "launch",
+            &json!({ "launch": true }),
+            hello,
+        )
+    }) {
         outcome.errors.push(format!("launch: {error}"));
         return outcome;
     }
@@ -1093,9 +1340,8 @@ fn drive(application: &mut Application, context: &Context, layout: &mut String) 
             }
         }
     }
-    for (index, step) in context.scenario.steps.iter().enumerate() {
-        let step = substitute(step, context.variables);
-        let label = format!("step {} {step}", index + 1);
+    for (line, step) in context.steps {
+        let label = format!("line {line} {step}");
         let object = step.as_object().cloned().unwrap_or_default();
         if let Some(name) = object.get("layout") {
             let name = name.as_str().unwrap_or_default().to_owned();
@@ -1109,24 +1355,27 @@ fn drive(application: &mut Application, context: &Context, layout: &mut String) 
             continue;
         }
         let result = if object.contains_key("fs") {
-            wait_for_fs(&step, context.fixture)
+            wait_for_fs(step, context.fixture)
         } else {
-            let timeout = match (object.get("wait"), object.get("timeout_ms")) {
-                (Some(_), Some(Value::Number(ms))) => {
-                    Duration::from_millis(ms.as_u64().unwrap_or_default()) + WAIT_MARGIN
-                }
-                (Some(_), _) => DEFAULT_WAIT + WAIT_MARGIN,
-                _ => COMMAND_TIMEOUT,
+            let timeout = match object.get("timeout_ms").and_then(Value::as_u64) {
+                Some(ms) => (Duration::from_millis(ms) + WAIT_MARGIN).max(COMMAND_TIMEOUT),
+                None => COMMAND_TIMEOUT,
             };
-            let reply = application.send(&step, timeout);
-            record(&mut outcome, &label, &step, reply)
+            // No reply at all is the harness failing, not the scenario.
+            match application.send(step, timeout) {
+                Ok(reply) => record(&mut outcome, Some(*line), &label, step, reply),
+                Err(error) => {
+                    outcome.errors.push(format!("{label}: {error}"));
+                    return outcome;
+                }
+            }
         };
         if let Err(error) = result {
             let failure = format!("{label}: {error}");
             if error.contains(CONTROLLER_PANIC) {
                 outcome.errors.push(failure);
             } else {
-                outcome.failures.push(failure);
+                outcome.failures.push((Some(*line), failure));
             }
             return outcome;
         }
@@ -1138,11 +1387,11 @@ fn drive(application: &mut Application, context: &Context, layout: &mut String) 
 /// stops the run on anything else that went wrong.
 fn record(
     outcome: &mut Outcome,
+    line: Option<usize>,
     label: &str,
     step: &Value,
-    reply: Result<Value, String>,
+    reply: Value,
 ) -> Result<(), String> {
-    let reply = reply?;
     let _ = writeln!(
         outcome.transcript,
         "{}",
@@ -1152,9 +1401,12 @@ fn record(
         outcome.last_tree = Some(tree.to_owned());
     }
     for critical in reply["criticals"].as_array().into_iter().flatten() {
-        outcome.failures.push(format!(
-            "{label}: GLib warning or worse: {}",
-            critical.as_str().unwrap_or_default()
+        outcome.failures.push((
+            line,
+            format!(
+                "{label}: GLib warning or worse: {}",
+                critical.as_str().unwrap_or_default()
+            ),
         ));
     }
     if reply["ok"].as_bool() == Some(true) {
@@ -1175,7 +1427,9 @@ fn record(
         .join("; ");
     match (reply["error"].as_str(), step.get("expect")) {
         (None, Some(_)) => {
-            outcome.failures.push(format!("{label}: {explanation}"));
+            outcome
+                .failures
+                .push((line, format!("{label}: {explanation}")));
             Ok(())
         }
         (error, _) => Err(format!(
@@ -1186,15 +1440,24 @@ fn record(
     }
 }
 
+/// Steps were checked when the run's steps were built, so a bad body here
+/// would be a runner bug.
 fn wait_for_fs(step: &Value, fixture: &Path) -> Result<(), String> {
     let step: FsStep = serde_json::from_value(step.clone())
         .map_err(|error| format!("invalid fs step: {error}"))?;
     let deadline = Instant::now() + step.timeout_ms.map_or(DEFAULT_WAIT, Duration::from_millis);
     loop {
-        match step.fs.observe(fixture)? {
+        match step.fs.observe(fixture) {
             Ok(()) => return Ok(()),
             Err(actual) if Instant::now() >= deadline => {
-                return Err(format!("timed out; {} {actual}", step.fs.path));
+                return Err(format!(
+                    "timed out{}; {} {actual}",
+                    step.message
+                        .as_deref()
+                        .map(|message| format!(" waiting for {message}"))
+                        .unwrap_or_default(),
+                    step.fs.path
+                ));
             }
             Err(_) => std::thread::sleep(POLL_INTERVAL),
         }
@@ -1249,25 +1512,116 @@ fn every_scenario_file_is_registered_and_well_formed() {
             );
         }
         for run in runs(header) {
-            let variables = variables(&run, "root");
-            let mut layouts = vec![
-                run.variant
-                    .layout
-                    .clone()
-                    .unwrap_or_else(|| header.layout.clone()),
-            ];
-            layouts.extend(scenario.steps.iter().filter_map(|step| {
-                substitute(step, &variables)["layout"]
-                    .as_str()
-                    .map(str::to_owned)
-            }));
-            for layout in layouts {
-                assert!(
-                    manifest.layouts.contains_key(&layout),
-                    "{name}/{}: no layout {layout:?}",
-                    run.label
-                );
-            }
+            let layout = run.variant.layout.as_ref().unwrap_or(&header.layout);
+            assert!(
+                manifest.layouts.contains_key(layout),
+                "{name}/{}: no layout {layout:?}",
+                run.label
+            );
+            let steps = run_steps(&scenario, &run, &variables(&run, "root"))
+                .unwrap_or_else(|error| panic!("{name}/{}: {error}", run.label));
+            assert!(!steps.is_empty(), "{name}/{}: no steps run", run.label);
         }
+    }
+}
+
+#[test]
+fn a_numbered_tree_expands_like_the_python_comprehension() {
+    let tree =
+        json!({ "nested": { "{000..002}.txt": "{}\n" }, "{8..10}.md": "n{}", "a.txt": "{}" });
+    assert_eq!(
+        expand_tree(&tree, &manifest()),
+        Ok(json!({
+            "nested": { "000.txt": "0\n", "001.txt": "1\n", "002.txt": "2\n" },
+            "8.md": "n8", "9.md": "n9", "10.md": "n10",
+            "a.txt": "{}",
+        }))
+    );
+    assert!(expand_tree(&json!("missing"), &manifest()).is_err());
+}
+
+#[test]
+fn a_run_keeps_its_own_mode_steps_and_rejects_a_malformed_one() {
+    let header = || -> Header {
+        serde_json::from_value(json!({
+            "scenario": "example", "modes": ["columns", "icons"], "twin": "x",
+            "mutation": null, "known_bug": null,
+        }))
+        .expect("the header should parse")
+    };
+    let scenario = |steps: Vec<Value>| Scenario {
+        header: header(),
+        steps: steps.into_iter().enumerate().collect(),
+    };
+    let steps = vec![
+        json!({ "select": { "entry": "archive" }, "modes": ["columns"] }),
+        json!({ "click": { "entry": "archive" }, "count": 2, "modes": ["icons"] }),
+        json!({ "wait": { "view_mode": "$view" } }),
+    ];
+    let runs = runs(&header());
+    let icons = runs
+        .iter()
+        .find(|run| run.mode == "icons")
+        .expect("an icons run");
+    assert_eq!(
+        run_steps(&scenario(steps), icons, &variables(icons, "root")),
+        Ok(vec![
+            (1, json!({ "click": { "entry": "archive" }, "count": 2 })),
+            (2, json!({ "wait": { "view_mode": "Icons" } })),
+        ])
+    );
+    for typo in [
+        json!({ "click": { "entry": "a", "nmae": "b" } }),
+        json!({ "fs": { "path": "a", "exists": true, "text": "b" } }),
+        json!({ "layout": "klingon" }),
+    ] {
+        assert!(
+            run_steps(
+                &scenario(vec![typo.clone()]),
+                icons,
+                &variables(icons, "root")
+            )
+            .is_err(),
+            "{typo} should be rejected before the run starts"
+        );
+    }
+}
+
+#[test]
+fn a_variable_replaces_only_its_whole_token() {
+    let variables = [
+        ("view".to_owned(), "Icons".to_owned()),
+        ("root".to_owned(), "fixture".to_owned()),
+    ];
+    assert_eq!(
+        substitute_text("$view, $viewport, $root/x, $$view, $", &variables),
+        "Icons, $viewport, fixture/x, $Icons, $"
+    );
+}
+
+#[test]
+fn a_known_bug_must_name_a_step_line_that_can_fail() {
+    let directory = tempfile::tempdir().expect("a scratch directory");
+    let path = directory.path().join("example.jsonl");
+    let load = |marker: &str| {
+        fs::write(
+            &path,
+            format!(
+                "{{\"scenario\":\"example\",\"modes\":[\"columns\"],\"twin\":\"x\",\"mutation\":null{marker}}}\n\
+                 {{\"layout\":\"ru\"}}\n\
+                 {{\"wait\":{{\"focused\":\"a\"}}}}\n"
+            ),
+        )
+        .expect("the scenario should be written");
+        load_scenario(&path).map(|_| ())
+    };
+    assert!(load(r#","known_bug":"issue-1","known_bug_step":3"#).is_ok());
+    for marker in [
+        r#","known_bug":"issue-1""#,
+        r#","known_bug":null,"known_bug_step":3"#,
+        r#","known_bug":"issue-1","known_bug_step":2"#,
+        r#","known_bug":"issue-1","known_bug_step":9"#,
+    ] {
+        assert!(load(marker).is_err(), "{marker} should be rejected");
     }
 }

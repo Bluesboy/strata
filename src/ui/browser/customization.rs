@@ -323,7 +323,7 @@ pub(in crate::ui) fn show_customize_modal(
                 button.add_css_class("customize-icon-button");
                 let label = crate::i18n::tr(label);
                 button.set_tooltip_text(Some(&label));
-                button.update_property(&[gtk::accessible::Property::Label(&label)]);
+                crate::ui::accessibility::set_label(&button, &label);
                 button.set_child(Some(&crate::assets::primary_icon(icon_name, 20)));
                 if initial_icon.as_deref() == Some(icon_name) {
                     button.add_css_class("active");
@@ -582,7 +582,7 @@ fn build_folder_color_bar(
                     custom_stack.set_visible_child_name("plus");
                     let label = crate::i18n::tr("Custom color…");
                     custom_btn.set_tooltip_text(Some(&label));
-                    custom_btn.update_property(&[gtk::accessible::Property::Label(&label)]);
+                    crate::ui::accessibility::set_label(&custom_btn, &label);
                     hex_for_draw.replace(None);
                 }
                 Some(FolderColorValue::Custom(hex)) => {
@@ -591,7 +591,7 @@ fn build_folder_color_bar(
                     custom_stack.set_visible_child_name("dot");
                     let label = rust_i18n::t!("Custom (%{hex})", hex = hex);
                     custom_btn.set_tooltip_text(Some(&label));
-                    custom_btn.update_property(&[gtk::accessible::Property::Label(&label)]);
+                    crate::ui::accessibility::set_label(&custom_btn, &label);
                     hex_for_draw.replace(Some(hex.clone()));
                     custom_dot.queue_draw();
                 }

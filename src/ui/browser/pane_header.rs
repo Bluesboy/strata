@@ -38,9 +38,7 @@ pub(in crate::ui) fn pane_new_folder_button(
             button.set_visible(false);
         }
     }
-    button.update_property(&[gtk::accessible::Property::Label(&crate::i18n::tr(
-        "New Folder",
-    ))]);
+    crate::ui::accessibility::set_label(&button, &crate::i18n::tr("New Folder"));
     button.connect_clicked(move |_| {
         if let Some(state) = state.upgrade()
             && let Some(location) = state.browser.location_at(depth)
@@ -206,6 +204,7 @@ pub(in crate::ui) fn column_sort_menu(browser: &Rc<Browser>, depth: usize) -> gt
         .tooltip_text(crate::i18n::tr("Choose sort field"))
         .popover(&popover)
         .build();
+    crate::ui::accessibility::set_label(&button, &crate::i18n::tr("Choose sort field"));
     button.set_child(Some(&crate::assets::chrome_icon(
         crate::assets::icons::SETTINGS_2,
     )));

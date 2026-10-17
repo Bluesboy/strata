@@ -1,0 +1,16 @@
+{"scenario":"copy-leaves-source","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_clipboard.py::test_copy_leaves_the_source_in_place","mutation":"clipboard","known_bug":null,"variants":[{"id":"us","vars":{"layout":"us"}},{"id":"ru","modes":["columns"],"vars":{"layout":"ru"}},{"id":"caps-lock","modes":["columns"],"vars":{"layout":"caps-lock"}}]}
+{"wait":{"view_mode":"$view"},"message":"the browser to show the $view view"}
+{"select":{"entry":"todo.txt"}}
+{"layout":"$layout"}
+{"key":"ctrl+c"}
+{"select":{"entry":"archive"},"modes":["columns"]}
+{"click":{"entry":"archive"},"count":2,"modes":["icons","list"]}
+{"wait":{"directory":"archive"},"message":"the browser to be working in 'archive'"}
+{"settle":{"pane":"archive"}}
+{"move":{"pane":"archive"}}
+{"key":"ctrl+v"}
+{"fs":{"path":"archive/todo.txt","exists":true},"message":"the copy to land in archive"}
+{"layout":"us"}
+{"fs":{"path":"todo.txt","exists":true},"timeout_ms":0,"message":"copying must not remove the source"}
+{"fs":{"path":"archive/todo.txt","text":"todo\n"},"timeout_ms":0}
+{"wait":{"entry":"todo.txt","dir":"archive"},"message":"the entry 'todo.txt' in 'archive' to appear"}

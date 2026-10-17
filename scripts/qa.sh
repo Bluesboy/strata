@@ -83,11 +83,13 @@ exec "$engine" run "${options[@]}" \
     rustc --version
     output="$(mktemp)"
     # Without pipefail the pipeline reports tee; the test status is kept apart.
-    cargo test --locked --features qa --test qa -- --include-ignored "$@" 2>&1 | tee "$output"
+    # --show-output prints each passing scenario run, which the check below counts;
+    # the always-on registration test alone does not count as a QA run.
+    cargo test --locked --features qa --test qa -- --include-ignored --show-output "$@" 2>&1 | tee "$output"
     status="${PIPESTATUS[0]}"
     if ((status != 0)); then exit "$status"; fi
-    if ! grep -Eq "^test result: ok\. [1-9][0-9]* passed" "$output"; then
-      echo "The selection ran no QA test." >&2
+    if ! grep -Eq "^(PASS|KNOWN BUG) " "$output"; then
+      echo "The selection ran no QA scenario." >&2
       exit 1
     fi
   ' bash "${arguments[@]}"

@@ -3,8 +3,18 @@
 //! Real X input sent through XTEST from inside the process, so GTK routes it
 //! exactly as it routes a person's input: focus walks, grabs, and gestures
 //! included. The same extension backs `tests/e2e/harness/xtest.py`.
+//!
+//! With `STRATA_INPUT_LOG` set to a path, every event is appended there as a
+//! line in the format `docs/e2e-testing.md` defines, for comparing with the
+//! Python harness's input.
 
-use std::collections::HashMap;
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    fs::File,
+    io::Write as _,
+    time::Instant,
+};
 
 use gtk::{gdk, glib::translate::IntoGlib, prelude::*};
 use x11rb::{
@@ -24,8 +34,15 @@ pub(crate) struct Injector {
     root: xproto::Window,
     /// Keysym to keycode and whether the second (shifted) level produces it.
     keymap: HashMap<u32, (u8, bool)>,
+    log: Option<RefCell<File>>,
+    /// The main window's screen origin, which logged pointer positions are relative to.
+    log_origin: Cell<(i16, i16)>,
+    last_release: Cell<Option<Instant>>,
 }
 
+pub(crate) const INPUT_LOG_VARIABLE: &str = "STRATA_INPUT_LOG";
+
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum Event {
     Key { keycode: u8, pressed: bool },
     Button { number: u8, pressed: bool },
@@ -49,11 +66,42 @@ impl Injector {
         // holds a pointer grab, which is the state a drag runs in.
         xtest::grab_control(&connection, true).map_err(|error| error.to_string())?;
         let keymap = read_keymap(&connection)?;
+        let log = match std::env::var_os(INPUT_LOG_VARIABLE).filter(|path| !path.is_empty()) {
+            Some(path) => Some(RefCell::new(
+                File::options()
+                    .create(true)
+                    .append(true)
+                    .open(&path)
+                    .map_err(|error| format!("cannot open {path:?} for the input log: {error}"))?,
+            )),
+            None => None,
+        };
         Ok(Self {
             connection,
             root,
             keymap,
+            log,
+            log_origin: Cell::new((0, 0)),
+            last_release: Cell::new(None),
         })
+    }
+
+    pub(crate) fn logging(&self) -> bool {
+        self.log.is_some()
+    }
+
+    pub(crate) fn set_log_origin(&self, origin: (i16, i16)) {
+        self.log_origin.set(origin);
+    }
+
+    /// When a click last came up; a drag waits out the double-click time after it.
+    pub(crate) fn last_release(&self) -> Option<Instant> {
+        self.last_release.get()
+    }
+
+    /// Only a tap counts, as only `Pointer._tap` sets `_last_release`.
+    pub(crate) fn record_release(&self) {
+        self.last_release.set(Some(Instant::now()));
     }
 
     /// The keycode for a keysym and whether Shift must be held for it.
@@ -101,7 +149,31 @@ impl Injector {
         .map_err(|error| error.to_string())?;
         // The round trip guarantees the server has generated the events for
         // GTK's connection before the main loop is drained.
-        self.connection.sync().map_err(|error| error.to_string())
+        self.connection.sync().map_err(|error| error.to_string())?;
+        self.log(event)
+    }
+
+    fn log(&self, event: Event) -> Result<(), String> {
+        let Some(log) = self.log.as_ref() else {
+            return Ok(());
+        };
+        let (origin_x, origin_y) = self.log_origin.get();
+        let state = |pressed: bool| if pressed { "down" } else { "up" };
+        let line = match event {
+            Event::Key { keycode, pressed } => format!("key {keycode} {}", state(pressed)),
+            Event::Motion { x, y } => format!("motion {} {}", x - origin_x, y - origin_y),
+            Event::Button { number, pressed } => {
+                let (x, y) = self.pointer_position()?;
+                format!(
+                    "pointer {} {} button {number} {}",
+                    x - origin_x,
+                    y - origin_y,
+                    state(pressed)
+                )
+            }
+        };
+        writeln!(log.borrow_mut(), "{line}")
+            .map_err(|error| format!("cannot write the input log: {error}"))
     }
 
     pub(crate) fn pointer_position(&self) -> Result<(i16, i16), String> {
@@ -116,17 +188,39 @@ impl Injector {
 
     /// Where a GDK surface's top-left corner is on the X screen.
     pub(crate) fn surface_origin(&self, surface: &gdk::Surface) -> Result<(i16, i16), String> {
-        let surface = surface
-            .downcast_ref::<gdk4_x11::X11Surface>()
-            .ok_or("the window is not on an X11 surface")?;
         let reply = self
             .connection
-            .translate_coordinates(surface.xid() as xproto::Window, self.root, 0, 0)
+            .translate_coordinates(xid(surface)?, self.root, 0, 0)
             .map_err(|error| error.to_string())?
             .reply()
             .map_err(|error| error.to_string())?;
         Ok((reply.dst_x, reply.dst_y))
     }
+
+    /// Resizes a surface's X window, as `resize_surface` in `xtest.py` does.
+    pub(crate) fn resize(
+        &self,
+        surface: &gdk::Surface,
+        width: u16,
+        height: u16,
+    ) -> Result<(), String> {
+        self.connection
+            .configure_window(
+                xid(surface)?,
+                &xproto::ConfigureWindowAux::new()
+                    .width(u32::from(width))
+                    .height(u32::from(height)),
+            )
+            .map_err(|error| error.to_string())?;
+        self.connection.sync().map_err(|error| error.to_string())
+    }
+}
+
+fn xid(surface: &gdk::Surface) -> Result<xproto::Window, String> {
+    let surface = surface
+        .downcast_ref::<gdk4_x11::X11Surface>()
+        .ok_or("the window is not on an X11 surface")?;
+    u32::try_from(surface.xid()).map_err(|_| "the X window id does not fit 32 bits".to_owned())
 }
 
 /// Read once at startup, before a scenario switches layouts, so key names

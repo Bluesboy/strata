@@ -10,7 +10,10 @@ use gtk::{graphene, prelude::*};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::protocol::{Check, Failure, Predicate};
+use super::{
+    protocol::{Check, Failure, Predicate},
+    targets,
+};
 use crate::ui::accessibility_qa::{self as names, Mark};
 
 /// What the harness can see, as plain data so predicates are testable without GTK.
@@ -20,6 +23,7 @@ pub(crate) struct Observation {
     pub(crate) panes: Vec<PaneObservation>,
     pub(crate) focused_entry: Option<String>,
     pub(crate) focused_pane: Option<usize>,
+    pub(crate) window_width: Option<i32>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -84,9 +88,9 @@ impl Observation {
         })
     }
 
-    /// Whether the named entry, in the named pane or the first pane listing
-    /// it, is selected.
-    pub(crate) fn entry_selected(&self, name: &str, directory: Option<&str>) -> bool {
+    /// The named entry in the named pane, or in the first pane listing it,
+    /// as `_entry_or_none` finds it.
+    pub(crate) fn entry(&self, name: &str, directory: Option<&str>) -> Option<&EntryObservation> {
         let panes: Vec<&PaneObservation> = match directory {
             Some(_) => self.pane(directory).into_iter().collect(),
             None => self.panes.iter().collect(),
@@ -95,6 +99,10 @@ impl Observation {
             .into_iter()
             .flat_map(|pane| &pane.entries)
             .find(|entry| entry.name == name)
+    }
+
+    pub(crate) fn entry_selected(&self, name: &str, directory: Option<&str>) -> bool {
+        self.entry(name, directory)
             .is_some_and(|entry| entry.selected)
     }
 
@@ -145,6 +153,26 @@ impl Observation {
                 let actual: Vec<&str> = self.panes.iter().map(|pane| pane.name.as_str()).collect();
                 (*expected == actual, json!(actual))
             }
+            Check::Pane(expected) => {
+                let actual = self.panes.last().map(|pane| pane.name.as_str());
+                (expected.as_deref() == actual, json!(actual))
+            }
+            Check::Entry(name) => {
+                let listed = self.entry(name, directory).is_some();
+                (listed, json!(self.entry_names(directory)))
+            }
+            Check::EntryGone(name) => {
+                let listed = self.entry(name, directory).is_some();
+                (!listed, json!(self.entry_names(directory)))
+            }
+            Check::WindowWidth(expected) => (
+                Some(*expected) == self.window_width,
+                json!(self.window_width),
+            ),
+            // The controller resolves these against live widgets.
+            Check::Present(_) | Check::Absent(_) | Check::Moved(_) => {
+                (false, json!("needs the live window"))
+            }
             Check::Entries(expected) => {
                 let actual = self.entry_names(directory);
                 (expected.matches(&actual), json!(actual))
@@ -175,18 +203,21 @@ impl Observation {
 /// An observation plus the widgets behind it, for aiming pointer input.
 pub(crate) struct Scene {
     pub(crate) observation: Observation,
-    entry_widgets: Vec<Vec<gtk::Widget>>,
+    widgets: Vec<PaneWidgets>,
+}
+
+/// One pane's widgets, parallel to its [`PaneObservation`].
+pub(crate) struct PaneWidgets {
+    pub(crate) pane: gtk::Widget,
+    pub(crate) container: Option<gtk::Widget>,
+    pub(crate) entries: Vec<gtk::Widget>,
 }
 
 impl Scene {
     pub(crate) fn entry_widget(&self, name: &str, directory: Option<&str>) -> Option<&gtk::Widget> {
         let panes = &self.observation.panes;
         let candidates: Vec<usize> = match directory {
-            Some(directory) => panes
-                .iter()
-                .rposition(|pane| pane.name == directory)
-                .into_iter()
-                .collect(),
+            Some(_) => self.pane_index(directory).into_iter().collect(),
             None => (0..panes.len()).collect(),
         };
         candidates.into_iter().find_map(|pane| {
@@ -194,8 +225,22 @@ impl Scene {
                 .entries
                 .iter()
                 .position(|entry| entry.name == name)?;
-            self.entry_widgets[pane].get(index)
+            self.widgets[pane].entries.get(index)
         })
+    }
+
+    /// The named pane, the last match winning, or the deepest.
+    pub(crate) fn pane_index(&self, directory: Option<&str>) -> Option<usize> {
+        let panes = &self.observation.panes;
+        match directory {
+            None => panes.len().checked_sub(1),
+            Some(directory) => panes.iter().rposition(|pane| pane.name == directory),
+        }
+    }
+
+    pub(crate) fn pane_widgets(&self, directory: Option<&str>) -> Option<&PaneWidgets> {
+        self.pane_index(directory)
+            .and_then(|index| self.widgets.get(index))
     }
 }
 
@@ -249,13 +294,24 @@ fn rows() -> HashMap<usize, Row> {
         .collect()
 }
 
+/// The entry name of a row widget, which Strata gives its list item.
+pub(crate) fn row_name(widget: &gtk::Widget) -> Option<String> {
+    names::entries().into_iter().find_map(|(item, naming)| {
+        let row = item.child()?.parent()?;
+        (row == *widget)
+            .then_some(naming.label)
+            .flatten()
+            .filter(|name| !name.is_empty())
+    })
+}
+
 pub(crate) fn scan(window: &gtk::Window) -> Scene {
     let rows = rows();
     let focus = gtk::prelude::GtkWindowExt::focus(window).filter(WidgetExt::has_focus);
     let root = window.upcast_ref::<gtk::Widget>();
     let all = descendants(root);
 
-    let mut panes: Vec<(f32, PaneObservation, Vec<gtk::Widget>, bool)> = Vec::new();
+    let mut panes: Vec<(f32, PaneObservation, PaneWidgets, bool)> = Vec::new();
     for widget in &all {
         let Some(naming) = names::naming(widget) else {
             continue;
@@ -288,7 +344,7 @@ pub(crate) fn scan(window: &gtk::Window) -> Scene {
         (widget.has_focus() && rendered_bounds(widget).is_some()).then(|| row.name.clone())
     });
     let focused_pane = panes.iter().rposition(|pane| pane.3);
-    let (observed, entry_widgets) = panes
+    let (observed, widgets) = panes
         .into_iter()
         .map(|(_, pane, widgets, _)| (pane, widgets))
         .unzip();
@@ -297,45 +353,93 @@ pub(crate) fn scan(window: &gtk::Window) -> Scene {
             panes: observed,
             focused_entry,
             focused_pane,
+            window_width: Some(window.width()),
         },
-        entry_widgets,
+        widgets,
     }
 }
 
 fn pane_entries(
     pane: &gtk::Widget,
     rows: &HashMap<usize, Row>,
-) -> (Vec<EntryObservation>, Vec<gtk::Widget>) {
+) -> (Vec<EntryObservation>, PaneWidgets) {
     let container = descendants(pane).into_iter().find(|widget| {
         names::naming(widget).is_some_and(|naming| naming.mark == Some(Mark::EntryContainer))
             && rendered_bounds(widget).is_some()
     });
-    let Some(container) = container else {
-        return (Vec::new(), Vec::new());
+    let mut widgets = PaneWidgets {
+        pane: pane.clone(),
+        container: container.clone(),
+        entries: Vec::new(),
     };
-    let mut found: Vec<(graphene::Rect, EntryObservation, gtk::Widget)> = descendants(&container)
-        .into_iter()
-        .filter_map(|widget| {
-            let row = rows.get(&address(&widget))?;
-            let bounds = rendered_bounds(&widget)?;
-            let entry = EntryObservation {
-                name: row.name.clone(),
-                selected: row.item.is_selected(),
-                focused: widget.has_focus(),
-            };
-            Some((bounds, entry, widget))
-        })
-        .collect();
+    let Some(container) = container else {
+        return (Vec::new(), widgets);
+    };
+    let mut found: Vec<(graphene::Rect, EntryObservation, gtk::Widget)> = Vec::new();
+    let mut occupied: HashMap<[i64; 4], String> = HashMap::new();
+    for widget in descendants(&container) {
+        let Some(row) = rows.get(&address(&widget)) else {
+            continue;
+        };
+        let Some(bounds) = rendered_bounds(&widget) else {
+            continue;
+        };
+        if !row_label_matches(&widget, &row.name) {
+            continue;
+        }
+        // GtkListView can give a recycled row its new name before its bounds
+        // catch up, so two names share one box mid-refresh; `_entries_in`
+        // then reports nothing rather than a wrong order.
+        let key = [bounds.x(), bounds.y(), bounds.width(), bounds.height()]
+            .map(|value| f64::from(value).floor() as i64);
+        match occupied.get(&key) {
+            Some(prior) if *prior != row.name => return (Vec::new(), widgets),
+            _ => {
+                occupied.insert(key, row.name.clone());
+            }
+        }
+        let entry = EntryObservation {
+            name: row.name.clone(),
+            selected: row.item.is_selected(),
+            focused: widget.has_focus(),
+        };
+        found.push((bounds, entry, widget));
+    }
     found.sort_by(|left, right| {
         left.0
             .y()
             .total_cmp(&right.0.y())
             .then(left.0.x().total_cmp(&right.0.x()))
     });
-    found
+    let (entries, rows): (Vec<EntryObservation>, Vec<gtk::Widget>) = found
         .into_iter()
         .map(|(_, entry, widget)| (entry, widget))
-        .unzip()
+        .unzip();
+    widgets.entries = rows;
+    (entries, widgets)
+}
+
+/// False while a recycled row's name label still shows the previous name,
+/// as `_row_label_matches` in `tests/e2e/harness/browser.py` decides.
+fn row_label_matches(row: &gtk::Widget, name: &str) -> bool {
+    let presented = targets::presented(row);
+    // List metadata may precede the name; the thumbnail identifies its caption.
+    let name_cell = presented
+        .iter()
+        .find(|widget| targets::role_name(widget) == "image")
+        .and_then(WidgetExt::parent);
+    let label = name_cell
+        .and_then(|cell| {
+            targets::presented(&cell)
+                .into_iter()
+                .find(|widget| targets::role_name(widget) == "label")
+        })
+        .or_else(|| {
+            presented
+                .into_iter()
+                .find(|widget| targets::role_name(widget) == "label")
+        });
+    label.is_none_or(|label| targets::accessible_name(&label) == name)
 }
 
 /// Whether the window can be driven: a pane with its entry list on screen,
@@ -372,28 +476,26 @@ fn dump_widget(
         "{:indent$}{} role={:?}",
         "",
         widget.type_().name(),
-        widget.accessible_role(),
+        targets::role_name(widget),
         indent = depth * 2
     );
-    if let Some(row) = rows.get(&address(widget)) {
-        let _ = write!(output, " entry={:?}", row.name);
-        if row.item.is_selected() {
-            output.push_str(" [selected]");
-        }
+    let name = targets::accessible_name(widget);
+    if !name.is_empty() {
+        let _ = write!(output, " name={name:?}");
     }
-    if let Some(naming) = names::naming(widget) {
-        if let Some(label) = naming.label.as_deref() {
-            let _ = write!(output, " label={label:?}");
-        }
-        if let Some(description) = naming
-            .description
-            .as_deref()
-            .filter(|text| !text.is_empty())
-        {
-            let _ = write!(output, " description={description:?}");
-        }
+    if rows
+        .get(&address(widget))
+        .is_some_and(|row| row.item.is_selected())
+    {
+        output.push_str(" [selected]");
     }
-    if let Some(text) = widget_text(widget) {
+    if let Some(description) = names::naming(widget)
+        .and_then(|naming| naming.description)
+        .filter(|text| !text.is_empty())
+    {
+        let _ = write!(output, " description={description:?}");
+    }
+    if let Some(text) = widget_text(widget).filter(|text| *text != name) {
         let _ = write!(output, " text={text:?}");
     }
     if widget.has_focus() {

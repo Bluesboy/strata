@@ -605,34 +605,109 @@ A scenario is a `.jsonl` file in `tests/qa/scenarios`, registered in the
 
 `modes` runs the file once per view, `twin` names the Python test it ports,
 `mutation` the patch that must make it fail, and `known_bug` an issue that makes
-a failing step the expected result (setup, launch, and layout errors still
-fail). The header `layout` is switched to once the process is ready, so key
-names always mean US key positions. Optional `variants` run the file again with their
-own `prefs`, `layout`, `modes`, and `vars`; `$name` in a step is replaced by a
-variable, and `$root` by the fixture directory's name. Every later line is one
-step:
+a failure the expected result. A `known_bug` needs `known_bug_step`, the file
+line (the header is line 1) of the step expected to fail; a failure at any other
+step, or an error, still fails the run. The header `layout` is switched to once the
+process is ready, so key names always mean US key positions. Optional `variants`
+run the file again with their own `prefs`, `layout`, `modes`, and `vars`; `$name`
+in a step is replaced by a variable, `$root` by the fixture directory's name, and
+`$view` by the run's view (`Columns`, `Icons`, `List`). An optional `tree` names
+a manifest tree or writes one out, where a name such as `{000..199}.txt` stands
+for one zero-padded file per number whose text has `{}` replaced by the number.
+Every later line is one step; a step with `"modes":["icons","list"]` runs only
+in those views, which is how a scenario mirrors a twin's `if mode == ...`.
 
 | Step | Runs in | Meaning |
 | --- | --- | --- |
 | `{"key":"ctrl+x","repeat":2}` | process | US key positions, as in `harness/interaction.py` |
-| `{"click":{"entry":"readme.md","dir":"documents"},"button":1,"count":1,"mods":["shift"]}` | process | at the centre of the entry row |
+| `{"click":TARGET,"button":1,"count":1,"mods":["shift"],"at":[4,"50%"]}` | process | `pointer.click`, `right_click` (`button` 3), `double_click` (`count` 2), `click_entry_with` |
 | `{"select":{"entry":"readme.md"}}` | process | clicks until the entry is selected, as `select_entry` does |
-| `{"wait":{"focused":"todo.txt"},"timeout_ms":10000,"message":"..."}` | process | stops the run on timeout, with the widget tree |
-| `{"expect":[{"selected":["todo.txt"]},{"directory":"$root"}]}` | process | reports mismatches and continues |
+| `{"move":TARGET,"at":[...]}` | process | `pointer.move_to` |
+| `{"wheel":TARGET,"clicks":3,"direction":"down","at":[...]}` | process | `pointer.scroll` |
+| `{"drag":{"from":TARGET,"to":TARGET},"steps":16,"release":true,"mods":[]}` | process | `pointer.drag`; an entry `from` starts on its icon (`drag_origin`); `release:false` keeps the button held |
+| `{"button_up":1}` | process | lets go of a held button, as `abandon_drag` ends |
+| `{"resize":{"width":420,"height":300}}` | process | `resize_surface` on the main window |
+| `{"settle":TARGET,"timeout_ms":15000}` | process | `strata.settle`: waits for the bounds to repeat three polls and remembers them |
+| `{"wait":PREDICATE,"timeout_ms":15000,"message":"..."}` | process | stops the run on timeout, with the widget tree |
+| `{"expect":[PREDICATE,...]}` | process | reports mismatches and continues |
 | `{"query":"state"}`, `{"query":"tree"}` | process | snapshot or widget tree in `result` |
 | `{"layout":"ru"}` | runner | `setxkbmap` and a group lock on the run's Xvfb |
-| `{"fs":{"path":"archive/todo.txt","exists":true},"timeout_ms":10000}` | runner | waits for `exists`, `text`, or `names` |
+| `{"fs":{"path":"archive/todo.txt","exists":true},"timeout_ms":15000,"message":"..."}` | runner | waits for `exists`, `text`, or `names`; `timeout_ms` 0 is a plain assertion |
 
-Predicates are `directory`, `panes`, `entries`, `selected` (both take `dir`
-and either an exact list or `{"contains":[...],"excludes":[...]}`), `focused`,
-and `view_mode`. A reply is
+Every timeout defaults to 15 seconds, the Python suite's `tree.DEFAULT_TIMEOUT`.
+
+Pointer timings, the approach-then-confirm move, the drag's intermediate
+points, and the pause after a release before a drag all follow
+`harness/interaction.py`. A target is never a screen point; it is resolved from
+the widget's bounds in its native surface plus that surface's X origin, which
+covers popovers, and is waited for up to 15 seconds as the Python lookups wait:
+
+| Target | Python lookup |
+| --- | --- |
+| `{"entry":"todo.txt","dir":"archive"}` | `entry(name, directory)`; any pane without `dir` |
+| `{"role":"check menu item","name":"Folders first"}` | `window.find(role=..., name=...)` |
+| `{"sidebar":"Home"}`, `{"header":"Choose sort field"}` | `sidebar_button`, `header_button` |
+| `{"menu_item":"New File"}` | `menu_item`: in the open menu if there is one |
+| `{"dialog_button":"Close"}` | `dialog_button` |
+| `{"field":true}` | `editable_field`: the focused editable text |
+| `{"background":true,"dir":...}` | `background_point`: a point, so it takes no `at` |
+| `{"pane":"archive"}` | the pane; aims at `empty_point` unless `at` is given |
+| `{"viewport":null}` | the scroll viewport around a pane's entry list |
+
+`at` is `[x, y]` from the target's top-left corner, each in pixels (negative
+counts back from the far edge) or a percentage such as `"80%"`; without it the
+pointer aims at the centre. Role names are AT-SPI's, with `push button` spelled
+`button`; names are the labels `src/ui/accessibility.rs` records (an entry row's
+is its list item's), a label's own text, or children's names for buttons and
+menu items. Tooltips never name a target: a control that needs a name, such as
+an icon-only button, gets `accessibility::set_label` with its tooltip text. The
+`tree` query prints both for every widget, which is the quickest way to write a
+target. `absent` holds only when the target is not found or not on screen; a
+lookup that breaks, such as an unrealized surface, is an error.
+
+Predicates are `directory`, `panes`, `pane` (the deepest pane's name),
+`entries`, `selected` (both take `dir` and either an exact list or
+`{"contains":[...],"excludes":[...]}`), `entry` and `entry_gone` (a name, with
+optional `dir`), `focused`, `view_mode`, `window_width`, `present` and `absent`
+(a target), and `moved` (`{"target":TARGET,"direction":"up"}`, also `down`,
+`left`, `right`, or `none` for unchanged bounds, against the last `settle` on
+that target). A reply is
 `{"ok","app","changed","criticals","result","failures","error"}`; `app` is the
 view mode, directory, panes with their selection and focus, and the focused
 entry. Any GLib warning or critical in `criticals` fails the run.
 
+The runner checks every step with the process's own parser before launching,
+so a typo fails the scenario as a harness error. Setup, launch, layout,
+artifact, and teardown problems, a reply that never arrives, and a process that
+exits are errors too: they fail even a `known_bug` run, which only scenario
+steps can satisfy.
+
 A failed run writes `target/qa-artifacts/<scenario>/<mode>[-<variant>]/`: a
 screenshot of the Xvfb root, the widget tree, the command and reply
-transcript, the application log, the fixture listing, and the Xvfb log.
+transcript, the application log, the input log, the fixture listing, and the
+Xvfb log.
+
+### Input log
+
+With `STRATA_INPUT_LOG=<path>` the process appends every synthetic event it
+sends, one per line; the runner sets it for each run and saves the file as
+`input.log` whenever it writes artifacts. Coordinates are X root coordinates minus
+the main window's X surface origin, so they are relative to the window:
+
+```text
+key <keycode> down|up
+motion <x> <y>
+pointer <x> <y> button <n> down|up
+```
+
+`pointer` is a button event at the pointer's position, with the wheel as
+buttons 4 and 5, and keycodes are the X server's. `motion` lines record each
+XTEST motion, including both steps of the approach and every drag point, and
+are informational only. Input parity compares just the `key` and `pointer`
+lines, in order, with pointer coordinates allowed one pixel of difference; the
+position a `pointer` line carries is the final pointer position before that
+button event, which is what parity checks of motion. A twin harness writes the
+same `key` and `pointer` lines and may write `motion` lines as it likes.
 
 ## In CI
 

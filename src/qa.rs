@@ -8,9 +8,11 @@ mod criticals;
 mod input;
 mod protocol;
 mod state;
+mod targets;
 
 use std::{
     cell::RefCell,
+    collections::HashMap,
     ffi::OsString,
     fs::File,
     io::{BufRead, Write},
@@ -26,12 +28,18 @@ use serde_json::{Value, json};
 
 use self::{
     input::{Event, Injector},
-    protocol::{Chord, Command, EntryTarget, Failure, Modifier, Query, Reply, Target},
+    protocol::{
+        At, Check, Chord, Command, Direction, EntryTarget, Failure, Modifier, Predicate, Query,
+        Reply, Target,
+    },
+    targets::{Aim, LookupError, Rect},
 };
 
 const READY_TIMEOUT: Duration = Duration::from_secs(60);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const FRAME_TIMEOUT: Duration = Duration::from_millis(250);
+// The pointer timings mirror `tests/e2e/harness/interaction.py`, so both
+// harnesses feed GTK the same rhythm; each gap also lets a frame settle.
 /// Held like a physical click: a layout change caused by the press makes GTK
 /// synthesize motion from the live pointer state one frame later, and a
 /// release it has not read yet would cancel the click.
@@ -39,10 +47,18 @@ const BUTTON_HOLD: Duration = Duration::from_millis(100);
 /// With the hold, two clicks stay well inside GTK's 400 ms double-click time,
 /// so nothing may settle between them.
 const DOUBLE_CLICK_GAP: Duration = Duration::from_millis(90);
+/// Comfortably outside the double-click time, so a drag right after a
+/// selecting click does not become a double-click activation.
+const SEPARATE_CLICK_GAP: Duration = Duration::from_millis(600);
 const EVENT_GAP: Duration = Duration::from_millis(20);
+const POINTER_GAP: Duration = Duration::from_millis(50);
 /// `select_entry` in `tests/e2e/harness/browser.py`: a click can land before
 /// GTK maps the row for input, so it clicks once more after this long.
 const SELECT_RETRY_AFTER: Duration = Duration::from_secs(4);
+/// `tree.DEFAULT_TIMEOUT`: how long the Python lookups wait for a node.
+const LOCATE_TIMEOUT: Duration = Duration::from_secs(15);
+/// `Strata.settle` samples: the same bounds this many polls in a row.
+const SETTLE_SAMPLES: usize = 3;
 const PANIC_EXIT: i32 = 70;
 const ARRIVAL_ATTEMPTS: usize = 5;
 /// Approach a point in two steps so GTK sees enter and motion, not a teleport.
@@ -107,6 +123,7 @@ impl Session {
             protocol: self.protocol,
             injector: None,
             previous: None,
+            settled: RefCell::default(),
         };
         // GLib would keep a panic in the task's join handle and leave the
         // runner waiting; report it and exit instead.
@@ -147,6 +164,8 @@ struct Controller {
     protocol: File,
     injector: Option<Injector>,
     previous: Option<Value>,
+    /// Where each target came to rest in its last `settle`, keyed by its JSON.
+    settled: RefCell<HashMap<String, Rect>>,
 }
 
 #[derive(Default)]
@@ -161,6 +180,18 @@ impl Outcome {
         Self {
             error: Some(error),
             ..Self::default()
+        }
+    }
+
+    fn from(result: Result<(), String>) -> Self {
+        result.map_or_else(Self::error, |()| Self::default())
+    }
+
+    fn timed_out(window: &gtk::Window, failure: Failure, timeout: Duration) -> Self {
+        Self {
+            result: json!({ "tree": state::dump(window) }),
+            failures: vec![failure],
+            error: Some(format!("timed out after {} ms", timeout.as_millis())),
         }
     }
 }
@@ -248,6 +279,16 @@ impl Controller {
         let Some(injector) = self.injector.as_ref() else {
             return Outcome::error("no X input connection".to_owned());
         };
+        if injector.logging() {
+            match window
+                .surface()
+                .ok_or_else(|| "the window has no surface".to_owned())
+                .and_then(|surface| injector.surface_origin(&surface))
+            {
+                Ok(origin) => injector.set_log_origin(origin),
+                Err(error) => return Outcome::error(error),
+            }
+        }
         let input = Input {
             injector,
             window: &window,
@@ -266,11 +307,56 @@ impl Controller {
                 button,
                 count,
                 modifiers,
-            } => match input.click(&target, button, count, &modifiers).await {
-                Ok(()) => Outcome::default(),
-                Err(error) => Outcome::error(error),
-            },
+                at,
+            } => Outcome::from(
+                input
+                    .click(&target, button, count, &modifiers, at.as_ref())
+                    .await,
+            ),
             Command::Select(target) => input.select(&target).await,
+            Command::Move { target, at } => {
+                Outcome::from(input.move_onto(&target, at.as_ref()).await)
+            }
+            Command::Wheel {
+                target,
+                at,
+                clicks,
+                down,
+                modifiers,
+            } => Outcome::from(
+                input
+                    .wheel(&target, at.as_ref(), clicks, down, &modifiers)
+                    .await,
+            ),
+            Command::Drag {
+                from,
+                to,
+                steps,
+                release,
+                modifiers,
+            } => Outcome::from(input.drag(&from, &to, steps, release, &modifiers).await),
+            Command::ButtonUp(number) => Outcome::from(
+                input
+                    .emit(
+                        Event::Button {
+                            number,
+                            pressed: false,
+                        },
+                        POINTER_GAP,
+                    )
+                    .await,
+            ),
+            Command::Resize { width, height } => {
+                let resized = window
+                    .surface()
+                    .ok_or_else(|| "the window has no surface".to_owned())
+                    .and_then(|surface| injector.resize(&surface, width, height));
+                settle(Some(&window)).await;
+                Outcome::from(resized)
+            }
+            Command::Settle { target, timeout } => {
+                self.settle_target(&input, &target, timeout).await
+            }
             Command::Wait {
                 predicate,
                 timeout,
@@ -278,28 +364,28 @@ impl Controller {
             } => {
                 let deadline = Instant::now() + timeout;
                 loop {
-                    let observation = state::scan(&window).observation;
-                    match observation.evaluate(&predicate) {
-                        Ok(()) => return Outcome::default(),
-                        Err(mut failure) if Instant::now() >= deadline => {
+                    match self.check(&input, &predicate) {
+                        Err(error) => return Outcome::error(error),
+                        Ok(Ok(())) => return Outcome::default(),
+                        Ok(Err(mut failure)) if Instant::now() >= deadline => {
                             failure.message = message;
-                            return Outcome {
-                                result: json!({ "tree": state::dump(&window) }),
-                                failures: vec![failure],
-                                error: Some(format!("timed out after {} ms", timeout.as_millis())),
-                            };
+                            return Outcome::timed_out(&window, failure, timeout);
                         }
-                        Err(_) => glib::timeout_future(POLL_INTERVAL).await,
+                        Ok(Err(_)) => glib::timeout_future(POLL_INTERVAL).await,
                     }
                 }
             }
             Command::Expect { predicates } => {
-                let observation = state::scan(&window).observation;
+                let mut failures = Vec::new();
+                for predicate in &predicates {
+                    match self.check(&input, predicate) {
+                        Ok(Ok(())) => {}
+                        Ok(Err(failure)) => failures.push(failure),
+                        Err(error) => return Outcome::error(error),
+                    }
+                }
                 Outcome {
-                    failures: predicates
-                        .iter()
-                        .filter_map(|predicate| observation.evaluate(predicate).err())
-                        .collect(),
+                    failures,
                     ..Outcome::default()
                 }
             }
@@ -313,6 +399,106 @@ impl Controller {
                 ..Outcome::default()
             },
         }
+    }
+
+    /// `Strata.settle`: polls until the target's bounds repeat, then keeps
+    /// them for later `moved` checks.
+    async fn settle_target(
+        &self,
+        input: &Input<'_>,
+        target: &Target,
+        timeout: Duration,
+    ) -> Outcome {
+        let deadline = Instant::now() + timeout;
+        let mut history: Vec<Option<[i64; 4]>> = Vec::new();
+        loop {
+            let located = input.locate_now(target, None, Aim::Point);
+            if let Err(LookupError::Broken(error)) = located {
+                return Outcome::error(error);
+            }
+            history.push(located.as_ref().ok().map(|located| located.rect.pixels()));
+            if history.len() > SETTLE_SAMPLES {
+                history.remove(0);
+            }
+            if let Ok(located) = &located
+                && history.len() == SETTLE_SAMPLES
+                && history.iter().all(|sample| *sample == history[0])
+            {
+                self.settled
+                    .borrow_mut()
+                    .insert(target.to_json().to_string(), located.rect);
+                return Outcome::default();
+            }
+            if Instant::now() >= deadline {
+                let failure = Failure {
+                    predicate: json!({ "settle": target }),
+                    actual: located.map_or_else(
+                        |error| json!(error.message()),
+                        |located| json!(located.rect.pixels()),
+                    ),
+                    message: Some("the target to stop moving".to_owned()),
+                };
+                return Outcome::timed_out(input.window, failure, timeout);
+            }
+            glib::timeout_future(POLL_INTERVAL).await;
+        }
+    }
+
+    /// A mismatch is the predicate not holding; the outer error is a lookup
+    /// that broke, which no amount of waiting fixes.
+    fn check(
+        &self,
+        input: &Input<'_>,
+        predicate: &Predicate,
+    ) -> Result<Result<(), Failure>, String> {
+        if !predicate.check.is_live() {
+            return Ok(state::scan(input.window).observation.evaluate(predicate));
+        }
+        let mismatch = |actual: Value| Failure {
+            predicate: serde_json::to_value(predicate).unwrap_or(Value::Null),
+            actual,
+            message: None,
+        };
+        let locate = |target: &Target| match input.locate_now(target, None, Aim::Point) {
+            Ok(located) => Ok(Some(located)),
+            Err(LookupError::Missing(_)) => Ok(None),
+            Err(LookupError::Broken(error)) => Err(error),
+        };
+        Ok(match &predicate.check {
+            Check::Present(target) => match locate(target)? {
+                Some(_) => Ok(()),
+                None => Err(mismatch(json!(false))),
+            },
+            Check::Absent(target) => match locate(target)? {
+                Some(located) => Err(mismatch(json!(located.rect.pixels()))),
+                None => Ok(()),
+            },
+            Check::Moved(movement) => {
+                let key = movement.target.to_json().to_string();
+                let Some(before) = self.settled.borrow().get(&key).copied() else {
+                    return Err(format!("moved needs an earlier settle on {key}"));
+                };
+                match locate(&movement.target)? {
+                    None => Err(mismatch(json!("not on screen"))),
+                    Some(now) => {
+                        let (settled, now) = (before.pixels(), now.rect.pixels());
+                        let moved = match movement.direction {
+                            Direction::Up => now[1] < settled[1],
+                            Direction::Down => now[1] > settled[1],
+                            Direction::Left => now[0] < settled[0],
+                            Direction::Right => now[0] > settled[0],
+                            Direction::None => now == settled,
+                        };
+                        if moved {
+                            Ok(())
+                        } else {
+                            Err(mismatch(json!({ "settled": settled, "now": now })))
+                        }
+                    }
+                }
+            }
+            _ => state::scan(input.window).observation.evaluate(predicate),
+        })
     }
 }
 
@@ -341,14 +527,23 @@ struct Input<'a> {
 }
 
 impl Input<'_> {
-    async fn send(&self, event: Event) -> Result<(), String> {
-        self.injector.send(event)?;
+    /// At least `gap`, as the Python harness sleeps, and at least one frame.
+    async fn pause(&self, gap: Duration) {
+        let started = Instant::now();
         settle(Some(self.window)).await;
+        if let Some(remaining) = gap.checked_sub(started.elapsed()) {
+            glib::timeout_future(remaining).await;
+        }
+    }
+
+    async fn emit(&self, event: Event, gap: Duration) -> Result<(), String> {
+        self.injector.send(event)?;
+        self.pause(gap).await;
         Ok(())
     }
 
     async fn key(&self, keycode: u8, pressed: bool) -> Result<(), String> {
-        self.send(Event::Key { keycode, pressed }).await
+        self.emit(Event::Key { keycode, pressed }, EVENT_GAP).await
     }
 
     async fn hold(&self, modifiers: &[Modifier]) -> Result<Vec<u8>, String> {
@@ -402,20 +597,53 @@ impl Input<'_> {
         result
     }
 
+    /// The target as it is now; see [`Self::locate`] for the patient lookup.
+    fn locate_now(
+        &self,
+        target: &Target,
+        at: Option<&At>,
+        aim: Aim,
+    ) -> Result<targets::Located, LookupError> {
+        targets::locate(self.window, self.injector, target, at, aim)
+    }
+
+    /// Waits for the target like the Python lookups do, then the X screen
+    /// point to aim at.
+    async fn locate(
+        &self,
+        target: &Target,
+        at: Option<&At>,
+        aim: Aim,
+    ) -> Result<(i16, i16), String> {
+        let deadline = Instant::now() + LOCATE_TIMEOUT;
+        let (x, y) = loop {
+            match self.locate_now(target, at, aim) {
+                Ok(located) => break located.point,
+                Err(LookupError::Broken(error)) => return Err(error),
+                Err(LookupError::Missing(error)) if Instant::now() >= deadline => {
+                    return Err(format!("{error} after {} s", LOCATE_TIMEOUT.as_secs()));
+                }
+                Err(LookupError::Missing(_)) => glib::timeout_future(POLL_INTERVAL).await,
+            }
+        };
+        Ok((coordinate(x)?, coordinate(y)?))
+    }
+
+    /// `Pointer.click` and `double_click`: aim, hold the modifiers, tap, let go.
     async fn click(
         &self,
         target: &Target,
-        button: u32,
+        button: u8,
         count: u32,
         modifiers: &[Modifier],
+        at: Option<&At>,
     ) -> Result<(), String> {
-        let (x, y) = self.locate(target)?;
+        let (x, y) = self.locate(target, at, Aim::Point).await?;
         self.move_to(x, y).await?;
-        let number = u8::try_from(button).map_err(|error| error.to_string())?;
         let held = self.hold(modifiers).await?;
         let mut result = Ok(());
         for click in 1..=count {
-            result = self.tap_button(number, click == count).await;
+            result = self.tap_button(button, BUTTON_HOLD, click == count).await;
             if result.is_err() {
                 break;
             }
@@ -424,27 +652,124 @@ impl Input<'_> {
             }
         }
         self.release(&held).await;
+        self.pause(POINTER_GAP).await;
         result
     }
 
     /// Only the last release of a multi-click settles; a frame between the
     /// clicks could push them out of the double-click window.
-    async fn tap_button(&self, number: u8, last: bool) -> Result<(), String> {
+    async fn tap_button(&self, number: u8, hold: Duration, last: bool) -> Result<(), String> {
         self.injector.send(Event::Button {
             number,
             pressed: true,
         })?;
-        glib::timeout_future(BUTTON_HOLD).await;
-        let release = Event::Button {
+        glib::timeout_future(hold).await;
+        self.injector.send(Event::Button {
             number,
             pressed: false,
-        };
+        })?;
+        self.injector.record_release();
         if last {
-            return self.send(release).await;
+            self.pause(EVENT_GAP).await;
+        } else {
+            glib::timeout_future(EVENT_GAP).await;
         }
-        self.injector.send(release)?;
-        glib::timeout_future(EVENT_GAP).await;
         Ok(())
+    }
+
+    async fn move_onto(&self, target: &Target, at: Option<&At>) -> Result<(), String> {
+        let (x, y) = self.locate(target, at, Aim::Point).await?;
+        self.move_to(x, y).await
+    }
+
+    /// `Pointer.scroll`: buttons 4 and 5 are the wheel turning up and down.
+    async fn wheel(
+        &self,
+        target: &Target,
+        at: Option<&At>,
+        clicks: u32,
+        down: bool,
+        modifiers: &[Modifier],
+    ) -> Result<(), String> {
+        let (x, y) = self.locate(target, at, Aim::Point).await?;
+        self.move_to(x, y).await?;
+        let held = self.hold(modifiers).await?;
+        let mut result = Ok(());
+        for _ in 0..clicks {
+            result = self
+                .tap_button(if down { 5 } else { 4 }, EVENT_GAP, true)
+                .await;
+            if result.is_err() {
+                break;
+            }
+        }
+        self.release(&held).await;
+        result
+    }
+
+    /// `Pointer.drag` and `drag_points`: press on the source's icon, cross to
+    /// the target in even steps so GTK passes its drag threshold and the drop
+    /// site sees the hover, then release unless asked to keep holding.
+    async fn drag(
+        &self,
+        from: &Target,
+        to: &Target,
+        steps: u32,
+        release: bool,
+        modifiers: &[Modifier],
+    ) -> Result<(), String> {
+        let start = self.locate(from, None, Aim::DragOrigin).await?;
+        let end = self.locate(to, None, Aim::Point).await?;
+        let held = self.hold(modifiers).await?;
+        let result = self.drag_between(start, end, steps, release).await;
+        self.release(&held).await;
+        result
+    }
+
+    async fn drag_between(
+        &self,
+        start: (i16, i16),
+        end: (i16, i16),
+        steps: u32,
+        release: bool,
+    ) -> Result<(), String> {
+        self.move_to(start.0, start.1).await?;
+        if let Some(remaining) = self
+            .injector
+            .last_release()
+            .and_then(|released| SEPARATE_CLICK_GAP.checked_sub(released.elapsed()))
+        {
+            glib::timeout_future(remaining).await;
+        }
+        self.emit(
+            Event::Button {
+                number: 1,
+                pressed: true,
+            },
+            POINTER_GAP,
+        )
+        .await?;
+        let travel = async {
+            for step in 1..=steps {
+                let x = step_towards(start.0, end.0, step, steps);
+                let y = step_towards(start.1, end.1, step, steps);
+                self.emit(Event::Motion { x, y }, EVENT_GAP).await?;
+            }
+            self.emit(Event::Motion { x: end.0, y: end.1 }, POINTER_GAP)
+                .await
+        };
+        let travelled = travel.await;
+        if release || travelled.is_err() {
+            self.emit(
+                Event::Button {
+                    number: 1,
+                    pressed: false,
+                },
+                POINTER_GAP,
+            )
+            .await?;
+        }
+        travelled
     }
 
     async fn select(&self, target: &EntryTarget) -> Outcome {
@@ -455,7 +780,7 @@ impl Input<'_> {
                 .entry_selected(&target.entry, target.dir.as_deref())
         };
         for patience in [SELECT_RETRY_AFTER, protocol::DEFAULT_WAIT] {
-            if let Err(error) = self.click(&wanted, 1, 1, &[]).await {
+            if let Err(error) = self.click(&wanted, 1, 1, &[], None).await {
                 return Outcome::error(error);
             }
             let deadline = Instant::now() + patience;
@@ -477,56 +802,48 @@ impl Input<'_> {
         }
     }
 
+    /// `Pointer.move_to`: approach, arrive, and confirm the server moved the
+    /// pointer, since a press while it is elsewhere lands on the wrong widget.
     async fn move_to(&self, x: i16, y: i16) -> Result<(), String> {
-        self.send(Event::Motion {
-            x: x.saturating_sub(APPROACH_OFFSET),
-            y: y.saturating_sub(APPROACH_OFFSET),
-        })
+        self.emit(
+            Event::Motion {
+                x: x.saturating_sub(APPROACH_OFFSET),
+                y: y.saturating_sub(APPROACH_OFFSET),
+            },
+            EVENT_GAP,
+        )
         .await?;
+        self.emit(Event::Motion { x, y }, POINTER_GAP).await?;
         for _ in 0..ARRIVAL_ATTEMPTS {
-            self.send(Event::Motion { x, y }).await?;
             if self.injector.pointer_position()? == (x, y) {
                 return Ok(());
             }
+            self.emit(Event::Motion { x, y }, POINTER_GAP).await?;
         }
         Err(format!(
             "the pointer did not reach ({x}, {y}); it is at {:?}",
             self.injector.pointer_position()?
         ))
     }
+}
 
-    /// The target's centre on the X screen: its bounds in its native surface,
-    /// the surface's own content offset, and the surface's screen origin.
-    fn locate(&self, target: &Target) -> Result<(i16, i16), String> {
-        let scene = state::scan(self.window);
-        let widget = match target {
-            Target::Entry(entry) => scene
-                .entry_widget(&entry.entry, entry.dir.as_deref())
-                .cloned()
-                .ok_or_else(|| format!("no entry {:?} on screen", entry.entry))?,
-        };
-        let bounds = state::rendered_bounds(&widget).ok_or("the target is not on screen")?;
-        let native = widget.native().ok_or("the target has no native surface")?;
-        let surface = native
-            .surface()
-            .ok_or("the target's surface is not realized")?;
-        let (offset_x, offset_y) = native.surface_transform();
-        let (origin_x, origin_y) = self.injector.surface_origin(&surface)?;
-        let x = f64::from(origin_x) + offset_x + f64::from(bounds.x() + bounds.width() / 2.0);
-        let y = f64::from(origin_y) + offset_y + f64::from(bounds.y() + bounds.height() / 2.0);
-        let coordinate = |value: f64| -> Result<i16, String> {
-            let value = value.floor();
-            if value < f64::from(i16::MIN) || value > f64::from(i16::MAX) {
-                return Err(format!("the target lies outside the screen at {value}"));
-            }
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "the range was checked just above"
-            )]
-            Ok(value as i16)
-        };
-        Ok((coordinate(x)?, coordinate(y)?))
+/// Python's floor division, so both harnesses visit the same pixels.
+fn step_towards(from: i16, to: i16, step: u32, steps: u32) -> i16 {
+    let travelled =
+        ((i64::from(to) - i64::from(from)) * i64::from(step)).div_euclid(i64::from(steps));
+    i16::try_from(i64::from(from) + travelled).unwrap_or(to)
+}
+
+fn coordinate(value: f64) -> Result<i16, String> {
+    let value = value.floor();
+    if value < f64::from(i16::MIN) || value > f64::from(i16::MAX) {
+        return Err(format!("the target lies outside the screen at {value}"));
     }
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the range was checked just above"
+    )]
+    Ok(value as i16)
 }
 
 #[cfg(test)]
