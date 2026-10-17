@@ -878,6 +878,8 @@ script runs unattended.
 While both suites exist, a behaviour change updates a Python test and its QA
 twin together, including any step `message` that mirrors a `strata.wait`
 message.
+CI runs parity, sharded by patch, on pull requests that can change either
+twin; see "QA in CI".
 
 ## In CI
 
@@ -943,6 +945,63 @@ Arch Linux Archive HTTP errors, compiler diagnostics, and provenance failures ar
 identified separately. When bootstrap fails, it explicitly says that no scenarios
 ran. Timing is reported separately and never changes the test result. If logs
 cannot be retrieved or classified, it says so rather than guessing the cause.
+
+### QA in CI
+
+Four jobs in `ci.yml` run the QA runner on non-draft pull requests and manual
+dispatches. They are **informational**: each has `continue-on-error: true`,
+no required check needs them, and the repository ruleset does not list them, so
+a red QA job never blocks a merge. The Python suite remains the merge gate.
+
+- **QA scenarios** waits for **Quality build and lint**, pulls (or loads) the
+  same pinned build environment the Rust shards use, restores main's quality
+  Cargo cache, and runs `./scripts/qa.sh` with
+  `STRATA_E2E_CARGO_CACHE=target/quality-container`. `--features qa` equals
+  `--all-features`, so that cache already holds every dependency built in the
+  same image at the same paths and only `strata` and the runner compile. The E2E
+  runtime image and binary bundle cannot be reused: the runtime has no Rust
+  toolchain, and the bundled binary lacks the `qa` feature. The job then checks
+  the `qa` build contains `usage: strata --qa`, the prefix of `USAGE` in
+  `src/qa.rs` that the release workflow rejects in release binaries;
+  `scripts/test_qa_parity.py` requires both checks' pattern to prefix `USAGE`. A failed run uploads `target/qa-artifacts` as
+  `qa-artifacts-<attempt>`.
+- **QA parity plan** runs `python3 scripts/qa_parity.py ci-plan`. On a pull
+  request, parity runs only when the merge commit's changes touch `PARITY_PATHS`
+  in `scripts/qa_parity.py` (`src/`, `data/`, `tests/e2e/`, `tests/qa/`,
+  `tests/qa.rs`, the runners, and this workflow among them); a dispatch always
+  runs it. The plan spreads the scenarios' mutation patches over at most
+  `CI_SHARDS` (10) shards.
+- **QA parity shard N** runs `./scripts/qa-parity.sh <its patches>` on a fresh
+  checkout with the same environment and cache: a baseline of its own pairs,
+  then each patch. It uploads `target/qa-parity` as
+  `qa-parity-<attempt>-shard-<N>` even when it fails.
+- **QA parity** downloads every attempt's shard artifacts and runs
+  `python3 scripts/qa_parity.py aggregate`, which keeps each shard's newest
+  attempt, re-compares its saved runs, and gives one verdict: every planned pair
+  must agree, and a shard that uploaded nothing, did not finish, or is not in
+  the plan disagrees. Re-running only the failed shards therefore works; the
+  aggregate re-runs with them. The combined table, with each shard's minutes,
+  is in the job summary.
+
+`scripts/qa.sh` and `scripts/e2e.sh` accept `STRATA_E2E_CARGO_CACHE`, a
+directory under `target/` holding `cargo/` and `build/` (default
+`target/e2e-container`); leave it unset locally. To read a failure, start with
+the job log (`PASS` and failed lines name each run's twin), then the artifacts:
+`qa-artifacts-<attempt>` has the per-run bundle described in "Replies and the
+state snapshot", and a parity shard's artifact has `<patch>.md`, `summary.md`,
+`baseline/`, and `mutations/<patch>/` as described in "QA parity". Copy one into
+`target/qa-parity` and run `python3 scripts/qa_parity.py report <patches>` to
+re-compare it locally, or reproduce a shard with
+`./scripts/qa-parity.sh <patches>`.
+
+**Promotion is pending.** The owner makes **QA scenarios** a required check
+after a two-week informational window with zero unexplained failures and a
+documented wall time per run, recorded in the promoting pull request; that
+change removes its `continue-on-error` and adds it to the ruleset's required
+checks. Whether parity becomes required is a separate owner decision. No
+informational window has been recorded yet. `CI_SHARDS` (10) and the shard
+timeouts are first guesses: the owner tunes them once real runner load and
+per-shard wall times are known.
 
 ### Cache lifecycle and cold starts
 

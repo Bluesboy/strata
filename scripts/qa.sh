@@ -15,6 +15,14 @@ if ! command -v "$engine" >/dev/null 2>&1; then
   exit 1
 fi
 
+# CI points the Cargo home and target directory at the restored quality cache,
+# which `--all-features` built in the same image ("QA in CI", docs/e2e-testing.md).
+cargo_cache="$(realpath -m --relative-to="$repository" "${STRATA_E2E_CARGO_CACHE:-$repository/target/e2e-container}")"
+if [[ "$cargo_cache" != target/* ]]; then
+  echo "STRATA_E2E_CARGO_CACHE must name a directory under the checkout's target/." >&2
+  exit 1
+fi
+
 image="${STRATA_E2E_IMAGE:-}"
 if [[ -z "$image" ]]; then
   image="$(python3 "$repository/scripts/e2e_base.py" ensure --engine "$engine")"
@@ -73,8 +81,8 @@ exec "$engine" run "${options[@]}" \
   --mount "type=bind,source=$accounts/group,target=/etc/group,readonly" \
   --workdir /workspace \
   --env HOME=/tmp/strata-build-home \
-  --env CARGO_HOME=/workspace/target/e2e-container/cargo \
-  --env CARGO_TARGET_DIR=/workspace/target/e2e-container/build \
+  --env "CARGO_HOME=/workspace/$cargo_cache/cargo" \
+  --env "CARGO_TARGET_DIR=/workspace/$cargo_cache/build" \
   --env CARGO_PROFILE_DEV_DEBUG=0 --env CARGO_INCREMENTAL=0 \
   --env STRATA_QA_CONTAINER=1 \
   --env "STRATA_QA_KEEP_ARTIFACTS=${STRATA_QA_KEEP_ARTIFACTS:-0}" \

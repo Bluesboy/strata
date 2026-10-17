@@ -36,6 +36,10 @@ use self::{
     targets::{Aim, LookupError, Memory, Rect},
 };
 
+/// Present in every `qa` build. The release workflow fails a binary containing its
+/// stable prefix `usage: strata --qa`, and the QA job checks a `qa` build does;
+/// `scripts/test_qa_parity.py` requires both checks' pattern to prefix this text.
+const USAGE: &str = "usage: strata --qa <directory>";
 const READY_TIMEOUT: Duration = Duration::from_secs(60);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const FRAME_TIMEOUT: Duration = Duration::from_millis(250);
@@ -79,7 +83,7 @@ impl Session {
     /// application's own output, tracing included, goes to stderr instead.
     pub(crate) fn prepare(arguments: &[OsString]) -> Result<Self, String> {
         let [program, _, directory] = arguments else {
-            return Err("usage: strata --qa <directory>".to_owned());
+            return Err(USAGE.to_owned());
         };
         if !Path::new(directory).is_dir() {
             return Err(format!("--qa needs a directory, not {directory:?}"));

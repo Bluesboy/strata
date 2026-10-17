@@ -531,7 +531,7 @@ def mark(comparison: Comparison | None) -> str:
     return "agree" if comparison.agree else "DISAGREE"
 
 
-def write_patch_report(report: PairReport) -> Path:
+def write_patch_report(report: PairReport, output: Path = OUTPUT) -> Path:
     def cell(text: str) -> str:
         return text.replace("|", "\\|").replace("\n", " ") or "–"
 
@@ -578,13 +578,14 @@ def write_patch_report(report: PairReport) -> Path:
             f"{cell(described(report.inputs.get(pair.label)))} | "
             f"{cell(described(report.states.get(pair.label)))} |"
         )
-    path = OUTPUT / f"{report.patch}.md"
+    path = output / f"{report.patch}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
 
 
-def write_summary(reports: list[PairReport], elapsed: float) -> str:
+def write_summary(reports: list[PairReport], elapsed: float | None, extra: list[str] = (),
+                  output: Path | None = None) -> str:
     header = "| Scenario | Patch | Runs | Pass | Fail | Signature | Input | State |"
     lines = [header, "| --- | --- | --- | --- | --- | --- | --- | --- |"]
     for report in reports:
@@ -594,9 +595,12 @@ def write_summary(reports: list[PairReport], elapsed: float) -> str:
             + " |"
         )
     agreeing = sum(report.agree for report in reports)
-    lines += ["", f"{agreeing} of {len(reports)} pairs agree ({elapsed / 60:.1f} minutes)."]
+    took = f" ({elapsed / 60:.1f} minutes)" if elapsed is not None else ""
+    lines += ["", f"{agreeing} of {len(reports)} pairs agree{took}.", *extra]
     text = "\n".join(lines) + "\n"
-    (OUTPUT / "summary.md").write_text(text, encoding="utf-8")
+    output = output or OUTPUT
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "summary.md").write_text(text, encoding="utf-8")
     return text
 
 
@@ -639,10 +643,10 @@ def collect(chosen: list[Scenario]) -> None:
             run_python([pair.twin for pair in found], destination)
 
 
-def evaluate(chosen: list[Scenario]) -> list[PairReport]:
-    """Compares what `collect` saved; writes `<patch>.md` for each pair."""
+def evaluate(chosen: list[Scenario], output: Path = OUTPUT) -> list[PairReport]:
+    """Compares what `collect` saved under `output`; writes `<patch>.md` there for each pair."""
 
-    baseline = OUTPUT / "baseline"
+    baseline = output / "baseline"
     qa, python = load_qa(baseline), load_python(baseline)
     baseline_exit = exit_accounted(load_qa_status(baseline), qa.values())
     reports = []
@@ -653,7 +657,7 @@ def evaluate(chosen: list[Scenario]) -> list[PairReport]:
         if report.results["pass"].agree and not baseline_exit.agree:
             report.results["pass"] = baseline_exit
         compare_baseline(report, baseline)
-        destination = OUTPUT / "mutations" / report.patch
+        destination = output / "mutations" / report.patch
         if not scenario.mutation:
             report.results["fail"] = Comparison(False, "the scenario names no mutation")
         elif not (destination / "qa.log").is_file():
@@ -672,7 +676,7 @@ def evaluate(chosen: list[Scenario]) -> list[PairReport]:
             report.results["signature"] = signature_parity(report.mutated)
         report.results.setdefault("signature", Comparison(False, "not run"))
         if scenario.mutation:
-            write_patch_report(report)
+            write_patch_report(report, output)
         reports.append(report)
     return reports
 
@@ -697,6 +701,120 @@ def parity(patches: list[str], rerun: bool = True) -> int:
     summary = write_summary(reports, time.monotonic() - started)
     print("\n" + summary)
     return 0 if all(report.agree for report in reports) else 1
+
+
+# ------------------------------------------------------------------------- CI
+
+# A pull request changing any of these runs parity in CI: everything that
+# decides what either twin does. Entries ending in "/" are directories.
+PARITY_PATHS = (
+    "src/", "data/", "build.rs", "Cargo.toml", "Cargo.lock",
+    "tests/e2e/", "tests/qa/", "tests/qa.rs", "tests/fixtures/",
+    "scripts/qa.sh", "scripts/qa-parity.sh", "scripts/qa_parity.py",
+    "scripts/e2e.sh", "scripts/e2e-native.sh", "scripts/e2e_base.py",
+    "scripts/e2e_bundle.py", "scripts/e2e_images.py", ".github/workflows/ci.yml",
+)
+# A shard rebuilds both sides for its baseline and again for each patch, so
+# more shards finish sooner at the cost of more runners.
+CI_SHARDS = 10
+# `qa-parity-<attempt>-shard-<index>`; a re-run attempt replaces only its own shards.
+SHARD_DIRECTORY = re.compile(r"(?:(\d+)-)?shard-(\d+)$")
+SHARD_MINUTES = re.compile(r"\(([\d.]+) minutes\)")
+
+
+def touches_parity(paths: list[str]) -> bool:
+    return any(
+        path == prefix or (prefix.endswith("/") and path.startswith(prefix))
+        for path in paths
+        for prefix in PARITY_PATHS
+    )
+
+
+def ci_patches() -> list[str]:
+    """Every scenario's mutation, which CI shards by; each scenario needs its own."""
+
+    found = scenarios()
+    if not found:
+        raise SystemExit("no QA scenarios to compare")
+    unnamed = [scenario.name for scenario in found if not scenario.mutation]
+    if unnamed:
+        raise SystemExit(f"scenarios without a mutation cannot be sharded: {', '.join(unnamed)}")
+    patches = sorted(scenario.mutation for scenario in found)
+    if len(set(patches)) != len(patches):
+        raise SystemExit("two QA scenarios name the same mutation")
+    unknown = [patch for patch in patches if not (MUTATIONS / f"{patch}.patch").is_file()]
+    if unknown:
+        raise SystemExit(f"unknown mutations: {', '.join(unknown)}")
+    return patches
+
+
+def shard_patches(patches: list[str], shards: int) -> list[list[str]]:
+    count = min(shards, len(patches))
+    return [patches[index::count] for index in range(count)]
+
+
+def ci_plan(base: str | None) -> int:
+    """GitHub outputs: whether parity runs, and the shard matrix."""
+
+    shards = shard_patches(ci_patches(), CI_SHARDS)
+    run = True
+    if base is not None:
+        changed = git("-c", "core.quotePath=false", "diff", "--no-renames", "--name-only", base, "HEAD")
+        if changed.returncode:
+            raise SystemExit(f"cannot list the changes since {base}: {changed.stderr.strip()}")
+        run = touches_parity(changed.stdout.splitlines())
+    matrix = {"include": [{"shard": index, "patches": " ".join(patches)}
+                          for index, patches in enumerate(shards)]}
+    print(f"run={'true' if run else 'false'}")
+    print("matrix=" + json.dumps(matrix, separators=(",", ":")))
+    return 0
+
+
+def aggregate(root: Path) -> int:
+    """One verdict over the CI shards' target/qa-parity trees, saved under `root`
+    in directories ending `[<attempt>-]shard-<index>`; each shard's newest attempt
+    counts, and a shard that uploaded nothing or did not finish disagrees.
+    The combined summary goes to `root/summary.md`, leaving target/qa-parity alone."""
+
+    by_patch = {scenario.mutation: scenario for scenario in scenarios()}
+    newest: dict[int, tuple[int, Path]] = {}
+    for directory in sorted(root.iterdir()) if root.is_dir() else []:
+        if directory.is_dir() and (match := SHARD_DIRECTORY.search(directory.name)):
+            attempt, index = int(match[1] or 0), int(match[2])
+            if index not in newest or attempt > newest[index][0]:
+                newest[index] = (attempt, directory)
+    uploaded = {index: directory for index, (_, directory) in newest.items()}
+    unfinished = False
+    reports: list[PairReport] = []
+    rows = ["", "| Shard | Patches | Minutes | Result |", "| --- | --- | --- | --- |"]
+    for index, patches in enumerate(shard_patches(ci_patches(), CI_SHARDS)):
+        chosen = [by_patch[patch] for patch in patches]
+        directory = uploaded.pop(index, None)
+        summary = directory / "summary.md" if directory else None
+        if summary is None or not summary.is_file():
+            note = f"shard {index} uploaded no parity report"
+            reports += [PairReport(s.name, patch, {"pass": Comparison(False, note)})
+                        for s, patch in zip(chosen, patches)]
+            rows.append(f"| {index} | {' '.join(patches)} | – | {note} |")
+            continue
+        text = summary.read_text(encoding="utf-8")
+        found = evaluate(chosen, directory)
+        reports += found
+        minutes = SHARD_MINUTES.search(text)
+        result = "agree" if all(report.agree for report in found) else "DISAGREE"
+        if text.startswith("Parity did not finish"):
+            unfinished = True
+            result = f"DISAGREE: {first_line(text)}"
+        rows.append(f"| {index} | {' '.join(patches)} | {minutes[1] if minutes else '–'} | "
+                    f"{result.replace('|', '/')} |")
+    for index in sorted(uploaded):
+        rows.append(f"| {index} | – | – | DISAGREE: not in this checkout's shard plan |")
+    text = write_summary(reports, None, rows, root)
+    print(text)
+    if path := os.environ.get("GITHUB_STEP_SUMMARY"):
+        with Path(path).open("a", encoding="utf-8") as stream:
+            stream.write("## QA parity\n\n" + text)
+    return 0 if all(report.agree for report in reports) and not uploaded and not unfinished else 1
 
 
 def verdict(stage: str, qa_log: Path, junit: Path, qa_status: int) -> int:
@@ -730,7 +848,16 @@ def main(arguments: list[str]) -> int:
     check.add_argument("qa_log", type=Path)
     check.add_argument("junit", type=Path)
     check.add_argument("qa_status", type=int, help="qa.sh's exit status")
+    plan = commands.add_parser("ci-plan", help="CI: whether parity runs, and the shard matrix")
+    plan.add_argument("--base", help="run only if the changes since this commit touch PARITY_PATHS")
+    combine = commands.add_parser("aggregate", help="CI: one verdict over the shards' saved runs")
+    combine.add_argument("root", type=Path)
     options = parser.parse_args(arguments)
+
+    if options.command == "ci-plan":
+        return ci_plan(options.base)
+    if options.command == "aggregate":
+        return aggregate(options.root)
 
     if options.command == "scenario":
         print(scenario_for(options.patch).name)

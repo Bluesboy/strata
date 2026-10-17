@@ -1,9 +1,16 @@
 # SPDX-License-Identifier: MIT
 
+import contextlib
+import io
+import json
+import os
+import re
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+import qa_parity
 from qa_parity import (
     QaRun,
     Result,
@@ -16,8 +23,12 @@ from qa_parity import (
     parse_qa_log,
     pass_parity,
     qa_signature,
+    shard_patches,
     signature_parity,
+    touches_parity,
 )
+
+REPOSITORY = Path(__file__).resolve().parents[1]
 
 TWIN = "tests/e2e/scenarios/test_clipboard.py::test_copy_leaves_the_source_in_place"
 
@@ -175,6 +186,157 @@ class StateParityTests(unittest.TestCase):
         self.assertFalse(compare_state({"error": "gone"}, qa).agree)
         without_dialog = {key: value for key, value in state.items() if key != "dialog"}
         self.assertFalse(compare_state(without_dialog, {**without_dialog, "menu": None}).agree)
+
+
+class CiShardingTests(unittest.TestCase):
+    def test_every_scenario_mutation_lands_in_exactly_one_shard(self):
+        patches = qa_parity.ci_patches()
+        self.assertEqual(len(patches), len(qa_parity.scenarios()))
+        for shards in (1, 3, qa_parity.CI_SHARDS, len(patches) + 5):
+            with self.subTest(shards=shards):
+                assigned = shard_patches(patches, shards)
+                self.assertEqual(len(assigned), min(shards, len(patches)))
+                self.assertTrue(all(assigned))
+                self.assertEqual(sorted(sum(assigned, [])), patches)
+
+    def test_pull_requests_run_parity_only_when_either_twin_can_change(self):
+        cases = [
+            (["src/ui/browser/mod.rs"], True),
+            (["tests/e2e/scenarios/test_clipboard.py"], True),
+            (["tests/qa/scenarios/copy-leaves-source.jsonl"], True),
+            (["tests/e2e/mutations/clipboard.patch"], True),
+            (["tests/qa.rs"], True),
+            (["docs/e2e-testing.md", "README.md"], False),
+            (["srcery/main.rs", "tests/qa.rs.orig"], False),
+            ([], False),
+        ]
+        for paths, expected in cases:
+            with self.subTest(paths=paths):
+                self.assertEqual(touches_parity(paths), expected)
+
+
+class AggregateTests(unittest.TestCase):
+    STATE = {"view_mode": "Columns", "directory": "d", "panes": [], "focused": None,
+             "focused_pane": None, "dialog": None}
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        root = Path(self.directory.name)
+        scenarios, mutations = root / "scenarios", root / "mutations"
+        scenarios.mkdir()
+        mutations.mkdir()
+        for name in ("alpha", "beta"):
+            (scenarios / f"{name}.jsonl").write_text(json.dumps({"scenario": name, "mutation": f"break-{name}"}) + "\n")
+            (mutations / f"break-{name}.patch").write_text("+++ b/src/main.rs\n")
+        self.shards = root / "shards"
+        for name, value in (("SCENARIOS", scenarios), ("MUTATIONS", mutations),
+                            ("OUTPUT", root / "untouched"), ("CI_SHARDS", 2)):
+            patcher = mock.patch.object(qa_parity, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        patcher = mock.patch.dict(os.environ)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop("GITHUB_STEP_SUMMARY", None)
+        quiet = contextlib.redirect_stdout(io.StringIO())
+        quiet.__enter__()
+        self.addCleanup(quiet.__exit__, None, None, None)
+
+    def write_shard(self, index, scenario, attempt=1):
+        tree = self.shards / f"qa-parity-{attempt}-shard-{index}"
+        twin = f"tests/e2e/scenarios/test_{scenario}.py::test_{scenario}[columns]"
+        stem = qa_parity.node_file_name(twin)
+
+        def side(destination, failed):
+            run = destination / "qa" / scenario / "columns"
+            run.mkdir(parents=True)
+            outcome = f"{scenario}/columns (twin {twin}) failed:" if failed else f"PASS {scenario}/columns (twin {twin})"
+            (destination / "qa.log").write_text(f"RUN {scenario}/columns (twin {twin})\n{outcome}\n")
+            (destination / "qa.status").write_text("101\n" if failed else "0\n")
+            failures = [{"line": 3, "step": {"wait": {}, "message": "the copy"}, "text": ""}] if failed else []
+            (run / "result.json").write_text(json.dumps({"twin": twin, "failures": failures}))
+            failure = ('<failure message="TreeTimeout: timed out after 15s waiting for the copy"/>'
+                       if failed else "")
+            (destination / "python").mkdir()
+            (destination / "python" / "junit.xml").write_text(
+                f'<testsuite><testcase classname="tests.e2e.scenarios.test_{scenario}" '
+                f'name="test_{scenario}[columns]">{failure}</testcase></testsuite>'
+            )
+            return run
+
+        run = side(tree / "baseline", failed=False)
+        (run / "input.log").write_text("key 36 down\nkey 36 up\n")
+        (run / "state.json").write_text(json.dumps(self.STATE))
+        for kind, text in (("input", "key 36 down\nkey 36 up\n"), ("state", json.dumps({"app": self.STATE}))):
+            (tree / "baseline" / "python" / kind).mkdir()
+            (tree / "baseline" / "python" / kind / f"{stem}.{'log' if kind == 'input' else 'json'}").write_text(text)
+        side(tree / "mutations" / f"break-{scenario}", failed=True)
+        (tree / "summary.md").write_text("...\n\n1 of 1 pairs agree (1.5 minutes).\n")
+
+    def test_one_verdict_requires_every_planned_shard_to_agree(self):
+        self.write_shard(0, "alpha")
+        self.assertEqual(qa_parity.aggregate(self.shards), 1)
+        summary = (self.shards / "summary.md").read_text()
+        self.assertIn("1 of 2 pairs agree", summary)
+        self.assertIn("shard 1 uploaded no parity report", summary)
+        self.assertIn("| 0 | break-alpha | 1.5 | agree |", summary)
+
+        self.write_shard(1, "beta")
+        self.assertEqual(qa_parity.aggregate(self.shards), 0)
+        self.assertFalse((self.shards.parent / "untouched").exists())
+        self.assertIn("2 of 2 pairs agree", (self.shards / "summary.md").read_text())
+
+        (self.shards / "qa-parity-1-shard-2").mkdir()
+        self.assertEqual(qa_parity.aggregate(self.shards), 1)
+        self.assertIn("not in this checkout's shard plan", (self.shards / "summary.md").read_text())
+
+    def test_a_shard_that_did_not_finish_fails_even_when_its_reports_agree(self):
+        self.write_shard(0, "alpha")
+        self.write_shard(1, "beta")
+        summary = self.shards / "qa-parity-1-shard-1" / "summary.md"
+        summary.write_text("Parity did not finish: could not restore src/main.rs\n")
+        self.assertEqual(qa_parity.aggregate(self.shards), 1)
+        self.assertIn("2 of 2 pairs agree", (self.shards / "summary.md").read_text())
+        self.assertIn("DISAGREE: Parity did not finish", (self.shards / "summary.md").read_text())
+
+    def test_each_shard_counts_only_its_newest_attempt(self):
+        self.write_shard(0, "alpha")
+        self.write_shard(1, "beta", attempt=1)
+        (self.shards / "qa-parity-1-shard-1" / "summary.md").write_text("Parity did not finish: runner lost\n")
+        self.write_shard(1, "beta", attempt=2)
+        self.assertEqual(qa_parity.aggregate(self.shards), 0)
+
+        (self.shards / "qa-parity-3-shard-1").mkdir()
+        self.assertEqual(qa_parity.aggregate(self.shards), 1)
+        self.assertIn("shard 1 uploaded no parity report", (self.shards / "summary.md").read_text())
+
+
+class CiWorkflowTests(unittest.TestCase):
+    def jobs(self):
+        workflow = (REPOSITORY / ".github/workflows/ci.yml").read_text()
+        return dict(re.findall(r"^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)",
+                               workflow.split("\njobs:\n", 1)[1], re.M | re.S))
+
+    def test_qa_jobs_are_informational_and_outside_the_required_gates(self):
+        jobs = self.jobs()
+        informational = ("qa", "qa-parity-plan", "qa-parity-shard", "qa-parity")
+        for name in informational:
+            with self.subTest(job=name):
+                self.assertRegex(jobs[name], r"(?m)^    continue-on-error: true$")
+        for gate in ("quality", "e2e"):
+            needs = re.search(r"^    needs: (.+)$", jobs[gate], re.M).group(1)
+            self.assertFalse(set(re.findall(r"[\w-]+", needs)) & set(informational), gate)
+
+    def test_both_release_marker_checks_grep_a_prefix_of_the_qa_usage_constant(self):
+        source = (REPOSITORY / "src/qa.rs").read_text()
+        usage = re.search(r'^const USAGE: &str = "([^"]+)";$', source, re.M).group(1)
+        self.assertIn("return Err(USAGE.to_owned());", source)
+        release = (REPOSITORY / ".github/workflows/release.yml").read_text()
+        check = release.split("- name: Check the release binary has no QA mode", 1)[1].split("\n      - name:", 1)[0]
+        pattern = re.search(r'if strings "target/\$TARGET/release/strata" \| grep -F "([^"]+)"; then', check).group(1)
+        self.assertTrue(usage.startswith(pattern), (usage, pattern))
+        self.assertIn(f'| grep -F "{pattern}"', self.jobs()["qa"])
 
 
 if __name__ == "__main__":

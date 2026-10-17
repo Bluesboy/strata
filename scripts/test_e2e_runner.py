@@ -14,7 +14,8 @@ REPOSITORY = Path(__file__).resolve().parents[1]
 
 
 class ContainerRunnerTests(unittest.TestCase):
-    def run_runner(self, engine_name="docker", binary=None, uid=None, workers="auto", extra_env=None):
+    def run_runner(self, engine_name="docker", binary=None, uid=None, workers="auto", extra_env=None,
+                   command=("scripts/e2e.sh", "-k", "columns and baseline")):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             engine = root / engine_name
@@ -50,13 +51,13 @@ class ContainerRunnerTests(unittest.TestCase):
                 identity.write_text(f"#!/bin/sh\necho {uid}\n")
                 identity.chmod(0o755)
                 environment["PATH"] = f"{root}:{os.environ.get('PATH', os.defpath)}"
-            for name in ("STRATA_BINARY", "STRATA_E2E_IMAGE", "STRATA_E2E_BUNDLE"):
+            for name in ("STRATA_BINARY", "STRATA_E2E_IMAGE", "STRATA_E2E_BUNDLE", "STRATA_E2E_CARGO_CACHE"):
                 environment.pop(name, None)
             if binary:
                 environment["STRATA_BINARY"] = binary
             environment.update(extra_env or {})
             result = subprocess.run(
-                [str(REPOSITORY / "scripts/e2e.sh"), "-k", "columns and baseline"],
+                [str(REPOSITORY / command[0]), *command[1:]],
                 env=environment,
                 capture_output=True,
                 text=True,
@@ -82,6 +83,20 @@ class ContainerRunnerTests(unittest.TestCase):
             self.assertIsNone(call["display"])
             self.assertIsNone(call["wayland"])
             self.assertIsNone(call["notify"])
+
+    def test_both_container_runners_can_build_in_the_restored_quality_cache(self):
+        for command in (("scripts/e2e.sh",), ("scripts/qa.sh",)):
+            with self.subTest(runner=command[0]):
+                result, calls = self.run_runner(
+                    command=command, extra_env={"STRATA_E2E_CARGO_CACHE": str(REPOSITORY / "target/quality-container")})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                run = calls[-1]["args"]
+                self.assertIn("CARGO_HOME=/workspace/target/quality-container/cargo", run)
+                self.assertIn("CARGO_TARGET_DIR=/workspace/target/quality-container/build", run)
+                for outside in ("/tmp/cache", str(REPOSITORY / "src")):
+                    result, calls = self.run_runner(command=command, extra_env={"STRATA_E2E_CARGO_CACHE": outside})
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(any(call["args"][0] == "run" for call in calls))
 
     def test_ci_explicitly_runs_the_engine_that_loaded_its_runtime(self):
         workflow = (REPOSITORY / ".github/workflows/ci.yml").read_text()
