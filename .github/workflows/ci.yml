@@ -105,7 +105,13 @@ jobs:
                 echo "UnRAR must not be in the feature-disabled dependency graph" >&2
                 exit 1
               fi
+              cargo tree --locked -e normal,build --prefix none > /tmp/default-dependencies.txt
+              if grep -E "^x11rb v" /tmp/dependencies.txt /tmp/default-dependencies.txt; then
+                echo "The qa feature's X11 client must not be in a default or feature-disabled build" >&2
+                exit 1
+              fi
               cargo check --locked --all-targets --no-default-features
+              cargo test --locked --all-targets --no-default-features launch_mode
               cargo test --locked --all-targets --no-default-features services::operations::tests
               cargo test --locked --all-targets --no-default-features rar_disabled
               xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp -noreset" dbus-run-session -- \

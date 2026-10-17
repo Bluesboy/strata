@@ -12,14 +12,23 @@ use super::{
     shortcut_reference::with_keys,
 };
 
+#[cfg(feature = "qa")]
+pub(crate) mod qa;
+
 pub(super) fn set_label(widget: &impl IsA<gtk::Accessible>, label: &str) {
     widget.update_property(&[gtk::accessible::Property::Label(label)]);
+    #[cfg(feature = "qa")]
+    qa::record(widget, |naming| naming.label = Some(label.to_owned()));
 }
 
 pub(super) fn set_description(widget: &impl IsA<gtk::Accessible>, description: Option<&str>) {
     widget.update_property(&[gtk::accessible::Property::Description(
         description.unwrap_or(""),
     )]);
+    #[cfg(feature = "qa")]
+    qa::record(widget, |naming| {
+        naming.description = description.map(str::to_owned);
+    });
 }
 
 fn tristate(value: bool) -> gtk::AccessibleTristate {
@@ -79,10 +88,17 @@ pub(super) fn describe_location_controls(
 /// is the widget carrying the `list item` / `table cell` accessible role and
 /// the selected and focused states.
 pub(super) fn describe_entry(item: &gtk::ListItem, display_name: &str, entry: Option<&FileEntry>) {
+    let description = entry.map_or_else(|| crate::i18n::tr("Entry"), entry_kind_name);
     item.set_accessible_label(display_name);
-    item.set_accessible_description(
-        &entry.map_or_else(|| crate::i18n::tr("Entry"), entry_kind_name),
-    );
+    item.set_accessible_description(&description);
+    #[cfg(feature = "qa")]
+    qa::record(item, |naming| {
+        *naming = qa::Naming {
+            label: Some(display_name.to_owned()),
+            description: Some(description),
+            mark: Some(qa::Mark::Entry),
+        };
+    });
 }
 
 /// A plain `GtkBox` has the `generic` accessible role, and ARIA forbids naming
@@ -101,25 +117,52 @@ pub(super) fn dialog_box(title: &str) -> gtk::Box {
         .build();
     content.update_property(&[gtk::accessible::Property::Label(title)]);
     content.update_state(&[gtk::accessible::State::Hidden(false)]);
+    #[cfg(feature = "qa")]
+    qa::record(&content, |naming| {
+        naming.label = Some(title.to_owned());
+        naming.mark = Some(qa::Mark::Dialog);
+    });
     content
 }
 
 /// The pane, not the entry list, carries this: an empty directory replaces its
 /// list with a placeholder, and the pane has to stay identifiable either way.
 pub(super) fn describe_pane(pane: &impl IsA<gtk::Accessible>, directory: &str, mode: BrowserMode) {
+    let description = view_name(mode);
     pane.update_property(&[
         gtk::accessible::Property::Label(directory),
-        gtk::accessible::Property::Description(&view_name(mode)),
+        gtk::accessible::Property::Description(&description),
     ]);
+    #[cfg(feature = "qa")]
+    qa::record(pane, |naming| {
+        *naming = qa::Naming {
+            label: Some(directory.to_owned()),
+            description: Some(description),
+            mark: Some(qa::Mark::Pane(match mode {
+                BrowserMode::Columns => "Columns",
+                BrowserMode::Icons => "Icons",
+                BrowserMode::List => "List",
+            })),
+        };
+    });
 }
 
 pub(super) const ENTRY_CONTAINER_DESCRIPTION: &str = "Files";
 
 pub(super) fn describe_entry_container(container: &impl IsA<gtk::Accessible>, directory: &str) {
+    let description = crate::i18n::tr(ENTRY_CONTAINER_DESCRIPTION);
     container.update_property(&[
         gtk::accessible::Property::Label(directory),
-        gtk::accessible::Property::Description(&crate::i18n::tr(ENTRY_CONTAINER_DESCRIPTION)),
+        gtk::accessible::Property::Description(&description),
     ]);
+    #[cfg(feature = "qa")]
+    qa::record(container, |naming| {
+        *naming = qa::Naming {
+            label: Some(directory.to_owned()),
+            description: Some(description),
+            mark: Some(qa::Mark::EntryContainer),
+        };
+    });
 }
 
 pub(super) const LOADING_SURFACE_DESCRIPTION: &str = "Loading";
@@ -135,6 +178,14 @@ pub(super) fn describe_pane_surface(
         gtk::accessible::Property::Label(directory),
         gtk::accessible::Property::Description(status),
     ]);
+    #[cfg(feature = "qa")]
+    qa::record(surface, |naming| {
+        *naming = qa::Naming {
+            label: Some(directory.to_owned()),
+            description: Some(status.to_owned()),
+            mark: Some(qa::Mark::PaneSurface),
+        };
+    });
 }
 
 pub(super) fn menu_item_button() -> gtk::Button {
@@ -162,6 +213,14 @@ pub(super) fn describe_menu_item(
         gtk::accessible::Property::Label(label),
         gtk::accessible::Property::Description(accelerator),
     ]);
+    #[cfg(feature = "qa")]
+    qa::record(button, |naming| {
+        *naming = qa::Naming {
+            label: Some(label.to_owned()),
+            description: Some(accelerator.to_owned()),
+            mark: Some(qa::Mark::MenuItem),
+        };
+    });
 }
 
 pub(super) fn view_name(mode: BrowserMode) -> String {

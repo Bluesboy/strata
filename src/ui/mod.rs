@@ -59,6 +59,8 @@ mod udiskie_preferences;
 mod virtual_preview;
 mod window;
 
+#[cfg(feature = "qa")]
+pub(crate) use accessibility::qa as accessibility_qa;
 pub(crate) use chooser::{cancel_chooser, present_chooser};
 pub(crate) use settings::schedule_rollback_cleanup;
 pub(crate) use window::default_save_folder;

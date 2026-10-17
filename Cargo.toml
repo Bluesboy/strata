@@ -12,6 +12,8 @@ categories = ["filesystem", "gui"]
 [features]
 default = ["rar"]
 rar = ["dep:unrar", "dep:unrar_sys"]
+# The scripted `--qa` launch mode and its in-process X input. Never in releases.
+qa = ["dep:x11rb"]
 
 [dependencies]
 ashpd = { version = "=0.13.13", default-features = false, features = ["backend", "file_chooser", "async-io", "tracing"] }
@@ -71,10 +73,16 @@ zstd = "0.14.0"
 zip = "8.6.0"
 unrar = { version = "0.5.8", optional = true }
 unrar_sys = { version = "0.5.8", optional = true }
+x11rb = { version = "0.13.2", default-features = false, features = ["xkb", "xtest"], optional = true }
 frizbee = "0.13"
 
 [dev-dependencies]
 rustls = { version = "0.23.46", default-features = false, features = ["std", "ring", "tls12"] }
+
+[[test]]
+name = "qa"
+path = "tests/qa.rs"
+required-features = ["qa"]
 
 [build-dependencies]
 glib-build-tools = "0.22.8"

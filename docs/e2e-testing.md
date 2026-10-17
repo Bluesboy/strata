@@ -562,6 +562,78 @@ saved in `target/e2e-mutations`. The script restores source changes
 afterwards. Run it after changing the harness, and when adding a scenario
 for a workflow that does not have a mutation yet.
 
+## QA scenarios (`--qa` mode)
+
+A second runner is being added beside the Python suite, which stays the merge
+gate. A build with the `qa` Cargo feature (never in releases) accepts
+`strata --qa <directory>`: the normal window opens on the directory, then the
+process reads one JSON command per line on stdin, runs it on the GTK main loop,
+and writes one JSON reply per line on stdout after the main context drains.
+Input is real XTEST sent from inside the process, and state is read from the
+widget tree by the names `src/ui/accessibility.rs` sets, so no AT-SPI, D-Bus,
+or Python is involved.
+
+```bash
+./scripts/qa.sh                              # every scenario, every mode
+./scripts/qa.sh arrow-keys-move-focus        # one scenario
+STRATA_QA_KEEP_ARTIFACTS=1 ./scripts/qa.sh   # artifacts for passing runs too
+```
+
+`scripts/qa.sh` uses the same verified image, mounts, account files, and
+`target/e2e-container` cache as `scripts/e2e.sh`, and runs
+`cargo test --features qa --test qa` there. Because the cache is shared, a QA
+run and an E2E run each rebuild `strata` with their own features: run them one
+after the other, never concurrently. `tests/qa.rs` refuses to start
+without the `STRATA_QA_CONTAINER=1` that script sets. A host run needs the
+owner's explicit consent for the task and `STRATA_QA_HOST=1`; it is labelled
+unsupported, is never validation evidence, and must be recorded in the handoff
+with the container run it replaced. The QA runner is not wired into
+`scripts/e2e-native.sh` or `scripts/test-headless.py`.
+
+Each run of a scenario gets its own Xvfb, HOME, XDG directories, and fixture
+tree, materialised from `tests/fixtures/harness.json`. That manifest holds the
+fixture tree, seeded preferences, GTK settings, static environment, and
+keyboard layouts; `tests/e2e/unit/test_harness_manifest.py` keeps it equal to
+the Python harness's own definitions.
+
+A scenario is a `.jsonl` file in `tests/qa/scenarios`, registered in the
+`scenarios!` list in `tests/qa.rs`. Its first line is a header:
+
+```json
+{"scenario":"arrow-keys-move-focus","modes":["columns"],"prefs":{"type_to_search":false},"layout":"us","twin":"tests/e2e/scenarios/test_keyboard_navigation.py::test_arrow_keys_move_focus_and_selection","mutation":"keyboard-navigation","known_bug":null,"variants":[...]}
+```
+
+`modes` runs the file once per view, `twin` names the Python test it ports,
+`mutation` the patch that must make it fail, and `known_bug` an issue that makes
+a failing step the expected result (setup, launch, and layout errors still
+fail). The header `layout` is switched to once the process is ready, so key
+names always mean US key positions. Optional `variants` run the file again with their
+own `prefs`, `layout`, `modes`, and `vars`; `$name` in a step is replaced by a
+variable, and `$root` by the fixture directory's name. Every later line is one
+step:
+
+| Step | Runs in | Meaning |
+| --- | --- | --- |
+| `{"key":"ctrl+x","repeat":2}` | process | US key positions, as in `harness/interaction.py` |
+| `{"click":{"entry":"readme.md","dir":"documents"},"button":1,"count":1,"mods":["shift"]}` | process | at the centre of the entry row |
+| `{"select":{"entry":"readme.md"}}` | process | clicks until the entry is selected, as `select_entry` does |
+| `{"wait":{"focused":"todo.txt"},"timeout_ms":10000,"message":"..."}` | process | stops the run on timeout, with the widget tree |
+| `{"expect":[{"selected":["todo.txt"]},{"directory":"$root"}]}` | process | reports mismatches and continues |
+| `{"query":"state"}`, `{"query":"tree"}` | process | snapshot or widget tree in `result` |
+| `{"layout":"ru"}` | runner | `setxkbmap` and a group lock on the run's Xvfb |
+| `{"fs":{"path":"archive/todo.txt","exists":true},"timeout_ms":10000}` | runner | waits for `exists`, `text`, or `names` |
+
+Predicates are `directory`, `panes`, `entries`, `selected` (both take `dir`
+and either an exact list or `{"contains":[...],"excludes":[...]}`), `focused`,
+and `view_mode`. A reply is
+`{"ok","app","changed","criticals","result","failures","error"}`; `app` is the
+view mode, directory, panes with their selection and focus, and the focused
+entry. Any GLib warning or critical in `criticals` fails the run.
+
+A failed run writes `target/qa-artifacts/<scenario>/<mode>[-<variant>]/`: a
+screenshot of the Xvfb root, the widget tree, the command and reply
+transcript, the application log, the fixture listing, and the Xvfb log.
+
 ## In CI
 
 ### Three-minute critical path

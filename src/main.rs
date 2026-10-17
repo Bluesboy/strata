@@ -18,6 +18,8 @@ mod metrics;
 mod model;
 mod portal;
 mod portal_setup;
+#[cfg(feature = "qa")]
+mod qa;
 #[cfg(feature = "rar")]
 mod rar_extraction;
 mod sandbox;
@@ -58,6 +60,8 @@ enum LaunchMode {
     UdiskieHook,
     InstallUdiskie,
     UninstallUdiskie,
+    #[cfg(feature = "qa")]
+    Qa,
     Application,
 }
 
@@ -76,6 +80,8 @@ fn launch_mode(arguments: &[OsString]) -> LaunchMode {
         Some("--udiskie-hook") => LaunchMode::UdiskieHook,
         Some("--install-udiskie-unlock") => LaunchMode::InstallUdiskie,
         Some("--uninstall-udiskie-unlock") => LaunchMode::UninstallUdiskie,
+        #[cfg(feature = "qa")]
+        Some("--qa") => LaunchMode::Qa,
         _ => LaunchMode::Application,
     }
 }
@@ -165,7 +171,8 @@ fn run_udiskie_hook(arguments: &[OsString]) -> gtk::glib::ExitCode {
 
 fn main() -> gtk::glib::ExitCode {
     let arguments: Vec<OsString> = std::env::args_os().collect();
-    match launch_mode(&arguments) {
+    let mode = launch_mode(&arguments);
+    match mode {
         LaunchMode::BrowserWorker => {
             return match sandbox::browser::run() {
                 Ok(()) => gtk::glib::ExitCode::SUCCESS,
@@ -210,8 +217,29 @@ fn main() -> gtk::glib::ExitCode {
         LaunchMode::UninstallUdiskie => {
             return finish_portal_setup(portal_setup::udiskie::uninstall());
         }
+        #[cfg(feature = "qa")]
+        LaunchMode::Qa => {}
         LaunchMode::Application => {}
     }
+
+    #[cfg(feature = "qa")]
+    let qa_session = match mode {
+        LaunchMode::Qa => match qa::Session::prepare(&arguments) {
+            Ok(session) => Some(session),
+            Err(error) => {
+                eprintln!("{error}");
+                return gtk::glib::ExitCode::FAILURE;
+            }
+        },
+        _ => None,
+    };
+    #[cfg(feature = "qa")]
+    let application_arguments = qa_session.as_ref().map_or_else(
+        || arguments.clone(),
+        |session| session.application_arguments().to_vec(),
+    );
+    #[cfg(not(feature = "qa"))]
+    let application_arguments = arguments.clone();
 
     install_application_identity();
     metrics::initialize();
@@ -221,6 +249,12 @@ fn main() -> gtk::glib::ExitCode {
         ui::preferences::PreferenceManager::shared().interface_renderer(),
     );
     if select_cairo || has_desktop_theme_override() {
+        // Replies already own the original stdout, which a restart would lose.
+        #[cfg(feature = "qa")]
+        if qa_session.is_some() {
+            eprintln!("--qa needs GSK_RENDERER set and GTK_THEME unset");
+            return gtk::glib::ExitCode::FAILURE;
+        }
         return restart_for_gtk_environment(&arguments, select_cairo);
     }
 
@@ -295,7 +329,11 @@ fn main() -> gtk::glib::ExitCode {
             }
         }
     });
-    application.run()
+    #[cfg(feature = "qa")]
+    if let Some(session) = qa_session {
+        session.attach(&application);
+    }
+    application.run_with_args_os(&application_arguments)
 }
 
 const UNLOCK_VOLUME_WITH_FILES: &str = "cannot combine --unlock-volume with file arguments";

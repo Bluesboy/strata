@@ -230,6 +230,15 @@ jobs:
           CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
         run: cargo build --release --locked --target "${{ matrix.target }}"
 
+      - name: Check the release binary has no QA mode
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          if strings "target/$TARGET/release/strata" | grep -F "usage: strata --qa"; then
+            echo "The release binary was built with the qa feature" >&2
+            exit 1
+          fi
+
       - name: Package binary
         env:
           SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}

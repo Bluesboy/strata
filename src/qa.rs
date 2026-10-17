@@ -1,0 +1,533 @@
+// SPDX-License-Identifier: MIT
+
+//! `strata --qa <directory>`: the normal window, driven by JSON commands on
+//! stdin, with one JSON reply per command on stdout. Built only with the `qa`
+//! feature; `tests/qa.rs` is the runner and `docs/e2e-testing.md` the guide.
+
+mod criticals;
+mod input;
+mod protocol;
+mod state;
+
+use std::{
+    cell::RefCell,
+    ffi::OsString,
+    fs::File,
+    io::{BufRead, Write},
+    panic::AssertUnwindSafe,
+    path::Path,
+    time::{Duration, Instant},
+};
+
+use futures_channel::mpsc;
+use futures_lite::{FutureExt as _, StreamExt};
+use gtk::{gdk, glib, prelude::*};
+use serde_json::{Value, json};
+
+use self::{
+    input::{Event, Injector},
+    protocol::{Chord, Command, EntryTarget, Failure, Modifier, Query, Reply, Target},
+};
+
+const READY_TIMEOUT: Duration = Duration::from_secs(60);
+const POLL_INTERVAL: Duration = Duration::from_millis(50);
+const FRAME_TIMEOUT: Duration = Duration::from_millis(250);
+/// Held like a physical click: a layout change caused by the press makes GTK
+/// synthesize motion from the live pointer state one frame later, and a
+/// release it has not read yet would cancel the click.
+const BUTTON_HOLD: Duration = Duration::from_millis(100);
+/// With the hold, two clicks stay well inside GTK's 400 ms double-click time,
+/// so nothing may settle between them.
+const DOUBLE_CLICK_GAP: Duration = Duration::from_millis(90);
+const EVENT_GAP: Duration = Duration::from_millis(20);
+/// `select_entry` in `tests/e2e/harness/browser.py`: a click can land before
+/// GTK maps the row for input, so it clicks once more after this long.
+const SELECT_RETRY_AFTER: Duration = Duration::from_secs(4);
+const PANIC_EXIT: i32 = 70;
+const ARRIVAL_ATTEMPTS: usize = 5;
+/// Approach a point in two steps so GTK sees enter and motion, not a teleport.
+const APPROACH_OFFSET: i16 = 6;
+
+pub(crate) struct Session {
+    protocol: File,
+    application_arguments: Vec<OsString>,
+}
+
+impl Session {
+    /// Takes over stdout for replies before anything can log there; the
+    /// application's own output, tracing included, goes to stderr instead.
+    pub(crate) fn prepare(arguments: &[OsString]) -> Result<Self, String> {
+        let [program, _, directory] = arguments else {
+            return Err("usage: strata --qa <directory>".to_owned());
+        };
+        if !Path::new(directory).is_dir() {
+            return Err(format!("--qa needs a directory, not {directory:?}"));
+        }
+        let protocol = rustix::io::fcntl_dupfd_cloexec(std::io::stdout(), 3)
+            .map_err(|error| format!("cannot keep stdout for replies: {error}"))?;
+        rustix::stdio::dup2_stdout(std::io::stderr())
+            .map_err(|error| format!("cannot move application output to stderr: {error}"))?;
+        criticals::capture();
+        Ok(Self {
+            protocol: File::from(protocol),
+            application_arguments: vec![program.clone(), directory.clone()],
+        })
+    }
+
+    /// The command line the application itself sees: an ordinary launch in the directory.
+    pub(crate) fn application_arguments(&self) -> &[OsString] {
+        &self.application_arguments
+    }
+
+    pub(crate) fn attach(self, application: &gtk::Application) {
+        let session = RefCell::new(Some(self));
+        application.connect_startup(move |application| {
+            if let Some(session) = session.take() {
+                session.start(application);
+            }
+        });
+    }
+
+    fn start(self, application: &gtk::Application) {
+        let (sender, receiver) = mpsc::unbounded();
+        std::thread::spawn(move || {
+            for line in std::io::stdin().lock().lines() {
+                let Ok(line) = line else { break };
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if sender.unbounded_send(line).is_err() {
+                    break;
+                }
+            }
+        });
+        let last_words = self.protocol.try_clone();
+        let controller = Controller {
+            application: application.clone(),
+            protocol: self.protocol,
+            injector: None,
+            previous: None,
+        };
+        // GLib would keep a panic in the task's join handle and leave the
+        // runner waiting; report it and exit instead.
+        glib::MainContext::default().spawn_local(async move {
+            let Err(panic) = AssertUnwindSafe(controller.serve(receiver))
+                .catch_unwind()
+                .await
+            else {
+                return;
+            };
+            let message = panic
+                .downcast_ref::<&str>()
+                .map(|message| (*message).to_owned())
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_default();
+            if let Ok(mut protocol) = last_words {
+                let reply = Reply {
+                    ok: false,
+                    app: Value::Null,
+                    changed: Vec::new(),
+                    criticals: criticals::take(),
+                    result: Value::Null,
+                    failures: Vec::new(),
+                    error: Some(format!("the QA controller panicked: {message}")),
+                };
+                if let Ok(line) = serde_json::to_string(&reply) {
+                    let _ = writeln!(protocol, "{line}");
+                    let _ = protocol.flush();
+                }
+            }
+            std::process::exit(PANIC_EXIT);
+        });
+    }
+}
+
+struct Controller {
+    application: gtk::Application,
+    protocol: File,
+    injector: Option<Injector>,
+    previous: Option<Value>,
+}
+
+#[derive(Default)]
+struct Outcome {
+    result: Value,
+    failures: Vec<Failure>,
+    error: Option<String>,
+}
+
+impl Outcome {
+    fn error(error: String) -> Self {
+        Self {
+            error: Some(error),
+            ..Self::default()
+        }
+    }
+}
+
+impl Controller {
+    async fn serve(mut self, mut commands: mpsc::UnboundedReceiver<String>) {
+        let _hold = self.application.hold();
+        let ready = self.await_ready().await;
+        let ready = match ready.and_then(|()| Injector::connect()) {
+            Ok(injector) => {
+                self.injector = Some(injector);
+                Outcome {
+                    result: json!({ "ready": true }),
+                    ..Outcome::default()
+                }
+            }
+            Err(error) => Outcome::error(error),
+        };
+        let started = ready.error.is_none();
+        self.reply(ready);
+        if started {
+            while let Some(line) = commands.next().await {
+                let outcome = match protocol::parse_command(&line) {
+                    Ok(command) => self.execute(command).await,
+                    Err(error) => Outcome::error(error),
+                };
+                self.reply(outcome);
+            }
+        }
+        self.application.quit();
+    }
+
+    fn window(&self) -> Option<gtk::Window> {
+        self.application
+            .active_window()
+            .or_else(|| self.application.windows().into_iter().next())
+    }
+
+    async fn await_ready(&self) -> Result<(), String> {
+        let deadline = Instant::now() + READY_TIMEOUT;
+        loop {
+            if self.window().is_some_and(|window| state::is_ready(&window)) {
+                settle(self.window().as_ref()).await;
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                return Err("the Strata window never showed an entry list".to_owned());
+            }
+            glib::timeout_future(POLL_INTERVAL).await;
+        }
+    }
+
+    fn reply(&mut self, outcome: Outcome) {
+        let app = self
+            .window()
+            .map(|window| state::scan(&window).observation.app_state())
+            .and_then(|app| serde_json::to_value(app).ok())
+            .unwrap_or(Value::Null);
+        let changed = protocol::changed_keys(self.previous.as_ref(), &app);
+        self.previous = Some(app.clone());
+        let reply = Reply {
+            ok: outcome.error.is_none() && outcome.failures.is_empty(),
+            app,
+            changed,
+            criticals: criticals::take(),
+            result: outcome.result,
+            failures: outcome.failures,
+            error: outcome.error,
+        };
+        let line = serde_json::to_string(&reply).unwrap_or_else(|error| {
+            format!(r#"{{"ok":false,"error":"cannot encode the reply: {error}"}}"#)
+        });
+        if writeln!(self.protocol, "{line}")
+            .and_then(|()| self.protocol.flush())
+            .is_err()
+        {
+            self.application.quit();
+        }
+    }
+
+    async fn execute(&self, command: Command) -> Outcome {
+        let Some(window) = self.window() else {
+            return Outcome::error("the Strata window is gone".to_owned());
+        };
+        let Some(injector) = self.injector.as_ref() else {
+            return Outcome::error("no X input connection".to_owned());
+        };
+        let input = Input {
+            injector,
+            window: &window,
+        };
+        match command {
+            Command::Key { chord, repeat } => {
+                for _ in 0..repeat {
+                    if let Err(error) = input.press(&chord).await {
+                        return Outcome::error(error);
+                    }
+                }
+                Outcome::default()
+            }
+            Command::Click {
+                target,
+                button,
+                count,
+                modifiers,
+            } => match input.click(&target, button, count, &modifiers).await {
+                Ok(()) => Outcome::default(),
+                Err(error) => Outcome::error(error),
+            },
+            Command::Select(target) => input.select(&target).await,
+            Command::Wait {
+                predicate,
+                timeout,
+                message,
+            } => {
+                let deadline = Instant::now() + timeout;
+                loop {
+                    let observation = state::scan(&window).observation;
+                    match observation.evaluate(&predicate) {
+                        Ok(()) => return Outcome::default(),
+                        Err(mut failure) if Instant::now() >= deadline => {
+                            failure.message = message;
+                            return Outcome {
+                                result: json!({ "tree": state::dump(&window) }),
+                                failures: vec![failure],
+                                error: Some(format!("timed out after {} ms", timeout.as_millis())),
+                            };
+                        }
+                        Err(_) => glib::timeout_future(POLL_INTERVAL).await,
+                    }
+                }
+            }
+            Command::Expect { predicates } => {
+                let observation = state::scan(&window).observation;
+                Outcome {
+                    failures: predicates
+                        .iter()
+                        .filter_map(|predicate| observation.evaluate(predicate).err())
+                        .collect(),
+                    ..Outcome::default()
+                }
+            }
+            Command::Query(Query::State) => Outcome {
+                result: serde_json::to_value(state::scan(&window).observation.app_state())
+                    .unwrap_or(Value::Null),
+                ..Outcome::default()
+            },
+            Command::Query(Query::Tree) => Outcome {
+                result: Value::String(state::dump(&window)),
+                ..Outcome::default()
+            },
+        }
+    }
+}
+
+/// Lets queued X events, the idle work they schedule, and the next frame's
+/// layout run before the next event or the reply.
+async fn settle(window: Option<&gtk::Window>) {
+    glib::timeout_future_with_priority(glib::Priority::LOW, Duration::ZERO).await;
+    if let Some(clock) = window.and_then(WidgetExt::frame_clock) {
+        let (sender, receiver) = futures_channel::oneshot::channel();
+        let sender = RefCell::new(Some(sender));
+        let handler = clock.connect_after_paint(move |_| {
+            if let Some(sender) = sender.take() {
+                let _ = sender.send(());
+            }
+        });
+        clock.request_phase(gdk::FrameClockPhase::AFTER_PAINT);
+        let _ = glib::future_with_timeout(FRAME_TIMEOUT, receiver).await;
+        clock.disconnect(handler);
+    }
+    glib::timeout_future_with_priority(glib::Priority::LOW, Duration::ZERO).await;
+}
+
+struct Input<'a> {
+    injector: &'a Injector,
+    window: &'a gtk::Window,
+}
+
+impl Input<'_> {
+    async fn send(&self, event: Event) -> Result<(), String> {
+        self.injector.send(event)?;
+        settle(Some(self.window)).await;
+        Ok(())
+    }
+
+    async fn key(&self, keycode: u8, pressed: bool) -> Result<(), String> {
+        self.send(Event::Key { keycode, pressed }).await
+    }
+
+    async fn hold(&self, modifiers: &[Modifier]) -> Result<Vec<u8>, String> {
+        let keycodes = modifiers
+            .iter()
+            .map(|modifier| {
+                let (keycode, _) = self.injector.keycode(input::modifier_keysym(*modifier)?)?;
+                Ok(keycode)
+            })
+            .collect::<Result<Vec<u8>, String>>()?;
+        let mut held = Vec::new();
+        for keycode in keycodes {
+            if let Err(error) = self.key(keycode, true).await {
+                self.release(&held).await;
+                return Err(error);
+            }
+            held.push(keycode);
+        }
+        Ok(held)
+    }
+
+    async fn release(&self, held: &[u8]) {
+        for keycode in held.iter().rev() {
+            let _ = self.key(*keycode, false).await;
+        }
+    }
+
+    async fn press(&self, chord: &Chord) -> Result<(), String> {
+        let (keycode, needs_shift) = self.injector.keycode(input::keysym(&chord.key)?)?;
+        if needs_shift {
+            self.injector
+                .keycode(input::modifier_keysym(Modifier::Shift)?)?;
+        }
+        let held = self.hold(&chord.modifiers).await?;
+        let tapped = self.tap_key(keycode, needs_shift).await;
+        self.release(&held).await;
+        tapped
+    }
+
+    async fn tap_key(&self, keycode: u8, needs_shift: bool) -> Result<(), String> {
+        let shift = if needs_shift {
+            self.hold(&[Modifier::Shift]).await?
+        } else {
+            Vec::new()
+        };
+        let mut result = self.key(keycode, true).await;
+        if result.is_ok() {
+            result = self.key(keycode, false).await;
+        }
+        self.release(&shift).await;
+        result
+    }
+
+    async fn click(
+        &self,
+        target: &Target,
+        button: u32,
+        count: u32,
+        modifiers: &[Modifier],
+    ) -> Result<(), String> {
+        let (x, y) = self.locate(target)?;
+        self.move_to(x, y).await?;
+        let number = u8::try_from(button).map_err(|error| error.to_string())?;
+        let held = self.hold(modifiers).await?;
+        let mut result = Ok(());
+        for click in 1..=count {
+            result = self.tap_button(number, click == count).await;
+            if result.is_err() {
+                break;
+            }
+            if click < count {
+                glib::timeout_future(DOUBLE_CLICK_GAP).await;
+            }
+        }
+        self.release(&held).await;
+        result
+    }
+
+    /// Only the last release of a multi-click settles; a frame between the
+    /// clicks could push them out of the double-click window.
+    async fn tap_button(&self, number: u8, last: bool) -> Result<(), String> {
+        self.injector.send(Event::Button {
+            number,
+            pressed: true,
+        })?;
+        glib::timeout_future(BUTTON_HOLD).await;
+        let release = Event::Button {
+            number,
+            pressed: false,
+        };
+        if last {
+            return self.send(release).await;
+        }
+        self.injector.send(release)?;
+        glib::timeout_future(EVENT_GAP).await;
+        Ok(())
+    }
+
+    async fn select(&self, target: &EntryTarget) -> Outcome {
+        let wanted = Target::Entry(target.clone());
+        let selected = || {
+            state::scan(self.window)
+                .observation
+                .entry_selected(&target.entry, target.dir.as_deref())
+        };
+        for patience in [SELECT_RETRY_AFTER, protocol::DEFAULT_WAIT] {
+            if let Err(error) = self.click(&wanted, 1, 1, &[]).await {
+                return Outcome::error(error);
+            }
+            let deadline = Instant::now() + patience;
+            while Instant::now() < deadline {
+                if selected() {
+                    return Outcome::default();
+                }
+                glib::timeout_future(POLL_INTERVAL).await;
+            }
+        }
+        Outcome {
+            result: json!({ "tree": state::dump(self.window) }),
+            failures: vec![Failure {
+                predicate: json!({ "select": target }),
+                actual: json!(false),
+                message: Some(format!("{:?} to become selected", target.entry)),
+            }],
+            error: Some("the entry never became selected".to_owned()),
+        }
+    }
+
+    async fn move_to(&self, x: i16, y: i16) -> Result<(), String> {
+        self.send(Event::Motion {
+            x: x.saturating_sub(APPROACH_OFFSET),
+            y: y.saturating_sub(APPROACH_OFFSET),
+        })
+        .await?;
+        for _ in 0..ARRIVAL_ATTEMPTS {
+            self.send(Event::Motion { x, y }).await?;
+            if self.injector.pointer_position()? == (x, y) {
+                return Ok(());
+            }
+        }
+        Err(format!(
+            "the pointer did not reach ({x}, {y}); it is at {:?}",
+            self.injector.pointer_position()?
+        ))
+    }
+
+    /// The target's centre on the X screen: its bounds in its native surface,
+    /// the surface's own content offset, and the surface's screen origin.
+    fn locate(&self, target: &Target) -> Result<(i16, i16), String> {
+        let scene = state::scan(self.window);
+        let widget = match target {
+            Target::Entry(entry) => scene
+                .entry_widget(&entry.entry, entry.dir.as_deref())
+                .cloned()
+                .ok_or_else(|| format!("no entry {:?} on screen", entry.entry))?,
+        };
+        let bounds = state::rendered_bounds(&widget).ok_or("the target is not on screen")?;
+        let native = widget.native().ok_or("the target has no native surface")?;
+        let surface = native
+            .surface()
+            .ok_or("the target's surface is not realized")?;
+        let (offset_x, offset_y) = native.surface_transform();
+        let (origin_x, origin_y) = self.injector.surface_origin(&surface)?;
+        let x = f64::from(origin_x) + offset_x + f64::from(bounds.x() + bounds.width() / 2.0);
+        let y = f64::from(origin_y) + offset_y + f64::from(bounds.y() + bounds.height() / 2.0);
+        let coordinate = |value: f64| -> Result<i16, String> {
+            let value = value.floor();
+            if value < f64::from(i16::MIN) || value > f64::from(i16::MAX) {
+                return Err(format!("the target lies outside the screen at {value}"));
+            }
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "the range was checked just above"
+            )]
+            Ok(value as i16)
+        };
+        Ok((coordinate(x)?, coordinate(y)?))
+    }
+}
+
+#[cfg(test)]
+mod tests;
