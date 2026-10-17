@@ -5621,6 +5621,15 @@ entry.theme-search {
   background: transparent;
 }
 
+/* The default theme paints the overshoot indication with a near-black
+   gradient; inside the settings sheet it reads as artifacting. */
+.settings-dialog scrolledwindow overshoot,
+.settings-dialog scrolledwindow undershoot {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
 
 /* Alternate browser presentations */
 .mode-icons,
