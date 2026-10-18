@@ -10,6 +10,7 @@ pub(crate) mod file_providers;
 mod file_source;
 pub(crate) mod image_conversion;
 mod install_source;
+pub(crate) mod integration_catalog;
 pub(crate) mod jobs;
 mod listeners;
 mod mime_type;

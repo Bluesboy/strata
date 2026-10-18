@@ -14,7 +14,8 @@ The browser does not need to know about cloud accounts, pins or service sockets.
 ## Registration and artwork
 
 Install one directory per provider under `$XDG_CONFIG_HOME/strata/providers/`
-(default `~/.config/strata/providers/`), then restart Strata. For example:
+(default `~/.config/strata/providers/`), then select **Refresh** in
+**Settings → Integrations** or restart Strata. For example:
 
 ```json
 {
@@ -35,8 +36,10 @@ icons and is drawn before that heading. Existing registrations need no changes.
 Commands are literal argv with an absolute executable; no shell interpolation,
 PATH lookup, placeholder expansion or working-directory executable lookup is
 performed. The child runs with `/` as its working directory. Nothing in a browsed
-folder registers a provider. Removing the registration and restarting Strata
-uninstalls it. Editing a registration takes effect on restart.
+folder registers a provider. Removing the registration uninstalls it, and
+edits to a registration take effect after **Refresh** or a restart. An empty
+file named `disabled` beside `provider.json` keeps the registration installed
+but stops it from loading; **Settings → Integrations** toggles it with a switch.
 
 Registration directories/manifests and icon files must be owned by the current
 user or root, must not be group/world writable, and cannot be symlinks. Executable
@@ -46,6 +49,27 @@ filenames, no subdirectories), at most 64 KiB and 256×256 per image, up to 16 i
 It is loaded once from trusted configuration, never from selected file content or
 URLs. Branded artwork preserves its colors; use artwork legible on both light and
 dark backgrounds. Strata's own interface continues to use themed Lucide icons.
+
+## Bundled integrations
+
+Integrations maintained in this repository live under [`integrations/`](../integrations/README.md),
+one directory per integration with a `catalog.toml` beside the program. Strata
+embeds that directory at build time and lists it in **Settings → Integrations**,
+grouped by category with each entry's maintainer and requirement checks.
+**Install** copies the files into the registration directory above, writes
+`provider.json` with the interpreter and script paths resolved on this machine,
+and records a content hash in `catalog-install.json`. **Remove** deletes the
+directory. When a release changes a bundled provider, installed copies show
+**Update available**; nothing updates on its own, and local edits are detected
+and confirmed before they are replaced. Registrations without an install record
+are listed as installed manually with **Remove** only. Every installed
+registration has a switch that disables it without removing it, and **Open
+folder** shows the registration directory in the browser. Each change stops
+the running providers and discovers the registrations again, so it takes
+effect at once; **Refresh** does the same after edits made by hand.
+
+`STRATA_INTEGRATION_CATALOG=<directory>` replaces the bundled catalog with a
+directory in the same layout, for developing an entry without rebuilding Strata.
 
 ## Transport
 
@@ -285,9 +309,14 @@ filenames are unsupported; no lossy conversion is performed.
 `./scripts/test-headless.py file_providers` covers trusted registration, protocol
 bounds, literal filenames, process framing, queue saturation, snapshot ordering,
 recursive action retirement, tracking admission and window remapping.
-`./scripts/e2e.sh tests/e2e/scenarios/test_file_providers.py` exercises live menu
-refresh and withdrawal, sustained events, overlapping providers, mixed selections
-and flat/nested leaf activation through the actual GUI.
+`./scripts/test-headless.py integration_catalog` covers catalog parsing and bounds,
+installation records, update and edit detection, and that every bundled entry
+parses and is translated; `./scripts/test-headless.py integrations` covers the
+Settings page. `./scripts/e2e.sh tests/e2e/scenarios/test_file_providers.py`
+exercises live menu refresh and withdrawal, sustained events, overlapping
+providers, mixed selections and flat/nested leaf activation through the actual
+GUI, and `tests/e2e/scenarios/test_integrations.py` installs, updates and
+removes a fixture catalog entry from Settings.
 The normal pinned quality and E2E checks remain required for this cross-cutting
 change. Use private display/configuration environments; do not test by changing
 the default file manager or loading fixtures into a user's installed application.
