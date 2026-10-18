@@ -143,8 +143,10 @@ def test_send_to_placement_lists_provider_destinations_under_send_to(strata, pro
     strata.wait(lambda: "Keep test pin" in strata.menu_items(), "section action stays in the provider group")
     assert "Test phone" not in strata.menu_items(), "destinations live under Send to…, not in the group"
     strata.pointer.click(strata.menu_item("Send to…"))
-    strata.wait(lambda: "Test phone" in strata.menu_items(), "provider destination inside Send to…")
-    strata.wait(lambda: len(strata.window.find_all(role="label", name="Example Cloud")) == 2, "destination group labelled with the provider name beside the section heading")
+    strata.wait(lambda: "Example Cloud" in strata.menu_items(), "provider submenu inside Send to…")
+    assert "Test phone" not in strata.menu_items(), "destinations live in the provider's submenu"
+    strata.pointer.click(strata.menu_item("Example Cloud"))
+    strata.wait(lambda: "Test phone" in strata.menu_items(), "provider destination inside its submenu")
     assert "Test tablet" not in strata.menu_items()
     (provider_registration / "state").write_text("kept")
     strata.wait(lambda: "Test tablet" in strata.menu_items(), "open Send to… gains a discovered destination")

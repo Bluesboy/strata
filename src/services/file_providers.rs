@@ -32,6 +32,9 @@ pub(crate) struct Manifest {
     pub command: Vec<String>,
     #[serde(default)]
     pub icons: BTreeMap<String, String>,
+    /// Catalog category of an installed integration; chooses its fallback icon.
+    #[serde(default)]
+    pub category: Option<String>,
 }
 #[derive(Clone)]
 pub(crate) struct Registration {

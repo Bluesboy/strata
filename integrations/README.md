@@ -36,7 +36,7 @@ id = "kdeconnect"                 # the directory name, a slug
 name = "KDE Connect"              # at most 64 bytes
 description = "Send files to paired phones and computers from the Send to… menu."
 category = "devices"              # cloud | devices | version-control | other
-maintainer = "github-username"
+maintainer = "github-username"    # answers issues; not shown in Strata
 runtime = "python3"               # interpreter basename, resolved on install
 entry = "provider.py"             # started as [runtime, entry]
 icon = "logo"                     # optional; drawn beside the menu heading
@@ -60,8 +60,8 @@ itself returns stay with the provider; follow the system locale as the protocol
 documentation describes.
 
 The Settings page shows each requirement with the install command for the
-detected distribution, so list the packages for all four managers when they
-exist. The runtime is checked automatically; declare it only to attach
+detected distribution, which the user can copy or run in a terminal, so list
+the packages for all four managers when they exist. The runtime is checked automatically; declare it only to attach
 packages.
 
 Strata records a content hash of the installed files. When the bundled files

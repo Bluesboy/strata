@@ -50,6 +50,7 @@ fn registration() -> Registration {
                 "import time;time.sleep(60)".into(),
             ],
             icons: Default::default(),
+            category: None,
         },
         icons: Default::default(),
     }
@@ -66,6 +67,7 @@ fn install_hub() {
                 id: "example".into(),
                 name: "Example Cloud".into(),
                 heading_icon: None,
+                category: None,
                 cache: Default::default(),
                 menus: Default::default(),
                 freshness: Freshness::default(),
@@ -140,6 +142,7 @@ for line in sys.stdin:
                     record.to_str().expect("fixture path").into(),
                 ],
                 icons: Default::default(),
+                category: None,
             },
             icons: Default::default(),
         });
@@ -244,6 +247,7 @@ fn provider_sections_scope_duplicate_labels_and_retire_empty_groups() {
                             id: id.into(),
                             name: name.clone().unwrap_or_else(|| id.into()),
                             heading_icon: None,
+                            category: None,
                             client: protocol::start(Registration {
                                 manifest: protocol::Manifest {
                                     version: 1,
@@ -258,6 +262,7 @@ fn provider_sections_scope_duplicate_labels_and_retire_empty_groups() {
                                         records[index].to_str().expect("fixture path").into(),
                                     ],
                                     icons: Default::default(),
+                                    category: None,
                                 },
                                 icons: Default::default(),
                             }),
@@ -392,11 +397,15 @@ fn nested_refresh_retains_navigation_model_and_withdraws_old_leaf_actions() {
 }
 
 #[test]
-fn send_to_placement_fills_labelled_sections_or_falls_back_to_the_group() {
+fn send_to_placement_fills_provider_submenus_or_falls_back_to_the_group() {
     crate::test_support::gtk_test(
-        "ui::file_providers::tests::send_to_placement_fills_labelled_sections_or_falls_back_to_the_group",
+        "ui::file_providers::tests::send_to_placement_fills_provider_submenus_or_falls_back_to_the_group",
         || {
             install_hub();
+            with_hub(|hub| {
+                hub.providers[0].category =
+                    Some(crate::services::integration_catalog::Category::Devices)
+            });
             let placed = |id: &str, label: &str, children| {
                 let mut device = action(id, label, children);
                 device.placement = Some(Placement::SendTo);
@@ -441,7 +450,19 @@ fn send_to_placement_fills_labelled_sections_or_falls_back_to_the_group() {
                 ["Copy link"]
             );
             assert_eq!(labels(send_to.upcast_ref()), ["Example Cloud"]);
-            let devices = send_to.item_link(0, "section").expect("Send to section");
+            let icon = send_to
+                .item_attribute_value(0, "icon", None)
+                .and_then(|icon| gio::Icon::deserialize(&icon))
+                .and_downcast::<gio::ThemedIcon>()
+                .expect("provider submenu icon");
+            assert_eq!(
+                icon.names().first().map(|name| name.as_str()),
+                Some(crate::assets::icons::SMARTPHONE),
+                "a provider without artwork is drawn with its category icon"
+            );
+            let devices = send_to
+                .item_link(0, "submenu")
+                .expect("provider submenu inside Send to…");
             assert_eq!(labels(&devices), ["Pixel", "Tablet"]);
             assert_eq!(
                 devices
@@ -473,7 +494,7 @@ fn send_to_placement_fills_labelled_sections_or_falls_back_to_the_group() {
             assert_eq!(
                 send_to.n_items(),
                 0,
-                "withdrawn devices remove their section"
+                "withdrawn devices remove their submenu"
             );
             assert!(!old_pixel.is_enabled());
             assert!(group.lookup_action("action-0-pixel").is_none());
@@ -681,6 +702,7 @@ fn continuously_dirty_rows_do_not_starve_other_windows_or_later_batches() {
                             record.to_str().expect("fixture path").into(),
                         ],
                         icons: Default::default(),
+                        category: None,
                     },
                     icons: Default::default(),
                 })
@@ -746,6 +768,7 @@ fn start_scripted_provider(hub: &mut Hub, script: &str) {
                 script.into(),
             ],
             icons: Default::default(),
+            category: None,
         },
         icons: Default::default(),
     });

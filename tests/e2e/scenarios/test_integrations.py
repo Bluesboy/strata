@@ -53,8 +53,15 @@ def open_integrations(strata, ready):
     )
     assert page.activate()
     strata.wait(lambda: strata.window.find(role="button", name=ready), ready)
-    # Requirement results arrive once per page and rebuild the rows.
-    strata.wait(lambda: strata.window.find(name="python3: Available"), "requirement checks")
+    # Requirement results arrive once per page and rebuild the cards.
+    strata.wait(
+        lambda: strata.window.find(
+            role="button",
+            name="Requirements for Example Cloud",
+            description="Some requirements are missing.",
+        ),
+        "requirement checks",
+    )
 
 
 def reopen_integrations(strata, ready):
@@ -91,11 +98,12 @@ def provider_action_offered(strata):
 def test_catalog_entries_install_update_and_remove(strata, catalog):
     installed = strata.environment.config_home / "strata/providers/example"
     open_integrations(strata, "Install Example Cloud")
-    strata.wait(lambda: "Not installed" in labels(strata), "catalog status")
-    assert strata.window.find(name="example-daemon: Missing") is not None
+    assert strata.window.find(role="button", name="Requirements for Example Cloud").activate()
+    strata.wait(lambda: strata.window.find(name="example-daemon: Missing"), "expanded requirements")
 
     assert strata.window.find(role="button", name="Install Example Cloud").activate()
-    strata.wait(lambda: "Installed" in labels(strata), "installed status")
+    strata.wait(lambda: strata.window.find(role="button", name="Remove Example Cloud"), "installed row")
+    assert "Installed" in labels(strata)
     manifest = json.loads((installed / "provider.json").read_text())
     assert manifest["command"][0].endswith("/python3")
     assert manifest["command"][1] == str(installed / "provider.py")
@@ -114,25 +122,23 @@ def test_catalog_entries_install_update_and_remove(strata, catalog):
     open_integrations(strata, "Remove Example Cloud")
     strata.pointer.click(strata.window.find(name="Enable Example Cloud"))
     strata.wait(lambda: not (installed / "disabled").exists(), "marker removed")
-    strata.wait(lambda: "Installed" in labels(strata), "enabled status")
+    strata.wait(lambda: "Enabled" in labels(strata), "enabled status")
 
     (catalog / "provider.py").write_text(PROVIDER + "# release 2\n")
     reopen_integrations(strata, "Update Example Cloud")
-    strata.wait(lambda: "Update available" in labels(strata), "update offered")
     assert strata.window.find(role="button", name="Update Example Cloud").activate()
     strata.wait(
         lambda: (installed / "provider.py").read_text() == PROVIDER + "# release 2\n",
         "bundled files replaced the installed copy",
     )
-    strata.wait(lambda: "Installed" in labels(strata), "updated status")
+    strata.wait(
+        lambda: strata.window.find(role="button", name="Update Example Cloud") is None,
+        "updated row",
+    )
 
     (installed / "provider.py").write_text("# local change\n")
     (catalog / "provider.py").write_text(PROVIDER + "# release 3\n")
     reopen_integrations(strata, "Update Example Cloud")
-    strata.wait(
-        lambda: "Update available · Modified locally" in labels(strata),
-        "local edit detected",
-    )
     assert strata.window.find(role="button", name="Update Example Cloud").activate()
     confirm = strata.wait(
         lambda: strata.window.find(role="button", name="Confirm replacing Example Cloud"),
@@ -147,7 +153,7 @@ def test_catalog_entries_install_update_and_remove(strata, catalog):
 
     assert strata.window.find(role="button", name="Remove Example Cloud").activate()
     strata.wait(lambda: not installed.exists(), "provider directory removed")
-    strata.wait(lambda: "Not installed" in labels(strata), "removed status")
+    strata.wait(lambda: strata.window.find(role="button", name="Install Example Cloud"), "installable again")
 
     handmade = installed.parent / "handmade"
     handmade.mkdir()

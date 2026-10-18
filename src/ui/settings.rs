@@ -28,6 +28,7 @@ mod bindings;
 mod diagnostics;
 mod exclusions;
 mod general;
+mod install_command;
 mod integrations;
 mod search;
 mod theme;

@@ -1763,14 +1763,6 @@ menubutton.form-control:disabled > button {
   padding: 18px 24px 26px;
 }
 
-.settings-option {
-  background: alpha(@strata_bg, 0.55);
-  border: 1px solid alpha(@strata_border, 0.24);
-  border-radius: 6px;
-  min-height: 60px;
-  padding: 10px 14px;
-}
-
 .settings-option-title {
   color: @strata_text;
   font-weight: 700;
@@ -6148,11 +6140,11 @@ two-column presentation. */
   margin-top: 10px;
 }
 
-.diagnostics-command > entry.preview-command-entry {
+.install-command > entry.preview-command-entry {
   padding-right: 72px;
 }
 
-.diagnostics-command-status.error {
+.install-command-status.error {
   color: @strata_danger;
 }
 
@@ -6162,8 +6154,7 @@ two-column presentation. */
 }
 
 .diagnostics-row {
-  min-height: 42px;
-  padding: 9px 18px;
+  padding: 18px;
 }
 
 .settings-group .diagnostics-row + .diagnostics-row {
@@ -6188,38 +6179,80 @@ two-column presentation. */
   margin-top: 4px;
 }
 
-.integration-row {
-  padding: 12px 18px;
-}
-
 .settings-group .integration-row + .integration-row {
   border-top: 1px solid alpha(@strata_border, 0.55);
 }
 
-.integration-logo {
-  margin-right: 2px;
-}
-
-.integration-status {
-  border: 1px solid alpha(@strata_border, 0.4);
-  border-radius: 4px;
+.integration-heading {
   color: @strata_dim_text;
-  font-size: 0.8em;
-  padding: 1px 6px;
+  font-size: 0.875em;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  margin: 0 4px;
 }
 
-.integration-status.installed {
-  border-color: alpha(@strata_accent, 0.5);
+.integration-count,
+.integration-filter-count {
+  color: @strata_dim_text;
+  font-size: 0.75em;
+}
+
+.integration-count {
+  background: alpha(@strata_border, 0.35);
+  border-radius: 8px;
+  font-weight: 700;
+  padding: 1px 7px;
+}
+
+.integration-filters {
+  margin: 0 0 12px;
+}
+
+.integration-logo {
+  background: alpha(@strata_bg, 0.55);
+  border: 1px solid alpha(@strata_border, 0.55);
+  border-radius: 8px;
+}
+
+.integration-card {
+  background: mix(@strata_bg, @strata_muted, 0.25);
+  border: 1px solid alpha(@strata_border, 0.55);
+  border-radius: 10px;
+}
+
+.integration-card-body {
+  padding: 18px;
+}
+
+.integration-installed {
   color: @strata_accent;
+  font-size: 0.875em;
 }
 
-.integration-status.update {
-  border-color: alpha(@strata_highlight, 0.6);
-  color: @strata_text;
+.integration-requirements-toggle {
+  background: transparent;
+  border: none;
+  border-top: 1px solid alpha(@strata_border, 0.55);
+  border-radius: 0 0 10px 10px;
+  box-shadow: none;
+  padding: 12px;
 }
 
-.integration-requirement-list {
-  margin-top: 2px;
+/* Lines the toggle's content up with the 18px card body. */
+.integration-requirements-toggle > box {
+  margin: 0 6px;
+}
+
+.integration-requirements-toggle.expanded {
+  border-radius: 0;
+}
+
+.integration-requirements-toggle:hover {
+  background: alpha(@strata_accent, 0.08);
+}
+
+.integration-requirements {
+  padding: 18px;
 }
 
 .integration-requirement.missing label {
@@ -6241,12 +6274,9 @@ two-column presentation. */
 }
 
 .integration-actions .settings-action-button.borderless,
-.integration-actions .settings-action-button.danger.borderless:focus-visible {
-  border-color: transparent;
-}
-
-.integration-actions .settings-action-button.danger.borderless:hover,
-.integration-actions .settings-action-button.danger.borderless:active {
+.integration-actions .settings-action-button.borderless:hover,
+.integration-actions .settings-action-button.borderless:active,
+.integration-actions .settings-action-button.borderless:focus-visible {
   border-color: transparent;
 }
 
@@ -6260,8 +6290,7 @@ two-column presentation. */
   background: mix(@strata_bg, @strata_muted, 0.25);
   border: 1px solid alpha(@strata_border, 0.55);
   border-radius: 10px;
-  min-height: 42px;
-  padding: 9px 18px;
+  padding: 18px;
 }
 
 .settings-group .settings-option {
@@ -6336,7 +6365,7 @@ two-column presentation. */
 }
 
 .settings-exclusion-row {
-  padding: 6px 8px;
+  padding: 8px;
 }
 
 .settings-exclusion-row + .settings-exclusion-row {
@@ -6450,10 +6479,10 @@ two-column presentation. */
 }
 
 .settings-dialog .theme-card {
-  min-height: 50px;
+  min-height: 0;
   min-width: 0;
   border-radius: 0;
-  padding: 0 18px;
+  padding: 18px;
 }
 
 .settings-dialog .theme-card:hover,
@@ -6478,7 +6507,7 @@ two-column presentation. */
 }
 
 .theme-library-footer {
-  padding: 10px 18px;
+  padding: 18px;
   border-top: 1px solid alpha(@strata_border, 0.55);
   color: @strata_dim_text;
   font-size: 0.9375em;
@@ -6572,8 +6601,8 @@ two-column presentation. */
 }
 
 .about-detail-row {
-  min-height: 56px;
-  padding: 0 18px;
+  min-height: 0;
+  padding: 18px;
   border: none;
 }
 
@@ -6594,8 +6623,8 @@ two-column presentation. */
 .about-repository,
 .about-repository:link,
 .about-repository:visited {
-  min-height: 54px;
-  padding: 0 18px;
+  min-height: 0;
+  padding: 18px;
   color: @strata_text;
 }
 
@@ -6612,8 +6641,23 @@ two-column presentation. */
   min-width: 0;
 }
 
-.settings-dialog.compact .settings-option {
+.settings-dialog.compact .settings-option,
+.settings-dialog.compact .diagnostics-row,
+.settings-dialog.compact .about-detail-row,
+.settings-dialog.compact .about-repository,
+.settings-dialog.compact .theme-card,
+.settings-dialog.compact .theme-library-footer,
+.settings-dialog.compact .release-notes-toggle,
+.settings-dialog.compact .release-notes-card,
+.settings-dialog.compact .settings-actions-empty,
+.settings-dialog.compact .integration-card-body,
+.settings-dialog.compact .integration-requirements,
+.settings-dialog.compact .integration-requirements-toggle {
   padding: 10px;
+}
+
+.settings-dialog.compact .integration-requirements-toggle > box {
+  margin: 0;
 }
 
 .settings-dialog.compact .settings-library-toolbar {
@@ -6694,7 +6738,7 @@ two-column presentation. */
   border: none;
   box-shadow: none;
   border-radius: 10px;
-  padding: 12px 18px;
+  padding: 18px;
   color: @strata_text;
 }
 
@@ -6706,17 +6750,19 @@ two-column presentation. */
   background: @strata_highlight;
 }
 
-.release-notes-toggle image {
+.release-notes-toggle image,
+.integration-requirements-toggle .integration-chevron {
   transform: rotate(90deg);
   -gtk-icon-filter: opacity(0.65);
 }
 
-.release-notes-toggle.expanded image {
+.release-notes-toggle.expanded image,
+.integration-requirements-toggle.expanded .integration-chevron {
   transform: rotate(270deg);
 }
 
 .settings-release-expander .release-notes-card {
-  padding: 12px 18px;
+  padding: 18px;
 }
 
 .settings-backdrop {
@@ -6738,14 +6784,9 @@ two-column presentation. */
   padding: 0;
 }
 
-.settings-dialog.compact .about-detail-row {
-  min-height: 36px;
-  padding-top: 10px;
-  padding-bottom: 10px;
-}
-
+/* With the rows' own 3px, the block's edges match its 18px sides. */
 .settings-dialog .diagnostics-system {
-  padding: 8px 0;
+  padding: 15px 0;
 }
 
 .settings-dialog .diagnostics-system .about-detail-row {
@@ -7011,7 +7052,7 @@ popover.jobs-popover.background {
 }
 
 .settings-actions-empty {
-  padding: 14px 18px;
+  padding: 18px;
 }
 
 popover.settings-action-library {

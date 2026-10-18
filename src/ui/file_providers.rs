@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
 use super::thumbnail::ThumbnailSlot;
+use crate::assets::icons;
 use crate::services::file_providers::{
     self as protocol, Client, Decoration, Feedback, MenuAction, OutcomeStatus, Placement,
     Registration, Request, Update,
 };
+use crate::services::integration_catalog::Category;
 use gtk::{gdk, gio, glib, prelude::*};
 use std::{
     cell::RefCell,
@@ -35,6 +37,7 @@ struct Provider {
     id: String,
     name: String,
     heading_icon: Option<gdk::Texture>,
+    category: Option<Category>,
     cache: HashMap<String, Answer<Decoration>>,
     menus: HashMap<MenuKey, Answer<Vec<MenuAction>>>,
     freshness: Freshness,
@@ -101,6 +104,16 @@ fn tick_hub() -> glib::ControlFlow {
         glib::ControlFlow::Break
     } else {
         glib::ControlFlow::Continue
+    }
+}
+
+/// The themed icon standing for an integration without artwork of its own.
+pub(crate) fn category_icon(category: Option<Category>) -> &'static str {
+    match category {
+        Some(Category::Cloud) => icons::CLOUD,
+        Some(Category::Devices) => icons::SMARTPHONE,
+        Some(Category::VersionControl) => icons::GIT_BRANCH,
+        Some(Category::Other) | None => icons::BLOCKS,
     }
 }
 
@@ -275,11 +288,13 @@ impl Hub {
                     .as_ref()
                     .and_then(|icon| icons.get(icon))
                     .cloned();
+                let category = r.manifest.category.as_deref().and_then(Category::from_id);
                 self.providers.push(Provider {
                     client: protocol::start(r),
                     id,
                     name,
                     heading_icon,
+                    category,
                     icons,
                     cache: HashMap::new(),
                     menus: HashMap::new(),

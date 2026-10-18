@@ -57,6 +57,20 @@ impl Category {
         Self::VersionControl,
         Self::Other,
     ];
+
+    /// The manifest spelling, also written to installed registrations.
+    pub(crate) fn id(self) -> &'static str {
+        match self {
+            Self::Cloud => "cloud",
+            Self::Devices => "devices",
+            Self::VersionControl => "version-control",
+            Self::Other => "other",
+        }
+    }
+
+    pub(crate) fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|category| category.id() == id)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -584,6 +598,7 @@ pub(crate) fn install(entry: &Entry, root: &Path) -> Result<PathBuf, String> {
         "command": [interpreter, directory.join(&entry.entry)],
         "icon": entry.icon,
         "icons": entry.icons,
+        "category": entry.category.id(),
     });
     let mut files: Vec<(&str, Vec<u8>)> = entry
         .files

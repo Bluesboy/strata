@@ -227,10 +227,12 @@ impl ProviderSection {
     }
 }
 
-/// Provider sections of one menu model, in provider order.
+/// Provider sections of one menu model, in provider order. In Send to…, each
+/// provider is a submenu instead, like a removable drive.
 struct Sections {
     model: gio::Menu,
     sections: Vec<ProviderSection>,
+    submenus: bool,
 }
 
 impl Sections {
@@ -273,7 +275,12 @@ impl Sections {
                 actions,
             );
             if new_section {
-                insert_section(&self.model, index, section, popover.clone());
+                if self.submenus {
+                    self.model
+                        .insert_item(index as i32, &destination_submenu(section));
+                } else {
+                    insert_section(&self.model, index, section, popover.clone());
+                }
                 changed = true;
             }
         }
@@ -318,10 +325,12 @@ impl Renderer {
             sections: Sections {
                 model,
                 sections: Vec::new(),
+                submenus: false,
             },
             send_to: send_to.map(|model| Sections {
                 model,
                 sections: Vec::new(),
+                submenus: true,
             }),
         }
     }
@@ -341,7 +350,6 @@ impl Renderer {
             .sections
             .update(&self.context, &groups, self.popover.upgrade());
         if let Some(send_to) = &mut self.send_to {
-            // Nested submenus cannot host the icon heading, so these use plain labels.
             changed |= send_to.update(&self.context, &send_to_groups, None);
         }
         changed
@@ -388,6 +396,26 @@ fn insert_section(
         model.remove(index as i32);
     }
     model.insert_section(index as i32, Some(&name), &section.model);
+}
+
+/// Named and drawn with the provider's artwork, or its category icon.
+fn destination_submenu(section: &ProviderSection) -> gio::MenuItem {
+    let (name, artwork, category) = with_hub(|hub| {
+        let provider = &hub.providers[section.provider];
+        (
+            provider.name.clone(),
+            provider.heading_icon.clone(),
+            provider.category,
+        )
+    });
+    let item = gio::MenuItem::new_submenu(Some(&name.replace('_', "__")), &section.model);
+    match artwork {
+        Some(artwork) => item.set_icon(&artwork),
+        None => item.set_icon(&gio::ThemedIcon::new(super::category_icon(category))),
+    }
+    item.set_attribute_value("x-strata-send-to-device", Some(&true.to_variant()));
+    item.set_attribute_value("x-strata-description", Some(&name.to_variant()));
+    item
 }
 
 fn heading(icon: &gtk::gdk::Texture, name: &str) -> gtk::Widget {

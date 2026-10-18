@@ -10,7 +10,9 @@ use std::{
 
 use gtk::{glib, prelude::*};
 
-use super::{page_content, scrollable_page, search, settings_group};
+use super::{
+    install_command::install_command, page_content, scrollable_page, search, settings_group,
+};
 use crate::{
     assets::{self, icons},
     services::{
@@ -18,11 +20,7 @@ use crate::{
         diagnostics::{self, Check, CheckId, Finding, GROUPS, Group, InstallHint, Status},
         package_manager::PackageManager,
     },
-    ui::{
-        accessibility,
-        controls::copyable_command,
-        terminal::{self, Terminal},
-    },
+    ui::{accessibility, terminal::Terminal},
 };
 
 #[cfg(test)]
@@ -333,7 +331,12 @@ fn show(row: &Row, check: &Check, manager: Option<PackageManager>) {
         Some(InstallHint::Command(command)) => {
             row.fix
                 .append(&fix_label(&crate::i18n::tr("Install with:")));
-            row.fix.append(&install_command(&command));
+            row.fix.append(&install_command(
+                &command,
+                &crate::i18n::tr(
+                    "The command opened in your terminal. Run diagnostics again when it finishes.",
+                ),
+            ));
         }
         Some(InstallHint::Package(package)) => {
             row.fix.append(&fix_label(&rust_i18n::t!(
@@ -343,66 +346,6 @@ fn show(row: &Row, check: &Check, manager: Option<PackageManager>) {
         }
         None => {}
     }
-}
-
-/// The copyable command, with a play button that runs it in the user's terminal.
-fn install_command(command: &str) -> gtk::Box {
-    let container = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    let field = copyable_command(command);
-    field.add_css_class("diagnostics-command");
-    container.append(&field);
-    let Some(terminal) = Terminal::resolve() else {
-        return container;
-    };
-    let label = crate::i18n::tr("Run in terminal");
-    let run = gtk::Button::builder()
-        .tooltip_text(&label)
-        .halign(gtk::Align::End)
-        .valign(gtk::Align::Center)
-        .margin_end(32)
-        .build();
-    run.add_css_class("preview-command-copy");
-    run.set_widget_name("diagnostics-run-command");
-    run.set_has_frame(false);
-    run.set_cursor_from_name(Some("pointer"));
-    run.set_child(Some(&assets::primary_icon(icons::PLAY, 16)));
-    accessibility::set_label(&run, &label);
-    field.add_overlay(&run);
-    let status = fix_label("");
-    status.add_css_class("diagnostics-command-status");
-    status.set_visible(false);
-    container.append(&status);
-    let arguments = terminal_install_arguments(command);
-    run.connect_clicked(move |_| {
-        match terminal::spawn_reaped(terminal.exec_command(&arguments)) {
-            Ok(()) => {
-                status.remove_css_class("error");
-                status.set_text(&crate::i18n::tr(
-                    "The command opened in your terminal. Run diagnostics again when it finishes.",
-                ));
-            }
-            Err(error) => {
-                status.add_css_class("error");
-                status.set_text(&terminal.launch_failure(&error));
-            }
-        }
-        status.set_visible(true);
-    });
-    container
-}
-
-/// Keeps the terminal open after the install so its output stays readable. The
-/// prompt and command words are positional arguments, never parsed by the shell.
-fn terminal_install_arguments(command: &str) -> Vec<String> {
-    let mut arguments = vec![
-        "sh".to_owned(),
-        "-c".to_owned(),
-        r#"prompt=$1; shift; "$@"; printf '\n%s ' "$prompt"; read -r _"#.to_owned(),
-        "sh".to_owned(),
-        crate::i18n::tr("Press Enter to close."),
-    ];
-    arguments.extend(command.split_whitespace().map(str::to_owned));
-    arguments
 }
 
 fn fix_label(text: &str) -> gtk::Label {

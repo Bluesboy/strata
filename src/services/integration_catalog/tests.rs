@@ -186,6 +186,14 @@ fn install_registers_a_resolved_command_and_tracks_updates_and_edits() {
     assert_eq!(manifest["name"], "Example Cloud");
     assert_eq!(manifest["icons"]["logo"], "logo.png");
     assert_eq!(
+        file_providers::load(&directory)
+            .and_then(|registration| registration.manifest.category)
+            .as_deref()
+            .and_then(Category::from_id),
+        Some(entry.category),
+        "the registration carries the category for its fallback icon"
+    );
+    assert_eq!(
         fs::read(directory.join("logo.png")).expect("icon"),
         png(),
         "artwork is copied beside the manifest"

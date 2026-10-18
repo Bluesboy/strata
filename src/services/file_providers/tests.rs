@@ -122,6 +122,7 @@ fn provider_frames_restrict_icons_size_and_action_ids() {
         icon: None,
         command: vec![python()],
         icons: BTreeMap::new(),
+        category: None,
     };
     for bad in [
         serde_json::json!({"version":1,"id":1,"actions":[{"id":"../../run","label":"No","icon":null}]}),
@@ -269,6 +270,7 @@ fn manifest() -> Manifest {
         icon: None,
         command: vec![python()],
         icons: BTreeMap::new(),
+        category: None,
     }
 }
 
