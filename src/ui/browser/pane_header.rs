@@ -341,13 +341,15 @@ fn sync_sort_direction_toggle(
             crate::assets::icons::ARROW_UP_NARROW_WIDE
         },
     );
-    button.set_tooltip_text(Some(&crate::i18n::tr(if device_order {
+    let hint = crate::i18n::tr(if device_order {
         "Device order follows discovery; choose a sort field to reverse its direction"
     } else if descending {
         "Descending — click to reverse"
     } else {
         "Ascending — click to reverse"
-    })));
+    });
+    button.set_tooltip_text(Some(&hint));
+    crate::ui::accessibility::set_own_label(button, &hint);
 }
 
 pub(in crate::ui) fn empty_trash_button(browser: &Rc<Browser>) -> gtk::Button {

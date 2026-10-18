@@ -642,8 +642,11 @@ run the file again with their own `prefs`, `layout`, `modes`, `vars`, and
 `twin`. In a step, `$name` is replaced by a variable; the built-ins are `$root`
 (the fixture directory's name, which is also its pane's), `$fixture` (its
 absolute path), `$home`, `$data`, and `$config` (the run's HOME and XDG data
-and config directories), `$view` (`Columns`, `Icons`, `List`), and `$mode`.
-An optional `setup` lists `fs` actions taken after the tree is written and
+and config directories), `$environment` (the directory holding them, a twin's
+`test_environment.root`), `$view` (`Columns`, `Icons`, `List`), and `$mode`.
+An optional `teardown` lists `fs` actions taken once setup has begun, however
+the run ends, as a twin's `finally:` restores a mode it changed. An optional
+`setup` lists `fs` actions taken after the tree is written and
 before the launch, as a twin's fixture writes an executable into the tree or
 desktop entries and actions under `$data` and `$config` before `strata`
 starts. An optional `tree` names
@@ -685,7 +688,7 @@ fails the scenario before it runs.
 | `{"open_menu":TARGET,"until":PREDICATE,"message":"..."}` | process | `open_appearance_menu`: clicks, and clicks again each second the menu stays closed while the target is not checked |
 | `{"activate":{"role":"toggle button","name":"..."},"message":"..."}` | process | `Node.activate`: the default action, no pointer input; a role target without `within` may be scrolled away; one with `within`, or a `{"dialog_button":"Close dialog"}`, is looked up on screen first |
 | `{"holds":PREDICATE}` | process | `true` or `false` in `result`, never a failure |
-| `{"remember":{"field":true},"as":"filter"}` | process | keeps the focused field, as a twin keeps `field = strata.editable_field()`; any other target keeps its box, for `left_bound` and `moved`, and its widget, for `replaced`, apart from the fields, so a field lookup never resolves it |
+| `{"remember":{"field":true},"as":"filter"}` | process | keeps the focused field, as a twin keeps `field = strata.editable_field()`; any other target keeps its box, for `left_bound` and `moved`, and its widget, for `replaced` and a `remembered` target, apart from the fields, so a field lookup never resolves it |
 | `{"note":"entries","dir":"$root","as":"names"}` | process | an accessor's value for later `$names`: `directory`, `pane`, `panes`, `entries`, `selected`, `all_selected`, `matches`, `focused`, `focused_pane`, `visible` (the rows wholly inside the pane's scroll viewport, `_visible_entries`), `menu_items` (the open menu's items, empty with none), `editable_fields` (how many editable text fields are on screen, a number); `from`/`through` slice a list as `names[names.index(a):names.index(b) + 1]`, then `"middle":3` keeps `names[len // 2:len // 2 + 3]`, `"plus":["todo.txt"]` makes it `sorted(set(names) \| {...})`, `"sorted":true` sorts it, and `"pick":-1` keeps one name, `names[-1]`; `bounds` with `"of":TARGET` is its box as Python prints `screen_bounds()`, for a message; `"until_found":true` (with `message`, `timeout_ms`) polls until it is not null, as `strata.wait(accessor)` returns it; `middle_visible` with `unless_first` is the reversing-scroll scenario's `middle_entry`; `scroll_target` with `"of":TARGET` is the pane's scroll value plus `max(of.y + of.height - viewport.y + 1, 1)` |
 | `{"increment":"first","as":"next"}` | runner | a noted name with its trailing number one higher, `f"folder-{n + 1:03}"` |
 | `{"slice":"rows","middle":3,"pick":-1,"as":"last"}` | runner | part of a noted list, so one snapshot serves several values as a twin reuses `rows`: `middle` then `pick`, as a note shapes a list |
@@ -699,14 +702,15 @@ fails the scenario before it runs.
 | `{"capture":TARGET,"inset":3,"as":"before"}` | process | keeps the screen's pixels in the target's box, inset on every side, as a twin crops a screenshot for `repainted`; any part off the screen is black, as PIL's `crop` pads it, and so it is for `repainted` |
 | `{"measure_text":"label","as":"resting"}` | process | `text_position` over a kept box from a fresh screen grab: the luma-weighted mean row of the ink and its contrast; fails as `the source label disappeared` when there is no ink, and is an error when the box leaves the screen, as indexing the twin's screenshot past its edge raises (so for `drop_samples`) |
 | `{"drop_samples":"label","resting":"resting","dragging":"dragging","escape":true,"as":"released"}` | process | the drag-completion release: Escape down and up when asked, then button 1 up, with no pauses, then grabs of the kept box 60, 120, and 180 ms later; each must come within 240 ms (failing with the samples printed as the twin's `assert ..., samples` prints them), sit within 1.5 pixels of `resting`, and the last must have 1.25 times `dragging`'s contrast; the release instant is kept for `elapsed` |
-| `{"drag":{"from":TARGET,"to":TARGET},"steps":16,"release":true,"mods":[]}` | process | `pointer.drag`; an entry `from` starts on its icon (`drag_origin`); `release:false` keeps the button held |
+| `{"drag":{"from":TARGET,"to":TARGET},"steps":16,"release":true,"mods":[]}` | process | `pointer.drag`; `from` starts on its first rendered image, else its centre (`drag_origin`), except a point-like `from` (`kept`, `point`, `pane`, `background`, `window`), which aims where it always does; `release:false` keeps the button held |
 | `{"drag":{"from":TARGET,"from_at":[...],"to":TARGET,"to_at":[...]},"after_press":PREDICATE,"message":"..."}` | process | `drag_points(start, end, after_press=...)`: the predicate is checked once after the press; a mismatch lets go and fails the step; `after_press` may instead list `{"wait":PREDICATE,"message":...}` and `{"expect":PREDICATE,"message":...}` steps, run in order, as a callback that waits and then asserts. Without `from_at`, the target is read before the source, as `Pointer.drag` reads both boxes once both lookups returned |
 | `{"button_down":1}`, `{"button_up":1}` | process | `connection.button(n, True/False)` where the pointer is; `button_up` also ends `abandon_drag` |
 | `{"set_scrollbar":"horizontal","value":0}` | process | `Atspi.Value.set_current_value` on the first scroll bar with that orientation; no pointer input |
 | `{"sleep":600}` | process | `time.sleep(0.6)`; the main loop keeps running |
 | `{"resize":{"width":420,"height":300}}` | process | `resize_surface` on the main window; without `height`, its current height |
 | `{"settle":TARGET,"timeout_ms":15000,"as":"entered"}` | process | `strata.settle`: waits for the bounds to repeat three polls and remembers them, under `as` too when given |
-| `{"wait":PREDICATE,"timeout_ms":15000,"message":"...","samples":10}` | process | stops the run on timeout, with the widget tree; `samples` polls in a row must hold, as a twin's steady-sample condition (both poll about every 50 ms, `tree.POLL_INTERVAL`) |
+| `{"wait":PREDICATE,"timeout_ms":15000,"message":"...","samples":10}` | process | stops the run on timeout, with the widget tree; `samples` polls in a row must hold, as a twin's steady-sample condition (both poll about every 50 ms, `tree.POLL_INTERVAL`); `"settling":TARGET` settles the target before every poll, as a condition that calls `strata.settle(icon)` before reading the screen |
+| `{"click_result_rows":{"selected":true},"mods":["ctrl"]}` | process | each of `result_rows` (the `Search results` rows, or else every list item) whose states match when its turn comes, clicked in DFS order, as `for row in rows: if row.has_state("selected"): pointer.click(row, modifiers=("ctrl",))` |
 | `{"expect":[PREDICATE,...],"message":"..."}` | process | reports mismatches and continues; `message` names the twin's assertion message; with `timeout_ms` it polls until all hold first, as a twin's `try: strata.wait(..., timeout=4) except TreeTimeout: failures.append(...)`; `"as":"name"` keeps whether it held for a later step's `if` or `unless` |
 | `{"query":"state"}`, `"tree"`, `"prefs"` | process | snapshot, widget tree, or `settings.toml` as JSON in `result` |
 | `{"layout":"ru"}` | runner | `setxkbmap` and a group lock on the run's Xvfb |
@@ -720,6 +724,8 @@ fails the scenario before it runs.
 | `{"fs":{"path":"new file (1)","symlink":"missing"}}`, `{"fs":{"path":"run-me","program":"true"}}` | runner | `Path.symlink_to(target)`; `shutil.copy2(shutil.which("true"), path)`: the program's bytes, mode, and times |
 | `{"fs":{"path":"$config/strata/settings.toml","has":{"contains":["\"$fixture/docs2\""],"lacks":[...]}}}` | runner | waits until the text contains every part and none of the others; an unreadable file contains nothing, as `_settings_has_key` treats an `OSError` |
 | `{"fs":{"path":".","names_without":"clicked"}}`, `{"fs":{"path":"no-trash/doomed.txt","can_trash":false}}` | runner | waits until no name contains the part, as `not any("clicked" in name ...)`; until GIO's `access::can-trash` is that value |
+| `{"fs":{"path":"todo.txt","remove":true}}`, `{"fs":{"path":"documents","rename":"archive/documents"}}` | runner | `Path.unlink()`, or `shutil.rmtree` for a directory; `Path.rename(root / ...)`; both refuse a path whose parent, with links resolved, lies outside the fixture, the run's `$environment`, and its scratch directory |
+| `{"fs":{"path":"$environment/launches","lines":{"at_least":1}}}`, `{"fs":{"path":"a.png","keep_bytes":"original"}}`, `"bytes_of":"original"` | runner | waits until the file has that many lines, exactly or at least (a missing file has none; an unreadable or non-UTF-8 one fails the step at once, as `read_text()` raises), as `len(path.read_text().splitlines())`; keeps `path.read_bytes()` under a name; waits until the bytes are those kept, failing at once on a read error |
 | `{"screenshot":"hover.png"}` | runner | captures the Xvfb root, as a twin's artifact screenshot; saved with the run's artifacts when it keeps them |
 | `{"fs":{"path":"photo.png","image":{"width":1600,"height":900,"rgb":[0,128,0]}}}`, `{"fs":{"path":"sound.wav","ffmpeg":["-f","lavfi",...]}}` | runner | a solid-colour PNG, written in place in one write as PIL's buffered save writes it (written in pieces, the listing would see it grow and replace its row), or `ffmpeg -v error -y <ffmpeg...> <path>` |
 
@@ -742,6 +748,9 @@ allocation lands, which the slower Python lookups never see.
 | --- | --- |
 | `{"entry":"todo.txt","dir":"archive"}` | `entry(name, directory)`; any pane without `dir` |
 | `{"result":"beta/match-note.txt"}` | `test_filter_results.result`: a filter result by its path |
+| `{"result_row":-1,"containing":"match-note"}`, `{"result_row":0,"name":"match-note.txt"}` | `test_filter_results.result_rows`, the `Search results` rows or else every list item: one by its index in DFS order (negative counts back), among those whose name contains the part or is the name, as `[row for row in rows if "match-note" in row.name][-1]` |
+| `{"role":"button","name":"drafts","nth":-1}`, `{"role":"list item","name_ends_with":["/a","/b"]}` | `window.find_all(role=..., name=...)[-1]`; `name_ends_with` keeps names ending with any of the parts, as `node.name.endswith(f"/{name}")` |
+| `{"focused_widget":true}`, `{"remembered":"focused"}` | `strata.focused_node()`; the widget `remember` kept under the name, as a twin keeps `focused = strata.wait(strata.focused_node)` |
 | `{"role":"check menu item","name":"Folders first"}` | `window.find(role=..., name=...)` |
 | `{"role":"button","name":"Next video","within":{"preview":true}}` | `strata.preview().find(role=..., name=...)`: the search starts at another target; without `name` any name matches, as `entry.find(role="panel")`, and `description` must match too when given |
 | `{"toplevel":"Copy to"}`, `{"field":true,"within":{"toplevel":"Copy to"}}` | `destination_chooser(title)`: an application window by its title, outside the browser window; `chooser.find(role="text", states={"editable", "focused"})`, which `remember` keeps as a field |
@@ -822,22 +831,27 @@ Predicates mirror the page object's accessors:
 | `{"all":[PREDICATE,...]}` | `a and b` |
 | `{"editable_fields":1}` | `len(window.find_all(role="text", states={"editable"}))` |
 | `{"description":{"target":{"menu_item":"Copy"},"text":"Ctrl+C"}}` | `node.description == "Ctrl+C"` |
-| `{"mentions":{"target":{"dialog":true},"text":"Customize Folder"}}`, `"words":"doesn't support Trash"` | `"Customize Folder" in dialog.dump()`: some name or description in the subtree contains it; with `words`, some rendered widget's `f"{name} {text}"` has them with any whitespace between, as `re.search(r"doesn't\s+support\s+Trash", ...)` |
+| `{"mentions":{"target":{"dialog":true},"text":"Customize Folder"}}`, `"words":"doesn't support Trash"` | `"Customize Folder" in dialog.dump()`: some name or description in the subtree contains it; with `"role":"label"`, the name of some rendered widget with that role does, as `any("x" in node.name for node in dialog.find_all(role="label"))`; with `words`, some rendered widget's `f"{name} {text}"` has them with any whitespace between, as `re.search(r"doesn't\s+support\s+Trash", ...)` |
 | `{"presented":{"role":"label","name":"Ctrl+Alt+M"}}` | `window.find(..., rendered=False) is not None` |
 | `{"file":{"path":"$fixture/documents/notes.txt","exists":false}}` | whether the path exists without following a final symlink, as the runner's `fs` `exists` checks it; read by the process so `any` and `all` can join it with window state |
-| `{"focused_widget":"Custom color…"}` | `strata.focused_node().name`; null when nothing has focus |
+| `{"focused_widget":"Custom color…"}` | `strata.focused_node().name`, exactly or as `{"contains":"Shortcuts"}`; null when nothing has focus |
 | `{"inside":{"target":TARGET,"of":{"container":"rename-target"},"axis":"y"}}` | the target has width and height and lies inside the other's box, on both axes or just `axis` |
 | `{"editor_within_window":{"of":"rename","pane":"$root"}}` | the narrow-window creation check: a remembered field wider than one pixel, starting at or right of `max(pane.x, 0)` and ending inside the window |
 | `{"replaced":{"target":{"entry":"rename-target"},"since":"listed"}}` | the target now resolves to another widget than the one `remember` kept under `since`, as a reload rebuilds a listing's rows; for the QA-only waits in "QA-only waits" |
+| `{"pixel":{"target":{"role":"image","within":{"result":"beta/thumb.png"}},"rgb":[230,40,60]}}` | `screenshot.getpixel(bounds.center)` equals the colour |
+| `{"accent_pixels":{"target":{"field":"filter"},"inset":2,"more_than":100}}` | more than that many pixels in the target's box, inset on every side, are exactly the accent of the theme `settings.toml` names in `data/themes/catalog.toml` |
+| `{"any_result_row":{"focused":true}}` | `any(row.has_state("focused") for row in result_rows(strata))`; `selected` too |
+| `{"hit_path":{"mark":"search: txt","hits":{"todo.txt":"todo.txt"},"name":"todo.txt"}}` | `footer_hit`: of the panels beside the footer mark, the first whose rendered labels, joined, are one of the hits' paths shows `hits[name]`; a `name` the hits do not list is an error, as the twin's `KeyError` |
 
 `NAMES` is an exact list in visual order or
 `{"contains":[...],"excludes":[...],"count":4,"at_least":2,"ends_with":[...]}`,
 with `"first"` (`names[0] == ...`), `"first_above"` (`names[0] > "010.txt"`),
 `"any_from"` (some name `>= "040.txt"`), and
 `"toggled":{"names":[...],"against":[...]}` (each listed exactly when
-`against` does not list it), and `"in_order":[...]` (each listed, first
-occurrences in that order, as `assert_menu_order`), comparing names as Python
-compares strings;
+`against` does not list it), `"in_order":[...]` (each listed, first
+occurrences in that order, as `assert_menu_order`), `"set":[...]`
+(`set(names) == {...}`), and `"occurrences":{"a.txt":2}`
+(`names.count("a.txt") == 2`), comparing names as Python compares strings;
 `panes` takes one too. `moved` takes `"since":"entered"` to compare with a box
 `settle` or `remember` kept under that name, and with direction `none`,
 `"y_within":2` allows that much vertical drift and ignores the rest, as
@@ -948,8 +962,9 @@ variables into the container; they must name directories inside the checkout.
 With `STRATA_PARITY_FIXTURES=1`, which `scripts/e2e.sh` and `scripts/qa.sh` also
 pass through, both harnesses name each fixture directory
 `/tmp/strata-fixture-<first 12 hex digits of the SHA-256 of the twin's node id>`
-instead of a random name, so a typed fixture path and the root pane's name are
-the same on both sides.
+instead of a random name, and the directory holding HOME and the XDG
+directories `/tmp/strata-home-<the same digits>`, so a typed fixture or home
+path and the root pane's name are the same on both sides.
 
 ### QA parity
 

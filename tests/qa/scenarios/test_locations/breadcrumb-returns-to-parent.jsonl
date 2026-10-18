@@ -1,0 +1,8 @@
+{"scenario":"breadcrumb-returns-to-parent","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_locations.py::test_a_breadcrumb_returns_to_the_parent","mutation":null,"known_bug":null}
+{"select":{"entry":"documents"}}
+{"wait":{"directory":"documents"},"message":"the browser to be working in 'documents'"}
+{"settle":{"pane":"documents"}}
+{"wait":{"present":{"role":"button","name":"$root"}},"message":"the breadcrumb for the fixture root"}
+{"click":{"role":"button","name":"$root"}}
+{"wait":{"directory":"$root"},"message":"the browser to be working in '$root'"}
+{"settle":{"pane":"$root"}}

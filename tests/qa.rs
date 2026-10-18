@@ -64,6 +64,7 @@ scenarios! {
     background_customize_presented_folder,
     background_press_clears_before_drag,
     beside_last_column_clears,
+    breadcrumb_returns_to_parent,
     click_after_navigating_reanchors,
     click_away_rename_respects_navigation,
     click_mode_preference_live,
@@ -87,16 +88,22 @@ scenarios! {
     cross_volume_enter_choice,
     cross_volume_plain_copy,
     ctrl_drag_copies_keeps_selection,
+    current_breadcrumb_opens_hierarchy,
     customization_follows_move_and_trash,
     customization_follows_rename,
     customize_takes_focus_single_escape,
     cut_moves_only_after_paste,
     delete_animation_keeps_survivors,
     delete_to_trash,
+    delete_trashes_filtered_result,
     delete_without_trash_focuses_cancel,
+    deleting_open_folder_returns_to_parent,
+    deleting_open_root_closes_children,
+    directory_only_filter_matches,
     disabled_transport_click,
     dismissed_overlays_return_focus,
     dismissing_conflict_preserves_both,
+    dismissing_filter_keeps_hidden,
     double_click_leaves_folder_open_focused,
     drag_cancels_folder_peek,
     drag_completion_keeps_source_label,
@@ -121,11 +128,33 @@ scenarios! {
     executable_requires_confirmation,
     file_drag_does_not_open_preview,
     file_properties_describes_and_closes,
+    filter_rename_shortcuts_hidden_selection,
+    filter_results_follow_external_changes,
+    filter_right_arrow_moves_caret,
+    filter_selection_uses_theme,
     filter_updates_retain_state,
+    filtered_clipboard_keeps_status,
+    filtered_control_selection_group,
+    filtered_item_menu_real_location,
+    filtered_properties_rename_inline,
+    filtered_properties_visible_selection,
+    filtered_rename_nested_duplicate,
     filtered_result_to_sidebar_folder,
+    filtered_result_waits_for_release,
+    filtered_results_group_selection,
+    filtered_thumbnail_stays_rendered,
+    filtering_pane_narrows_listing,
     floating_chooser_transfers_files,
     focus_usable_after_view_change,
     folder_into_another_folder,
+    global_search_activation_in_open_folder,
+    global_search_activation_previews_file,
+    global_search_arrows_keep_typing,
+    global_search_finds_file_under_home,
+    global_search_preview_follows_neighbor,
+    global_search_reveal,
+    global_search_reveal_visited_list,
+    hidden_files_toggle,
     invalid_archive_name_keeps_dialog,
     invalid_names_retain_original,
     invalid_new_file_names_corrected,
@@ -139,13 +168,16 @@ scenarios! {
     leftover_click_honors_modifiers,
     list_transfer_reveal_selects_copy,
     list_typed_file_path,
+    local_filtered_result_opens_once,
     long_rename_keeps_caret,
     marquee_beside_content_full_pane,
+    matching_rename_stays_searchable,
     merge_combines_folder_contents,
     modal_dialog_blocks_window_shortcuts,
     modifier_click_focuses_target,
     modifier_clicks_inert_space_select,
     multi_selection_drag_moves_every_entry,
+    named_location_controls,
     new_file_collision_dialog,
     new_folder_collision_dialog,
     new_folder_with_selection_groups,
@@ -168,8 +200,11 @@ scenarios! {
     preselected_entry_hover,
     preview_blank_click_keeps_selection,
     properties_pins_and_unpins_folder,
+    recursive_file_double_click_launches_once,
+    recursive_filtered_result_opens_once,
     refresh_keeps_cursor_and_viewport,
     refresh_keeps_filter_focus,
+    refresh_reconciles_external_changes,
     release_outside_cancels_drag,
     rename_and_undo_restores,
     rename_commits_on_click_away,
@@ -178,10 +213,12 @@ scenarios! {
     rename_onto_existing_rejected,
     rename_shortcuts,
     rename_shortcuts_leave_location,
+    renaming_open_folder_follows_it,
     repeated_renames_select_stem,
     replace_restores_original_on_undo,
     replacing_duplicate_name_overwrites,
     return_restores_nested_scroll,
+    reversing_sort_direction,
     right_click_keeps_multi_selection,
     right_click_selects_entry,
     row_padding_drag_view_policy,
@@ -202,6 +239,7 @@ scenarios! {
     sidebar_marquee_keeps_scrolled_list,
     sidebar_marquee_reaches_leading_pane,
     sidebar_navigation_range_anchor,
+    sidebar_place_navigates,
     sidebar_selection_depends_on_activation,
     simple_click_opens_preview,
     single_click_clipped_parent_column,
@@ -210,6 +248,8 @@ scenarios! {
     skipping_one_collision_pastes_rest,
     slow_click_away_does_not_rename,
     slow_click_rename_escape_stem,
+    sorting_by_size,
+    space_completes_composition,
     space_previews_filtered_result,
     spring_navigation_keeps_drag,
     strip_edge_scrolls_columns_in,
@@ -217,22 +257,35 @@ scenarios! {
     tenxer_d_without_trash_confirms,
     tenxer_escape_closes_peek,
     tenxer_escape_filter_preview_fill,
+    tenxer_escape_visual_preview_search,
+    tenxer_footer_filter_commits,
+    tenxer_footer_find_moves_cursor,
+    tenxer_footer_hit_path_follows_cursor,
     tenxer_footer_rename_refuses_conflicts,
+    tenxer_footer_search_restores_filter,
+    tenxer_go_chord_places_and_pins,
+    tenxer_go_prompt_picks_folders,
+    tenxer_history_prompts,
     tenxer_icons_edges_search_peek,
     tenxer_keeps_location_edit,
     tenxer_sidebar_header_round_trips,
+    tenxer_sort_chords_keep_cursor,
     tenxer_space_toggles_cursor,
     tenxer_visual_ranges,
     tone_mark_escape_before_rename,
     trashing_open_folder_opens_next,
     two_clicks_open,
     two_slow_clicks_do_not_open,
+    type_to_search_finds_nested,
+    typed_dot_segments_resolve,
     typed_path_navigates,
     undo_created_folder_trashes,
     undo_restores_completed_move,
+    unreadable_location_reports_error,
     valid_name_commits_remaining,
     visible_created_item_preserves_scroll,
     visible_rename_preserves_scroll,
+    wildcard_filter_patterns,
     window_accelerators_leave_rename,
 }
 
@@ -537,6 +590,10 @@ struct Header {
     /// and actions under `$data` and `$config`.
     #[serde(default)]
     setup: Vec<Value>,
+    /// `fs` actions taken once setup has begun, however the run ends, as a
+    /// twin's `finally:` restores what it changed: `chmod` back to a readable mode.
+    #[serde(default)]
+    teardown: Vec<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -643,6 +700,16 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
         if !parsed.fs.acts() || parsed.timeout_ms.is_some() || parsed.message.is_some() {
             return Err(format!(
                 "setup {}: setup takes fs actions only, such as write or chmod",
+                index + 1
+            ));
+        }
+    }
+    for (index, step) in header.teardown.iter().enumerate() {
+        let parsed: FsStep = serde_json::from_value(step.clone())
+            .map_err(|error| format!("teardown {}: invalid fs step: {error}", index + 1))?;
+        if !parsed.fs.acts() || parsed.timeout_ms.is_some() || parsed.message.is_some() {
+            return Err(format!(
+                "teardown {}: teardown takes fs actions only, such as chmod",
                 index + 1
             ));
         }
@@ -1164,7 +1231,8 @@ fn placeholders() -> Places<'static> {
 
 /// A run's `$variables`, plus the built-ins: `$root`, the fixture directory's
 /// name, which is also its pane's name; `$fixture`, its absolute path;
-/// `$home` and `$data`, the run's HOME and XDG data directory; `$view`, the
+/// `$home` and `$data`, the run's HOME and XDG data directory; `$environment`,
+/// the directory holding them, a twin's `test_environment.root`; `$view`, the
 /// run's view as `view_mode` names it; and `$mode`, its mode.
 fn variables(run: &Run, places: &Places) -> Vec<(String, String)> {
     let mut variables: Vec<(String, String)> = run.variant.vars.clone().into_iter().collect();
@@ -1189,6 +1257,10 @@ fn variables(run: &Run, places: &Places) -> Vec<(String, String)> {
         view_name(&run.mode).unwrap_or_default().to_owned(),
     ));
     variables.push(("mode".to_owned(), run.mode.clone()));
+    variables.push((
+        "environment".to_owned(),
+        places.scratch_home.display().to_string(),
+    ));
     variables.sort_by_key(|(name, _)| std::cmp::Reverse(name.len()));
     variables
 }
@@ -1662,6 +1734,33 @@ struct FsCheck {
     minus: Vec<String>,
     #[serde(default)]
     plus: Vec<String>,
+    /// `path.unlink()`, or `shutil.rmtree(path)` for a directory.
+    remove: Option<bool>,
+    /// `path.rename(root / rename)`.
+    rename: Option<String>,
+    /// Keeps `path.read_bytes()` under a name, as a twin keeps `original`.
+    keep_bytes: Option<String>,
+    /// Waits until the file's bytes are those kept under a name.
+    bytes_of: Option<String>,
+    /// `len(path.read_text().splitlines())`: exactly, or `{"at_least":1}`; a
+    /// missing file has no lines.
+    lines: Option<LineCount>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(untagged)]
+enum LineCount {
+    Exactly(usize),
+    AtLeast { at_least: usize },
+}
+
+impl LineCount {
+    fn matches(self, lines: usize) -> bool {
+        match self {
+            Self::Exactly(count) => lines == count,
+            Self::AtLeast { at_least } => lines >= at_least,
+        }
+    }
 }
 
 /// Parts the text must contain and parts it must not; an unreadable file
@@ -1700,6 +1799,11 @@ enum FsKind<'a> {
     Volume(&'a str, &'a str, &'a BTreeMap<String, String>),
     RememberNames(&'a str),
     NamesFrom(&'a str),
+    Remove,
+    Rename(&'a str),
+    Lines(LineCount),
+    KeepBytes(&'a str),
+    BytesOf(&'a str),
 }
 
 /// What fs steps keep while a run goes: `fixture.listing()` taken by
@@ -1707,9 +1811,40 @@ enum FsKind<'a> {
 #[derive(Default)]
 struct FsState {
     listings: BTreeMap<String, String>,
+    /// File contents taken by `keep_bytes`, by name.
+    bytes: BTreeMap<String, Vec<u8>>,
     /// `set(fixture.names(path))` taken by `remember_names`, by name.
     names: BTreeMap<String, Vec<String>>,
     volumes: Vec<tempfile::TempDir>,
+    /// Where `remove` and `rename` may act: the fixture, the run's HOME and
+    /// XDG directories, and its scratch directory.
+    roots: Vec<PathBuf>,
+    /// A read error a polled check met, which ends the wait at once, as the
+    /// twin's `read_text()` or `read_bytes()` raises.
+    fatal: Option<String>,
+}
+
+/// Whether `path` lies inside one of `roots`: its parent directory with every
+/// link resolved, then its own last component unresolved, so neither `..`
+/// nor a linked directory reaches outside.
+fn contained(path: &Path, roots: &[PathBuf]) -> Result<(), String> {
+    let outside = || format!("{} lies outside the run's directories", path.display());
+    let name = path
+        .file_name()
+        .filter(|name| *name != "." && *name != "..")
+        .ok_or_else(outside)?;
+    let parent = path
+        .parent()
+        .ok_or_else(outside)?
+        .canonicalize()
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    let resolved = parent.join(name);
+    roots
+        .iter()
+        .filter_map(|root| root.canonicalize().ok())
+        .any(|root| resolved.starts_with(&root) && resolved != root)
+        .then_some(())
+        .ok_or_else(outside)
 }
 
 impl FsCheck {
@@ -1799,6 +1934,23 @@ impl FsCheck {
         if let Some(can_trash) = self.can_trash {
             kinds.push(FsKind::CanTrash(can_trash));
         }
+        match self.remove {
+            Some(true) => kinds.push(FsKind::Remove),
+            Some(false) => return Err("remove is true or left out".to_owned()),
+            None => {}
+        }
+        if let Some(name) = &self.rename {
+            kinds.push(FsKind::Rename(name));
+        }
+        if let Some(count) = self.lines {
+            kinds.push(FsKind::Lines(count));
+        }
+        if let Some(name) = &self.keep_bytes {
+            kinds.push(FsKind::KeepBytes(name));
+        }
+        if let Some(name) = &self.bytes_of {
+            kinds.push(FsKind::BytesOf(name));
+        }
         match self.remove_volume {
             Some(true) => kinds.push(FsKind::RemoveVolume),
             Some(false) => return Err("remove_volume is true or left out".to_owned()),
@@ -1833,8 +1985,9 @@ impl FsCheck {
             _ => Err(
                 "fs needs a path and exactly one of exists, text, names, is, empty, \
                  unchanged, copy_of, size_of, names_from, has, names_without, can_trash, \
-                 write, remember, remember_names, mkdir, chmod, populate, image, ffmpeg, \
-                 volume, remove_volume, symlink, or program"
+                 lines, bytes_of, write, remember, remember_names, keep_bytes, mkdir, chmod, \
+                 populate, image, ffmpeg, volume, remove_volume, symlink, program, remove, \
+                 or rename"
                     .to_owned(),
             ),
         }
@@ -1854,7 +2007,10 @@ impl FsCheck {
                 | FsKind::Symlink(_)
                 | FsKind::Program(_)
                 | FsKind::RemoveVolume
-                | FsKind::RememberNames(_))
+                | FsKind::RememberNames(_)
+                | FsKind::Remove
+                | FsKind::Rename(_)
+                | FsKind::KeepBytes(_))
         )
     }
 
@@ -2095,6 +2251,59 @@ impl FsCheck {
                 fs::write(&path, png.into_inner()).map_err(|error| error.to_string())
             }
             FsKind::Ffmpeg(arguments) => ffmpeg(arguments, &path),
+            FsKind::Remove => {
+                contained(&path, &state.roots)?;
+                if path.is_dir() && !path.is_symlink() {
+                    fs::remove_dir_all(&path)
+                } else {
+                    fs::remove_file(&path)
+                }
+                .map_err(|error| error.to_string())
+            }
+            FsKind::Rename(name) => {
+                contained(&path, &state.roots)?;
+                contained(&other(name), &state.roots)?;
+                fs::rename(&path, other(name)).map_err(|error| error.to_string())
+            }
+            FsKind::KeepBytes(name) => {
+                let bytes = fs::read(&path).map_err(|error| error.to_string())?;
+                state.bytes.insert(name.to_owned(), bytes);
+                Ok(())
+            }
+            FsKind::BytesOf(name) => {
+                let kept = state
+                    .bytes
+                    .get(name)
+                    .ok_or_else(|| format!("no bytes were kept as {name:?}"))?;
+                let bytes = match fs::read(&path) {
+                    Ok(bytes) => bytes,
+                    Err(error) => {
+                        let error = format!("cannot read the bytes: {error}");
+                        state.fatal = Some(error.clone());
+                        return Err(error);
+                    }
+                };
+                (bytes == *kept)
+                    .then_some(())
+                    .ok_or(format!("the bytes differ from {name:?}"))
+            }
+            // A missing file has no lines yet; an unreadable or non-UTF-8 one is
+            // an error, as `read_text()` raises.
+            FsKind::Lines(count) => {
+                let lines = match fs::read_to_string(&path) {
+                    Ok(text) => text.lines().count(),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+                    Err(error) => {
+                        let error = format!("cannot read the lines: {error}");
+                        state.fatal = Some(error.clone());
+                        return Err(error);
+                    }
+                };
+                count
+                    .matches(lines)
+                    .then_some(())
+                    .ok_or(format!("has {lines} lines"))
+            }
         }
     }
 }
@@ -2268,16 +2477,25 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
         .prefix("strata-qa-")
         .tempdir_in("/tmp")
         .expect("the run's scratch directory should be created");
-    let parity_name = std::env::var_os(PARITY_FIXTURES)
-        .is_some_and(|value| value == "1")
-        .then(|| parity_fixture_name(&twin(&scenario.header, run)));
+    let parity = std::env::var_os(PARITY_FIXTURES).is_some_and(|value| value == "1");
+    let parity_name =
+        |prefix: &str| parity.then(|| parity_name(prefix, &twin(&scenario.header, run)));
     let mut fixture = tempfile::Builder::new();
-    let fixture = match &parity_name {
+    let fixture = match &parity_name("strata-fixture-") {
         Some(name) => fixture.prefix(name).rand_bytes(0),
         None => fixture.prefix("strata-qa-fixture-"),
     }
     .tempdir_in("/tmp")
     .expect("the fixture directory should be created");
+    // The twin's `TestEnvironment` root, which holds HOME and the XDG
+    // directories, is named alike, so a typed home path is the same too.
+    let parity_home = parity_name("strata-home-").map(|name| {
+        tempfile::Builder::new()
+            .prefix(&name)
+            .rand_bytes(0)
+            .tempdir_in("/tmp")
+            .expect("the environment directory should be created")
+    });
     let artifacts = Path::new(REPOSITORY)
         .join("target/qa-artifacts")
         .join(&scenario.header.scenario)
@@ -2288,7 +2506,10 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
         ..Outcome::default()
     };
 
-    let home = scratch.path().join("home");
+    let home = parity_home.as_ref().map_or_else(
+        || scratch.path().join("home"),
+        |home| home.path().to_owned(),
+    );
     let runtime = scratch.path().join("runtime");
     let places = Places {
         fixture: fixture.path(),
@@ -2298,21 +2519,47 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
         Ok(steps) => steps,
         Err(error) => return setup_error(format!("scenario: {error}")),
     };
+    let mut fs_state = FsState {
+        roots: vec![
+            fixture.path().to_owned(),
+            home.clone(),
+            scratch.path().to_owned(),
+        ],
+        ..FsState::default()
+    };
+    // Once setup has begun, teardown runs however the run ends.
+    let teardown = |fs_state: &mut FsState| -> Vec<String> {
+        scenario
+            .header
+            .teardown
+            .iter()
+            .filter_map(|step| {
+                let step = substitute(step, &variables(run, &places));
+                wait_for_fs(&step, fixture.path(), fixture_time(manifest), fs_state)
+                    .err()
+                    .map(|error| format!("teardown: {error}"))
+            })
+            .collect()
+    };
+    let failed_setup = |error: String, fs_state: &mut FsState| {
+        let mut outcome = setup_error(error);
+        outcome.errors.extend(teardown(fs_state));
+        outcome
+    };
     if let Err(error) = seed(manifest, scenario, run, &home, &runtime, fixture.path()) {
-        return setup_error(format!("setup: {error}"));
+        return failed_setup(format!("setup: {error}"), &mut fs_state);
     }
-    let mut fs_state = FsState::default();
     for step in &scenario.header.setup {
         let step = substitute(step, &variables(run, &places));
         if let Err(error) =
             wait_for_fs(&step, fixture.path(), fixture_time(manifest), &mut fs_state)
         {
-            return setup_error(format!("setup: {error}"));
+            return failed_setup(format!("setup: {error}"), &mut fs_state);
         }
     }
     let display = match Display::start(scratch.path().join("xvfb.log")) {
         Ok(display) => display,
-        Err(error) => return setup_error(format!("setup: {error}")),
+        Err(error) => return failed_setup(format!("setup: {error}"), &mut fs_state),
     };
     let mut application = match Application::start(
         manifest,
@@ -2324,7 +2571,7 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
         &scratch.path().join(INPUT_LOG),
     ) {
         Ok(application) => application,
-        Err(error) => return setup_error(format!("launch: {error}")),
+        Err(error) => return failed_setup(format!("launch: {error}"), &mut fs_state),
     };
 
     let mut layout = DEFAULT_LAYOUT.to_owned();
@@ -2346,6 +2593,7 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
         &mut layout,
         &mut fs_state,
     );
+    outcome.errors.extend(teardown(&mut fs_state));
     if layout != DEFAULT_LAYOUT
         && let Err(error) = display.restore_layout()
     {
@@ -2423,11 +2671,13 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
     outcome
 }
 
-/// `parity_fixture_name` in `tests/e2e/harness/fixtures.py` derives the same name.
-fn parity_fixture_name(twin: &str) -> String {
+/// `parity_fixture_name` in `tests/e2e/harness/fixtures.py`, and with
+/// `strata-home-` `parity_environment_name` in `harness/environment.py`,
+/// derive the same names.
+fn parity_name(prefix: &str, twin: &str) -> String {
     use sha2::Digest as _;
     let digest = sha2::Sha256::digest(twin.as_bytes());
-    let mut name = String::from("strata-fixture-");
+    let mut name = String::from(prefix);
     for byte in &digest[..6] {
         let _ = write!(name, "{byte:02x}");
     }
@@ -2920,6 +3170,13 @@ fn wait_for_fs(
     loop {
         match step.fs.observe(fixture, fixture_time, state) {
             Ok(()) => return Ok(()),
+            Err(_) if state.fatal.is_some() => {
+                return Err(format!(
+                    "{} {}",
+                    step.fs.path,
+                    state.fatal.take().unwrap_or_default()
+                ));
+            }
             Err(actual) if Instant::now() >= deadline => {
                 return Err(format!(
                     "timed out{}; {} {actual}",
@@ -3361,4 +3618,25 @@ fn only_a_controller_panic_is_filed_as_a_harness_error() {
         [(Some(3), "line 3: timed out".to_owned())]
     );
     assert_eq!(outcome.errors.len(), 1);
+}
+
+#[test]
+fn remove_and_rename_act_only_inside_the_run_directories() {
+    let scratch = tempfile::tempdir().expect("a scratch directory");
+    let fixture = scratch.path().join("fixture");
+    let outside = scratch.path().join("outside");
+    fs::create_dir_all(fixture.join("documents")).expect("the fixture");
+    fs::create_dir(&outside).expect("a directory outside the roots");
+    std::os::unix::fs::symlink(&outside, fixture.join("away")).expect("a link outside");
+    let roots = [fixture.clone()];
+    assert!(contained(&fixture.join("documents"), &roots).is_ok());
+    assert!(contained(&fixture.join("documents/../todo.txt"), &roots).is_ok());
+    assert!(
+        contained(&fixture.join("away"), &roots).is_ok(),
+        "the link itself is inside"
+    );
+    assert!(contained(&fixture.join("away/escaped.txt"), &roots).is_err());
+    assert!(contained(&fixture.join("../outside/x"), &roots).is_err());
+    assert!(contained(&fixture, &[scratch.path().join("fixture/documents")]).is_err());
+    assert!(contained(Path::new("/etc/passwd"), &roots).is_err());
 }

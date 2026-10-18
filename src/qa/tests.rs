@@ -9,7 +9,8 @@ use super::{
     pixels::{self, Capture},
     protocol::{
         Accessor, At, Axis, Change, Check, Chord, Command, EntryPart, EntryTarget, FieldCheck,
-        Modifier, Names, Offset, Predicate, Presence, Query, Target, changed_keys, parse_command,
+        Modifier, Names, Offset, Predicate, Presence, Query, Target, TextMatch, changed_keys,
+        parse_command,
     },
     state::{self, EntryObservation, FieldState, Observation, PaneObservation},
     step_towards,
@@ -58,6 +59,7 @@ fn commands_parse_from_the_scenario_spelling_with_their_defaults() {
             timeout: Duration::from_millis(15_000),
             message: None,
             samples: 1,
+            settle: None,
         })
     );
     assert_eq!(
@@ -110,6 +112,8 @@ fn commands_parse_from_the_scenario_spelling_with_their_defaults() {
                 name: Some("Single".to_owned()),
                 description: None,
                 within: None,
+                name_ends_with: Vec::new(),
+                nth: None,
             },
             message: Some("m".to_owned()),
         })
@@ -450,6 +454,8 @@ fn every_target_kind_parses_from_its_key() {
             name: Some("Keep Both".to_owned()),
             description: None,
             within: None,
+            name_ends_with: Vec::new(),
+            nth: None,
         }
     );
     assert_eq!(
@@ -475,6 +481,30 @@ fn every_target_kind_parses_from_its_key() {
         Target::Result("beta/match-note.txt".to_owned())
     );
     assert_eq!(
+        target(r#"{"result_row":-1,"containing":"match-note"}"#),
+        Target::ResultRow {
+            index: -1,
+            containing: Some("match-note".to_owned()),
+            name: None,
+        }
+    );
+    assert_eq!(
+        target(r#"{"role":"list item","name_ends_with":["/a"],"nth":-1}"#),
+        Target::Role {
+            role: "list item".to_owned(),
+            name: None,
+            description: None,
+            within: None,
+            name_ends_with: vec!["/a".to_owned()],
+            nth: Some(-1),
+        }
+    );
+    assert_eq!(target(r#"{"focused_widget":true}"#), Target::FocusedWidget);
+    assert_eq!(
+        target(r#"{"remembered":"focused"}"#),
+        Target::Remembered("focused".to_owned())
+    );
+    assert_eq!(
         target(r#"{"sidebar":"Home"}"#),
         Target::Sidebar("Home".to_owned())
     );
@@ -498,6 +528,11 @@ fn every_target_kind_parses_from_its_key() {
         r#"{"role":"button","name":"Next video","within":{"preview":true}}"#,
         r#"{"field":"filter"}"#,
         r#"{"result":"beta/match-note.txt"}"#,
+        r#"{"result_row":0,"name":"match-note.txt"}"#,
+        r#"{"role":"button","name":"drafts","nth":-1}"#,
+        r#"{"role":"list item","name_ends_with":["/a","/b"]}"#,
+        r#"{"focused_widget":true}"#,
+        r#"{"remembered":"focused"}"#,
     ] {
         assert_eq!(
             target(json).to_json(),
@@ -516,6 +551,11 @@ fn a_bad_target_names_the_kind_and_the_problem() {
     );
     assert!(error(r#"{"click":{"name":"b"}}"#).contains("a target needs exactly one of"));
     assert!(error(r#"{"click":"todo.txt"}"#).contains("a target is an object"));
+    assert!(
+        error(r#"{"click":{"result_row":0,"containing":"a","name":"b"}}"#)
+            .contains("containing or name, not both")
+    );
+    assert!(error(r#"{"click":{"focused_widget":false}}"#).contains("must be true"));
 }
 
 #[test]
@@ -1141,6 +1181,8 @@ fn name_filters_compare_names_as_python_strings_do() {
         json!({ "any_from": "040.txt" }),
         json!({ "toggled": { "names": ["011.txt", "000.txt"], "against": ["000.txt"] } }),
         json!({ "in_order": ["011.txt", "041.txt"] }),
+        json!({ "set": ["041.txt", "011.txt", "040.txt"] }),
+        json!({ "occurrences": { "011.txt": 1, "000.txt": 0 } }),
     ] {
         assert!(
             names(holding.clone()).matches(&actual),
@@ -1154,6 +1196,9 @@ fn name_filters_compare_names_as_python_strings_do() {
         json!({ "toggled": { "names": ["011.txt"], "against": ["011.txt"] } }),
         json!({ "in_order": ["041.txt", "011.txt"] }),
         json!({ "in_order": ["011.txt", "042.txt"] }),
+        json!({ "set": ["011.txt", "040.txt"] }),
+        json!({ "set": ["011.txt", "040.txt", "041.txt", "042.txt"] }),
+        json!({ "occurrences": { "011.txt": 2 } }),
     ] {
         assert!(
             !names(failing.clone()).matches(&actual),
@@ -1237,4 +1282,60 @@ fn hover_feedback_ignores_only_the_pointer_square() {
         pointer
     ));
     assert!(!pixels::differs_beside_pointer(&before, &before, pointer));
+}
+
+#[test]
+fn the_theme_accent_is_read_from_the_catalog_entry_with_the_theme_id() {
+    let catalog = "[[themes]]\nid = \"dark\"\naccent = \"#2ccceb\"\n\n\
+                   [[themes]]\nid = \"light\"\naccent = \"#010203\"\n";
+    assert_eq!(super::catalog_accent(catalog, "light"), Ok([1, 2, 3]));
+    assert_eq!(
+        super::catalog_accent(catalog, "dark"),
+        Ok([0x2c, 0xcc, 0xeb])
+    );
+    assert!(super::catalog_accent(catalog, "missing").is_err());
+    assert!(super::catalog_accent("[[themes]]\nid = \"x\"\naccent = \"teal\"\n", "x").is_err());
+}
+
+#[test]
+fn screen_and_footer_predicates_parse_and_are_read_live() {
+    for json in [
+        json!({ "pixel": { "target": { "result": "beta/thumb.png" }, "rgb": [230, 40, 60] } }),
+        json!({ "accent_pixels": { "target": { "field": "filter" }, "inset": 2, "more_than": 100 } }),
+        json!({ "hit_path": { "mark": "search: txt", "hits": { "todo.txt": "todo.txt" }, "name": "todo.txt" } }),
+        json!({ "focused_widget": { "contains": "Shortcuts" } }),
+        json!({ "mentions": { "target": { "dialog": true }, "role": "label", "text": "permission" } }),
+    ] {
+        assert!(
+            predicate(json.clone()).check.is_live(),
+            "{json} reads the live window"
+        );
+    }
+    let Check::FocusedWidget(Some(TextMatch::Like(pattern))) =
+        predicate(json!({ "focused_widget": { "contains": "Shortcuts" } })).check
+    else {
+        panic!("a focused_widget pattern should parse as a text pattern");
+    };
+    assert_eq!(pattern.contains.as_deref(), Some("Shortcuts"));
+}
+
+#[test]
+fn result_row_states_parse_and_need_a_state() {
+    let Ok(Command::ClickResultRows { states, modifiers }) =
+        parse_command(r#"{"click_result_rows":{"selected":true},"mods":["ctrl"]}"#)
+    else {
+        panic!("click_result_rows should parse");
+    };
+    assert!(states.matches(true, false) && !states.matches(false, true));
+    assert_eq!(modifiers, vec![Modifier::Ctrl]);
+    assert!(
+        parse_command(r#"{"click_result_rows":{}}"#)
+            .expect_err("an empty state should be rejected")
+            .contains("needs a state")
+    );
+    assert!(
+        predicate(json!({ "any_result_row": { "focused": true } }))
+            .check
+            .is_live()
+    );
 }

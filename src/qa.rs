@@ -518,6 +518,19 @@ impl Controller {
                     input.click(&aim, button, count, &modifiers).await
                 })
             }
+            Command::ClickResultRows { states, modifiers } => {
+                let rows = targets::result_rows(window.upcast_ref());
+                for row in rows {
+                    let now = targets::states(&row);
+                    if !states.matches(now.selected, now.focused) {
+                        continue;
+                    }
+                    if let Err(error) = input.click_widget(&row, &modifiers).await {
+                        return Outcome::error(error);
+                    }
+                }
+                Outcome::default()
+            }
             Command::Select(target) => input.select(&target).await,
             Command::Move {
                 target,
@@ -750,10 +763,19 @@ impl Controller {
                 timeout,
                 message,
                 samples,
+                settle,
             } => {
                 let deadline = Instant::now() + timeout;
                 let mut steady = 0;
                 loop {
+                    if let Some(target) = &settle {
+                        let settled = self
+                            .settle_target(&input, target, protocol::DEFAULT_WAIT, None)
+                            .await;
+                        if settled.error.is_some() {
+                            return settled;
+                        }
+                    }
                     match self.check(&input, &predicate) {
                         Err(error) => return Outcome::error(error),
                         Ok(Ok(())) => {
@@ -1417,7 +1439,13 @@ impl Controller {
             Check::Mentions(mention) => match locate(&mention.target)? {
                 None => Err(mismatch(json!("not on screen"))),
                 Some(located) => {
-                    let widgets = targets::presented(&located.widget);
+                    let mut widgets = targets::presented(&located.widget);
+                    if let Some(role) = &mention.role {
+                        widgets.retain(|widget| {
+                            targets::role_name(widget) == role
+                                && state::rendered_bounds(widget).is_some()
+                        });
+                    }
                     let found = match (&mention.text, &mention.words) {
                         (Some(text), _) => widgets.iter().any(|widget| {
                             targets::accessible_name(widget).contains(text.as_str())
@@ -1449,6 +1477,7 @@ impl Controller {
                     input.injector,
                     Kept {
                         memory: &input.memory.borrow(),
+                        widgets: &input.widgets.borrow(),
                         boxes: &input.boxes.borrow(),
                     },
                     target,
@@ -1467,7 +1496,12 @@ impl Controller {
                         targets::states(widget).focused && state::rendered_bounds(widget).is_some()
                     })
                     .map(|widget| targets::accessible_name(&widget));
-                verdict(focused == *expected, json!(focused))
+                let holds = match (expected, &focused) {
+                    (None, None) => true,
+                    (Some(expected), Some(focused)) => expected.matches(focused),
+                    _ => false,
+                };
+                verdict(holds, json!(focused))
             }
             Check::Inside(inside) => match (locate(&inside.target)?, locate(&inside.of)?) {
                 (Some(target), Some(of)) => {
@@ -1524,9 +1558,140 @@ impl Controller {
                     }
                 }
             }
+            Check::Pixel(pixel) => match locate(&pixel.target)? {
+                None => Err(mismatch(json!("not on screen"))),
+                Some(located) => {
+                    let [x, y, width, height] = located.rect.pixels();
+                    let (x, y) = (x + width.div_euclid(2), y + height.div_euclid(2));
+                    let colour = grab(input.injector, [x, y, 1, 1])?.pixels[0];
+                    verdict(colour == pixel.rgb, json!(colour))
+                }
+            },
+            Check::AccentPixels(accent) => {
+                let wanted = theme_accent()?;
+                match locate(&accent.target)? {
+                    None => Err(mismatch(json!("not on screen"))),
+                    Some(located) => {
+                        let [x, y, width, height] = located.rect.pixels();
+                        let inset = i64::from(accent.inset);
+                        let capture = grab(
+                            input.injector,
+                            [x + inset, y + inset, width - 2 * inset, height - 2 * inset],
+                        )?;
+                        let count = capture
+                            .pixels
+                            .iter()
+                            .filter(|colour| **colour == wanted)
+                            .count();
+                        verdict(
+                            count > accent.more_than,
+                            json!({ "accent": wanted, "count": count }),
+                        )
+                    }
+                }
+            }
+            Check::AnyResultRow(wanted) => {
+                let rows: Vec<Value> = targets::result_rows(input.window.upcast_ref())
+                    .iter()
+                    .map(|row| {
+                        let states = targets::states(row);
+                        json!([
+                            targets::accessible_name(row),
+                            states.selected,
+                            states.focused
+                        ])
+                    })
+                    .collect();
+                let holds = targets::result_rows(input.window.upcast_ref())
+                    .iter()
+                    .any(|row| {
+                        let states = targets::states(row);
+                        wanted.matches(states.selected, states.focused)
+                    });
+                verdict(holds, json!(rows))
+            }
+            Check::HitPath(hit) => {
+                // `TXT_HITS[order[0]]` raises a KeyError for a hit it does not list.
+                if !hit.hits.contains_key(&hit.name) {
+                    return Err(format!("{:?} is not one of the hits", hit.name));
+                }
+                let shown = hit_path(input.window, hit);
+                verdict(
+                    shown.as_deref() == hit.hits.get(&hit.name).map(String::as_str),
+                    json!(shown),
+                )
+            }
             _ => state::scan(input.window).observation.evaluate(predicate),
         })
     }
+}
+
+/// The active theme's accent colour, as the twin reads `settings["theme"]`
+/// and looks its `accent` up in `data/themes/catalog.toml`.
+fn theme_accent() -> Result<[u8; 3], String> {
+    let preferences = preferences()?;
+    let theme = preferences
+        .get("theme")
+        .and_then(Value::as_str)
+        .ok_or("settings.toml names no theme")?;
+    catalog_accent(include_str!("../data/themes/catalog.toml"), theme)
+}
+
+/// `ImageColor.getrgb(theme["accent"])` for the catalog theme with this id.
+fn catalog_accent(catalog: &str, theme: &str) -> Result<[u8; 3], String> {
+    let catalog: toml::Table = toml::from_str(catalog).map_err(|error| error.to_string())?;
+    let accent = catalog
+        .get("themes")
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|entry| entry.get("id").and_then(toml::Value::as_str) == Some(theme))
+        .and_then(|entry| entry.get("accent"))
+        .and_then(toml::Value::as_str)
+        .ok_or_else(|| format!("the theme catalog has no accent for {theme:?}"))?;
+    let hex = accent
+        .strip_prefix('#')
+        .filter(|hex| hex.len() == 6)
+        .ok_or_else(|| format!("{accent:?} is not a #rrggbb colour"))?;
+    let channel = |index: usize| {
+        u8::from_str_radix(&hex[index..index + 2], 16).map_err(|error| error.to_string())
+    };
+    Ok([channel(0)?, channel(2)?, channel(4)?])
+}
+
+/// `footer_hit`: beside the footer mark, the first panel whose rendered
+/// labels, joined, are one of the hits' paths.
+fn hit_path(window: &gtk::Window, hit: &protocol::HitPath) -> Option<String> {
+    let mark = targets::presented(window.upcast_ref())
+        .into_iter()
+        .find(|widget| {
+            targets::role_name(widget) == "label"
+                && targets::accessible_name(widget) == hit.mark
+                && state::rendered_bounds(widget).is_some()
+        })?;
+    let parent = mark.parent()?;
+    let mut part = parent.first_child();
+    while let Some(current) = part {
+        part = current.next_sibling();
+        if !current.is_visible() || targets::role_name(&current) != "panel" {
+            continue;
+        }
+        let mut text = String::new();
+        let mut label = current.first_child();
+        while let Some(child) = label {
+            label = child.next_sibling();
+            if child.is_visible()
+                && targets::role_name(&child) == "label"
+                && state::rendered_bounds(&child).is_some()
+            {
+                text.push_str(&targets::accessible_name(&child));
+            }
+        }
+        if hit.hits.values().any(|path| *path == text) {
+            return Some(text);
+        }
+    }
+    None
 }
 
 /// The samples as the twin's `assert ..., samples` prints them, its message:
@@ -2116,6 +2281,7 @@ impl Input<'_> {
             self.injector,
             Kept {
                 memory: &self.memory.borrow(),
+                widgets: &self.widgets.borrow(),
                 boxes: &self.boxes.borrow(),
             },
             target,
@@ -2143,7 +2309,10 @@ impl Input<'_> {
             name: Some(name),
             description: None,
             within: None,
+            name_ends_with,
+            nth: None,
         } = target
+            && name_ends_with.is_empty()
         {
             let deadline = Instant::now() + LOCATE_TIMEOUT;
             loop {
@@ -2368,6 +2537,35 @@ impl Input<'_> {
         Ok((coordinate(x)?, coordinate(y)?))
     }
 
+    /// `Pointer.click(node, modifiers=...)` on a widget a step already holds,
+    /// once its box comes through a painted frame unchanged.
+    async fn click_widget(
+        &self,
+        widget: &gtk::Widget,
+        modifiers: &[Modifier],
+    ) -> Result<(), String> {
+        let deadline = Instant::now() + LOCATE_TIMEOUT;
+        let rect = loop {
+            let before = targets::screen_rect(widget, self.injector)
+                .map_err(|error| error.message().to_owned())?;
+            settle(Some(self.window)).await;
+            let after = targets::screen_rect(widget, self.injector)
+                .map_err(|error| error.message().to_owned())?;
+            if after.pixels() == before.pixels() {
+                break after;
+            }
+            if Instant::now() >= deadline {
+                return Err(format!(
+                    "the row kept moving for {} s",
+                    LOCATE_TIMEOUT.as_secs()
+                ));
+            }
+        };
+        let (x, y) = rect.centre();
+        self.click_at((coordinate(x)?, coordinate(y)?), 1, 1, modifiers)
+            .await
+    }
+
     /// `Pointer.click` and `double_click`: aim, hold the modifiers, tap, let go.
     async fn click(
         &self,
@@ -2376,7 +2574,17 @@ impl Input<'_> {
         count: u32,
         modifiers: &[Modifier],
     ) -> Result<(), String> {
-        let (x, y) = self.aim(aim).await?;
+        let point = self.aim(aim).await?;
+        self.click_at(point, button, count, modifiers).await
+    }
+
+    async fn click_at(
+        &self,
+        (x, y): (i16, i16),
+        button: u8,
+        count: u32,
+        modifiers: &[Modifier],
+    ) -> Result<(), String> {
         self.move_to(x, y).await?;
         let held = self.hold(modifiers).await?;
         let mut result = Ok(());

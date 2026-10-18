@@ -91,10 +91,11 @@ pub(crate) enum Aim {
     DragOrigin,
 }
 
-/// What a lookup may refer back to: kept widgets and kept boxes.
+/// What a lookup may refer back to: kept fields, other kept widgets, and kept boxes.
 #[derive(Clone, Copy)]
 pub(crate) struct Kept<'a> {
     pub(crate) memory: &'a Memory,
+    pub(crate) widgets: &'a Memory,
     pub(crate) boxes: &'a Boxes,
 }
 
@@ -168,11 +169,15 @@ pub(crate) fn locate(
             name,
             description,
             within,
+            name_ends_with,
+            nth,
         } => {
             let wanted = Wanted {
                 role,
                 name: name.as_deref(),
                 description: description.as_deref(),
+                name_ends_with,
+                nth: *nth,
             };
             match within {
                 None => wanted.find(root)?,
@@ -262,6 +267,31 @@ pub(crate) fn locate(
         })?,
         Target::Result(path) => search_result(root, path)
             .ok_or_else(|| missing(format!("no result {path:?} on screen")))?,
+        Target::ResultRow {
+            index,
+            containing,
+            name: named,
+        } => {
+            let rows: Vec<gtk::Widget> = result_rows(root)
+                .into_iter()
+                .filter(|row| {
+                    let name = accessible_name(row);
+                    containing.as_deref().is_none_or(|part| name.contains(part))
+                        && named.as_deref().is_none_or(|named| name == named)
+                })
+                .collect();
+            pick(rows, *index).ok_or_else(|| missing(format!("no result row {index}")))?
+        }
+        Target::FocusedWidget => presented(root)
+            .into_iter()
+            .find(|widget| states(widget).focused && state::rendered_bounds(widget).is_some())
+            .ok_or_else(|| missing("no widget has focus"))?,
+        Target::Remembered(name) => kept
+            .widgets
+            .get(name)
+            .ok_or_else(|| LookupError::Broken(format!("no widget was remembered as {name:?}")))?
+            .upgrade()
+            .ok_or_else(|| missing(format!("the widget remembered as {name:?} is gone")))?,
         Target::Pane { dir } => {
             let pane = pane(&scene, dir.as_deref())?;
             let rect = screen_rect(&pane.pane, injector)?;
@@ -310,6 +340,10 @@ pub(crate) fn locate(
                 .ok_or_else(|| missing("the entry list has no scroll viewport"))?
         }
     };
+    // `Pointer.drag(source, ...)` starts on any source's icon, else its centre.
+    if aim == Aim::DragOrigin {
+        return drag_origin(widget, injector);
+    }
     let rect = screen_rect(&widget, injector)?;
     Ok(Located {
         rect,
@@ -433,31 +467,52 @@ fn background(
     })
 }
 
-/// What a role target asks for: the role, and the name and description when given.
+/// What a role target asks for: the role, and the name, its ending, and the
+/// description when given, and which match.
 struct Wanted<'a> {
     role: &'a str,
     name: Option<&'a str>,
     description: Option<&'a str>,
+    name_ends_with: &'a [String],
+    nth: Option<i64>,
 }
 
 impl Wanted<'_> {
     fn matches(&self, widget: &gtk::Widget) -> bool {
         role_name(widget) == self.role
             && self.name.is_none_or(|name| accessible_name(widget) == name)
+            && (self.name_ends_with.is_empty() || {
+                let name = accessible_name(widget);
+                self.name_ends_with
+                    .iter()
+                    .any(|suffix| name.ends_with(suffix.as_str()))
+            })
             && self
                 .description
                 .is_none_or(|description| accessible_description(widget) == description)
     }
 
-    /// The first showing match in DFS order, as `Node.find(role=..., ...)` returns it.
+    /// The showing match in DFS order `nth` picks, the first without it, as
+    /// `Node.find(role=..., ...)` and `find_all(...)[nth]` return it.
     fn find(&self, root: &gtk::Widget) -> Result<gtk::Widget, LookupError> {
-        first_rendered(root, |widget| self.matches(widget)).ok_or_else(|| {
+        let found = presented(root)
+            .into_iter()
+            .filter(|widget| self.matches(widget) && state::rendered_bounds(widget).is_some());
+        pick(found.collect(), self.nth.unwrap_or(0)).ok_or_else(|| {
             missing(format!(
-                "no {}{}{} on screen",
+                "no {}{}{}{}{} on screen",
+                self.nth
+                    .map(|nth| format!("match {nth} of "))
+                    .unwrap_or_default(),
                 self.role,
                 self.name
                     .map(|name| format!(" named {name:?}"))
                     .unwrap_or_default(),
+                if self.name_ends_with.is_empty() {
+                    String::new()
+                } else {
+                    format!(" named with an ending in {:?}", self.name_ends_with)
+                },
                 self.description
                     .map(|description| format!(" described {description:?}"))
                     .unwrap_or_default()
@@ -467,10 +522,31 @@ impl Wanted<'_> {
 
     /// `find(..., rendered=False)`: presented, but perhaps scrolled away.
     fn find_presented(&self, root: &gtk::Widget) -> Option<gtk::Widget> {
-        presented(root)
+        let found = presented(root)
             .into_iter()
-            .find(|widget| self.matches(widget))
+            .filter(|widget| self.matches(widget));
+        pick(found.collect(), self.nth.unwrap_or(0))
     }
+}
+
+/// `items[index]`, counting back from the end when negative.
+fn pick(mut items: Vec<gtk::Widget>, index: i64) -> Option<gtk::Widget> {
+    let length = i64::try_from(items.len()).ok()?;
+    let index = if index < 0 { length + index } else { index };
+    let index = usize::try_from(index).ok()?;
+    (index < items.len()).then(|| items.swap_remove(index))
+}
+
+/// `test_filter_results.result_rows`: the `Search results` rows, or else
+/// every list item in the window, rendered, in DFS order.
+pub(crate) fn result_rows(root: &gtk::Widget) -> Vec<gtk::Widget> {
+    let everything = presented(root);
+    let (container, row_role) =
+        search_results(&everything).unwrap_or_else(|| (root.clone(), "list item"));
+    presented(&container)
+        .into_iter()
+        .filter(|row| role_name(row) == row_role && state::rendered_bounds(row).is_some())
+        .collect()
 }
 
 /// A showing application window with this title, as `application.find(name=title)`
@@ -501,11 +577,15 @@ pub(crate) fn presented_target(
             name,
             description,
             within,
+            name_ends_with,
+            nth,
         } => {
             let wanted = Wanted {
                 role,
                 name: name.as_deref(),
                 description: description.as_deref(),
+                name_ends_with,
+                nth: *nth,
             };
             let scope = match within {
                 None => window.clone().upcast::<gtk::Widget>(),
@@ -705,7 +785,10 @@ pub(crate) fn states(widget: &gtk::Widget) -> States {
         recorded.and_then(|naming| naming.pressed).unwrap_or(false)
     };
     States {
-        selected: state::row_selected(widget),
+        // A list box row reports its own selection, as GTK's AT-SPI bridge does.
+        selected: widget
+            .downcast_ref::<gtk::ListBoxRow>()
+            .map_or_else(|| state::row_selected(widget), gtk::ListBoxRow::is_selected),
         focused: if widget.is::<gtk::Editable>() {
             editable_focused(widget)
         } else {

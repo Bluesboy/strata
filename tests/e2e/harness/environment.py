@@ -3,12 +3,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .fixtures import PARITY_FIXTURES_VARIABLE
 from .manifest import MANIFEST
 
 # Strata records that it has already offered to become the file-chooser
@@ -24,6 +26,12 @@ DEFAULT_PREFERENCES: dict[str, object] = MANIFEST["preferences"]
 # Locale, rendering, and backend pins; the per-test HOME and XDG paths are
 # added by `TestEnvironment.variables`.
 STATIC_VARIABLES: dict[str, str] = MANIFEST["environment"]
+
+
+def parity_environment_name(node_id: str) -> str:
+    """`parity_name("strata-home-", ...)` in `tests/qa.rs` derives the same name."""
+
+    return "strata-home-" + hashlib.sha256(node_id.encode()).hexdigest()[:12]
 
 
 def process_environment() -> dict[str, str]:
@@ -53,9 +61,20 @@ class TestEnvironment:
     """A throwaway HOME the application under test may write to freely."""
 
     root: Path = field(init=False)
+    # A display's own helper environment, which keeps a random name under
+    # parity so the scenario's environment can take the test's.
+    helper: bool = False
 
     def __post_init__(self) -> None:
-        self.root = Path(tempfile.mkdtemp(prefix="strata-e2e-home-", dir="/tmp"))
+        # pytest names the running test as "<node id> (<phase>)". Under
+        # parity the root is named after it, as the `--qa` twin names its
+        # own, so a typed home path is the same on both sides.
+        current = os.environ.get("PYTEST_CURRENT_TEST")
+        if not self.helper and os.environ.get(PARITY_FIXTURES_VARIABLE) == "1" and current:
+            self.root = Path("/tmp") / parity_environment_name(current.rsplit(" ", 1)[0])
+            self.root.mkdir(mode=0o700)
+        else:
+            self.root = Path(tempfile.mkdtemp(prefix="strata-e2e-home-", dir="/tmp"))
         for name in ("home", "config", "data", "cache", "state"):
             (self.root / name).mkdir()
         gtk = self.config_home / "gtk-4.0"

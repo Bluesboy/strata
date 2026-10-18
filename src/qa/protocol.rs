@@ -43,6 +43,13 @@ pub(crate) enum Command {
         /// the button's press and release.
         release_modifiers_first: bool,
     },
+    /// Clicks, in DFS order, each of `test_filter_results.result_rows` whose
+    /// states match when its turn comes, as `for row in rows: if
+    /// row.has_state("selected"): pointer.click(row, modifiers=...)`.
+    ClickResultRows {
+        states: RowStates,
+        modifiers: Vec<Modifier>,
+    },
     /// Click an entry until it reports itself selected, as `select_entry` does.
     Select(EntryTarget),
     /// Home, then the next-entry key until the entry has focus, as
@@ -210,6 +217,9 @@ pub(crate) enum Command {
         message: Option<String>,
         /// Polls in a row the predicate must hold, as a twin's steady-sample wait.
         samples: usize,
+        /// Settled before each poll, as a twin's condition calls
+        /// `strata.settle(node)` before it reads the screen.
+        settle: Option<Target>,
     },
     /// `message` names the twin's assertion, as a wait's names its `strata.wait`.
     /// With a timeout it polls until every predicate holds, as a twin's
@@ -223,8 +233,9 @@ pub(crate) enum Command {
     Query(Query),
 }
 
-pub(crate) const COMMANDS: [&str; 30] = [
+pub(crate) const COMMANDS: [&str; 31] = [
     "key",
+    "click_result_rows",
     "keys_until",
     "key_down",
     "key_up",
@@ -441,6 +452,31 @@ struct ClickFields {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ClickResultRowsFields {
+    click_result_rows: RowStates,
+    #[serde(default)]
+    mods: Vec<String>,
+}
+
+/// States a result row must have; each one given must match.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RowStates {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) selected: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) focused: Option<bool>,
+}
+
+impl RowStates {
+    pub(crate) fn matches(&self, selected: bool, focused: bool) -> bool {
+        self.selected.is_none_or(|wanted| wanted == selected)
+            && self.focused.is_none_or(|wanted| wanted == focused)
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SelectFields {
     select: EntryTarget,
 }
@@ -574,6 +610,7 @@ struct WaitFields {
     message: Option<String>,
     #[serde(default = "one_sample")]
     samples: usize,
+    settling: Option<Target>,
 }
 
 #[derive(Deserialize)]
@@ -876,6 +913,16 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
                 release_modifiers_first: fields.release_mods_first,
             })
         }
+        "click_result_rows" => {
+            let fields: ClickResultRowsFields = serde_json::from_value(fields).map_err(invalid)?;
+            if fields.click_result_rows == RowStates::default() {
+                return Err("click_result_rows needs a state to match".to_owned());
+            }
+            Ok(Command::ClickResultRows {
+                states: fields.click_result_rows,
+                modifiers: modifiers(&fields.mods)?,
+            })
+        }
         "select" => {
             let fields: SelectFields = serde_json::from_value(fields).map_err(invalid)?;
             Ok(Command::Select(fields.select))
@@ -1006,6 +1053,7 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
                     .map_or(DEFAULT_WAIT, Duration::from_millis),
                 message: fields.message,
                 samples: fields.samples,
+                settle: fields.settling,
             })
         }
         "expect" => {
@@ -1233,9 +1281,12 @@ impl<'de> Deserialize<'de> for At {
 }
 
 /// The target kinds, each named by the one key that selects it.
-pub(crate) const TARGET_KINDS: [&str; 22] = [
+pub(crate) const TARGET_KINDS: [&str; 25] = [
     "entry",
     "result",
+    "result_row",
+    "focused_widget",
+    "remembered",
     "search_result",
     "role",
     "named",
@@ -1272,6 +1323,12 @@ pub(crate) enum Target {
         name: Option<String>,
         description: Option<String>,
         within: Option<Box<Target>>,
+        /// The name must end with one of these, as
+        /// `any(node.name.endswith(suffix) for suffix in ...)`.
+        name_ends_with: Vec<String>,
+        /// Which of the matches in DFS order, counting back when negative, as
+        /// `find_all(...)[-1]`; the first without it.
+        nth: Option<i64>,
     },
     /// The entry list below its last entry; `background_point(directory)`.
     Background { dir: Option<String> },
@@ -1291,6 +1348,18 @@ pub(crate) enum Target {
     /// A filter result by its path below the filtered directory, as
     /// `test_filter_results.result` finds it.
     Result(String),
+    /// One of `test_filter_results.result_rows` in DFS order, counting back
+    /// when negative, among those whose name contains `containing` or is
+    /// `name` when given, as `[row for row in rows if "x" in row.name][-1]`.
+    ResultRow {
+        index: i64,
+        containing: Option<String>,
+        name: Option<String>,
+    },
+    /// The first focused widget on screen, `strata.focused_node()`.
+    FocusedWidget,
+    /// The widget `remember` kept under this name, as a twin keeps a node.
+    Remembered(String),
     /// `sidebar_button(name)`: a button by name.
     Sidebar(String),
     /// `header_button(name)`: a button by name.
@@ -1479,6 +1548,9 @@ impl Target {
             name: Option<String>,
             description: Option<String>,
             within: Option<Target>,
+            #[serde(default)]
+            name_ends_with: Vec<String>,
+            nth: Option<i64>,
         }
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
@@ -1510,6 +1582,18 @@ impl Target {
         }
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
+        struct ResultRowFields {
+            result_row: i64,
+            containing: Option<String>,
+            name: Option<String>,
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct FocusedWidgetFields {
+            focused_widget: bool,
+        }
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
         struct AncestorFields {
             ancestor: String,
             of: Target,
@@ -1535,6 +1619,8 @@ impl Target {
                     name: fields.name,
                     description: fields.description,
                     within: fields.within.map(Box::new),
+                    name_ends_with: fields.name_ends_with,
+                    nth: fields.nth,
                 })
             }
             "background" => {
@@ -1565,6 +1651,29 @@ impl Target {
             }
             "toplevel" => label(value).map(Self::Toplevel),
             "result" => label(value).map(Self::Result),
+            "result_row" => {
+                let fields: ResultRowFields = serde_json::from_value(value).map_err(invalid)?;
+                if fields.containing.is_some() && fields.name.is_some() {
+                    return Err(
+                        "invalid result_row target: containing or name, not both".to_owned()
+                    );
+                }
+                Ok(Self::ResultRow {
+                    index: fields.result_row,
+                    containing: fields.containing,
+                    name: fields.name,
+                })
+            }
+            "focused_widget" => {
+                let fields: FocusedWidgetFields = serde_json::from_value(value).map_err(invalid)?;
+                if !fields.focused_widget {
+                    return Err(
+                        "invalid focused_widget target: focused_widget must be true".to_owned()
+                    );
+                }
+                Ok(Self::FocusedWidget)
+            }
+            "remembered" => label(value).map(Self::Remembered),
             "pane" => directory(value).map(|dir| Self::Pane { dir }),
             "viewport" => directory(value).map(|dir| Self::Viewport { dir }),
             "sidebar" => label(value).map(Self::Sidebar),
@@ -1646,6 +1755,8 @@ impl Target {
                 name,
                 description,
                 within,
+                name_ends_with,
+                nth,
             } => {
                 let mut object = Map::new();
                 object.insert("role".to_owned(), json!(role));
@@ -1658,6 +1769,12 @@ impl Target {
                 if let Some(within) = within {
                     object.insert("within".to_owned(), within.to_json());
                 }
+                if !name_ends_with.is_empty() {
+                    object.insert("name_ends_with".to_owned(), json!(name_ends_with));
+                }
+                if let Some(nth) = nth {
+                    object.insert("nth".to_owned(), json!(nth));
+                }
                 Value::Object(object)
             }
             Self::Background { dir: None } => json!({ "background": true }),
@@ -1669,6 +1786,23 @@ impl Target {
             Self::FieldWithin(within) => json!({ "field": true, "within": within.to_json() }),
             Self::Toplevel(title) => json!({ "toplevel": title }),
             Self::Result(path) => json!({ "result": path }),
+            Self::ResultRow {
+                index,
+                containing,
+                name,
+            } => {
+                let mut object = Map::new();
+                object.insert("result_row".to_owned(), json!(index));
+                if let Some(containing) = containing {
+                    object.insert("containing".to_owned(), json!(containing));
+                }
+                if let Some(name) = name {
+                    object.insert("name".to_owned(), json!(name));
+                }
+                Value::Object(object)
+            }
+            Self::FocusedWidget => json!({ "focused_widget": true }),
+            Self::Remembered(name) => json!({ "remembered": name }),
             Self::Sidebar(name) => json!({ "sidebar": name }),
             Self::Header(name) => json!({ "header": name }),
             Self::MenuItem(name) => json!({ "menu_item": name }),
@@ -1914,9 +2048,9 @@ pub(crate) enum Check {
     /// Whether a path exists, read by the process itself so it can join an
     /// `any` or `all` with window state; the path must be absolute.
     File(FileCheck),
-    /// The name of the first focused widget on screen, `strata.focused_node()`;
-    /// null when nothing holds focus.
-    FocusedWidget(Option<String>),
+    /// The name of the first focused widget on screen, `strata.focused_node()`,
+    /// exactly or as `{"contains":...}`; null when nothing holds focus.
+    FocusedWidget(Option<TextMatch>),
     /// A target's box has width and height and lies inside another's, on
     /// both axes or, with `axis`, on that one alone.
     Inside(InsideCheck),
@@ -1927,6 +2061,47 @@ pub(crate) enum Check {
     /// A target resolves to another widget than the one `remember` kept
     /// under `since`, as a listing's reload rebuilds its rows.
     Replaced(Replaced),
+    /// The screen pixel at a target's centre has this colour, as a twin reads
+    /// `screenshot.getpixel(bounds.center)`.
+    Pixel(PixelCheck),
+    /// More than `more_than` pixels inside a target's box, inset on every
+    /// side, have the active theme's accent colour exactly, as
+    /// `test_filter_text_selection_uses_the_active_theme` counts them.
+    AccentPixels(AccentPixels),
+    /// Some row of `test_filter_results.result_rows` has these states, as
+    /// `any(row.has_state("focused") for row in result_rows(strata))`.
+    AnyResultRow(RowStates),
+    /// The hit path beside a footer mark: the first panel next to the mark
+    /// whose rendered labels, joined, are one of `hits`' paths must be
+    /// `hits[name]`, as `test_search_filter_sort.footer_hit` reads it.
+    HitPath(HitPath),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PixelCheck {
+    pub(crate) target: Target,
+    pub(crate) rgb: [u8; 3],
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AccentPixels {
+    pub(crate) target: Target,
+    #[serde(default)]
+    pub(crate) inset: u16,
+    pub(crate) more_than: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct HitPath {
+    /// The footer mark's label, such as `search: txt`.
+    pub(crate) mark: String,
+    /// Each hit's name and the path the footer shows for it.
+    pub(crate) hits: std::collections::BTreeMap<String, String>,
+    /// The hit whose path must show.
+    pub(crate) name: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -1947,6 +2122,9 @@ pub(crate) struct DescriptionCheck {
 #[serde(deny_unknown_fields)]
 pub(crate) struct MentionCheck {
     pub(crate) target: Target,
+    /// Only rendered widgets with this role, as `node.find_all(role="label")`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) role: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2116,7 +2294,11 @@ impl Check {
             | Self::FocusedWidget(_)
             | Self::Inside(_)
             | Self::EditorWithinWindow(_)
-            | Self::Replaced(_) => true,
+            | Self::Replaced(_)
+            | Self::Pixel(_)
+            | Self::AccentPixels(_)
+            | Self::HitPath(_)
+            | Self::AnyResultRow(_) => true,
             Self::Any(predicates) | Self::All(predicates) => {
                 predicates.iter().any(|predicate| predicate.check.is_live())
             }
@@ -2399,6 +2581,12 @@ pub(crate) struct NameFilter {
     /// `positions = [items.index(a) for a in expected]; positions == sorted(positions)`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) in_order: Vec<String>,
+    /// The names as a set, as `set(names) == {...}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) set: Option<Vec<String>>,
+    /// How often each name is listed, as `names.count("a") == 2`.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub(crate) occurrences: std::collections::BTreeMap<String, usize>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -2437,6 +2625,13 @@ impl Names {
                             .all(|name| actual.contains(name) != toggled.against.contains(name))
                     })
                     && in_order(actual, &filter.in_order)
+                    && filter.set.as_ref().is_none_or(|set| {
+                        actual.iter().all(|name| set.contains(name))
+                            && set.iter().all(|name| actual.contains(name))
+                    })
+                    && filter.occurrences.iter().all(|(name, count)| {
+                        actual.iter().filter(|listed| *listed == name).count() == *count
+                    })
             }
         }
     }

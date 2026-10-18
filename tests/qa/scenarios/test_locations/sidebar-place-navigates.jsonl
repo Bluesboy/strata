@@ -1,0 +1,10 @@
+{"scenario":"sidebar-place-navigates","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_locations.py::test_a_sidebar_place_navigates_there","mutation":null,"known_bug":null,"setup":[{"fs":{"path":"$home/Audio Library","mkdir":true}},{"fs":{"path":"$home/Audio Library/song.txt","write":"music\n"}},{"fs":{"path":"$config/user-dirs.dirs","write":"XDG_MUSIC_DIR=\"$HOME/Audio Library\"\n"}}]}
+{"fs":{"path":"$home/sidebar-target.txt","write":"target\n"}}
+{"click":{"sidebar":"Home"}}
+{"wait":{"directory":"home"},"message":"the browser to be working in 'home'"}
+{"settle":{"pane":"home"}}
+{"wait":{"entry":"sidebar-target.txt"},"message":"the entry 'sidebar-target.txt' to appear"}
+{"click":{"sidebar":"Music"}}
+{"wait":{"directory":"Audio Library"},"message":"the browser to be working in 'Audio Library'"}
+{"settle":{"pane":"Audio Library"}}
+{"wait":{"entry":"song.txt"},"message":"the entry 'song.txt' to appear"}

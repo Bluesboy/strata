@@ -94,7 +94,7 @@ class HeadlessDisplay:
 
     def start(self) -> None:
         self.runtime_dir = Path(tempfile.mkdtemp(prefix="strata-e2e-", dir="/tmp"))
-        self._home = TestEnvironment()
+        self._home = TestEnvironment(helper=True)
         if len(str(self.runtime_dir)) > MAX_RUNTIME_DIR_LENGTH:
             self.stop()
             raise DisplayError(

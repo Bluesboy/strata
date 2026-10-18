@@ -366,7 +366,11 @@ impl Observation {
             | Check::FocusedWidget(_)
             | Check::Inside(_)
             | Check::EditorWithinWindow(_)
-            | Check::Replaced(_) => (false, json!("needs the live window")),
+            | Check::Replaced(_)
+            | Check::Pixel(_)
+            | Check::AccentPixels(_)
+            | Check::HitPath(_)
+            | Check::AnyResultRow(_) => (false, json!("needs the live window")),
             Check::Not(inner) => match self.evaluate(inner) {
                 Ok(()) => (false, json!("the negated predicate holds")),
                 Err(failure) => (true, failure.actual),
