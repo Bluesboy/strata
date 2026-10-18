@@ -361,9 +361,7 @@ impl TabStrip {
                 && let Some(headers) = selected_headers.upgrade()
             {
                 for header in headers.borrow().iter() {
-                    header
-                        .select
-                        .update_state(&[gtk::accessible::State::Selected(Some(header.id == id))]);
+                    accessibility::set_selected(&header.select, header.id == id);
                 }
                 if let (Some(row), Some(scroller)) = (row.upgrade(), scroller.upgrade())
                     && let Some(header) = headers.borrow().iter().find(|header| header.id == id)

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import functools
+import hashlib
 import json
 import os
 import re
@@ -35,6 +36,10 @@ STATE_DUMP_VARIABLE = "STRATA_STATE_DUMP"
 # How long the final state may keep changing before it is dumped anyway.
 STATE_SETTLE_TIMEOUT = 5.0
 STATE_SETTLE_INTERVAL = 0.25
+# Input logs and state dumps are named after the node id, kept below the
+# 255-byte file name limit; `scripts/qa_parity.py` derives the same names.
+NODE_FILE_NAME_LIMIT = 200
+NODE_FILE_NAME_KEPT = 180
 
 pytest_plugins = ["harness.ci_plugin", "harness.warnings_plugin"]
 
@@ -213,7 +218,12 @@ def node_file_name(node_id: str) -> str:
     `scripts/qa_parity.py` derives the same name from a twin's node id.
     """
 
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", node_id)
+    name = re.sub(r"[^A-Za-z0-9._-]+", "_", node_id)
+    if len(name) <= NODE_FILE_NAME_LIMIT:
+        return name
+    # Inside the 255-byte file name limit, still unique per node.
+    digest = hashlib.sha256(node_id.encode()).hexdigest()[:16]
+    return f"{name[:NODE_FILE_NAME_KEPT]}-{digest}"
 
 
 def _start_input_log(request: pytest.FixtureRequest, window: Strata) -> None:

@@ -50,12 +50,12 @@ pub(in crate::ui) fn pane_new_folder_button(
 }
 
 pub(in crate::ui) fn pane_refresh_button(browser: &Rc<Browser>, depth: usize) -> gtk::Button {
-    let button = gtk::Button::builder()
-        .tooltip_text(crate::ui::shortcut_reference::with_keys(
-            "Refresh (%{keys})",
-            crate::ui::keys::Keys::One(crate::ui::keys::bindings::REFRESH),
-        ))
-        .build();
+    let label = crate::ui::shortcut_reference::with_keys(
+        "Refresh (%{keys})",
+        crate::ui::keys::Keys::One(crate::ui::keys::bindings::REFRESH),
+    );
+    let button = gtk::Button::builder().tooltip_text(&label).build();
+    crate::ui::accessibility::set_label(&button, &label);
     button.set_child(Some(&crate::assets::chrome_icon(
         crate::assets::icons::REFRESH,
     )));

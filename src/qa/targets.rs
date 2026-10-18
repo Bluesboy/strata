@@ -10,7 +10,7 @@ use gtk::{glib, prelude::*};
 
 use super::{
     input::Injector,
-    protocol::{At, Axis, EntryPart, FieldRef, Target},
+    protocol::{At, Axis, EntryPart, FieldRef, StateName, Target},
     state::{self, Scene},
 };
 use crate::ui::accessibility_qa as names;
@@ -171,6 +171,8 @@ pub(crate) fn locate(
             within,
             name_ends_with,
             nth,
+            states,
+            name_matches,
         } => {
             let wanted = Wanted {
                 role,
@@ -178,6 +180,8 @@ pub(crate) fn locate(
                 description: description.as_deref(),
                 name_ends_with,
                 nth: *nth,
+                states,
+                name_matches: pattern(name_matches.as_deref())?,
             };
             match within {
                 None => wanted.find(root)?,
@@ -467,20 +471,52 @@ fn background(
     })
 }
 
-/// What a role target asks for: the role, and the name, its ending, and the
-/// description when given, and which match.
-struct Wanted<'a> {
-    role: &'a str,
-    name: Option<&'a str>,
-    description: Option<&'a str>,
-    name_ends_with: &'a [String],
-    nth: Option<i64>,
+/// What a role target asks for: the role, and the name, its ending or a
+/// pattern in it, the description, and states when given, and which match.
+pub(crate) struct Wanted<'a> {
+    pub(crate) role: &'a str,
+    pub(crate) name: Option<&'a str>,
+    pub(crate) description: Option<&'a str>,
+    pub(crate) name_ends_with: &'a [String],
+    pub(crate) nth: Option<i64>,
+    pub(crate) states: &'a [StateName],
+    pub(crate) name_matches: Option<regex::Regex>,
+}
+
+/// A role target's `name_matches`, which the protocol already checked compiles.
+pub(crate) fn pattern(pattern: Option<&str>) -> Result<Option<regex::Regex>, LookupError> {
+    pattern
+        .map(regex::Regex::new)
+        .transpose()
+        .map_err(|error| LookupError::Broken(error.to_string()))
+}
+
+/// Whether a widget has a state, as AT-SPI reports it.
+pub(crate) fn has_state(widget: &gtk::Widget, state: StateName) -> bool {
+    let now = states(widget);
+    let orientation = widget
+        .dynamic_cast_ref::<gtk::Orientable>()
+        .map(OrientableExt::orientation);
+    match state {
+        StateName::Selected => now.selected,
+        StateName::Focused => now.focused,
+        StateName::Checked => now.checked,
+        StateName::Pressed => now.pressed,
+        StateName::Sensitive => now.sensitive,
+        StateName::Horizontal => orientation == Some(gtk::Orientation::Horizontal),
+        StateName::Vertical => orientation == Some(gtk::Orientation::Vertical),
+    }
 }
 
 impl Wanted<'_> {
-    fn matches(&self, widget: &gtk::Widget) -> bool {
+    pub(crate) fn matches(&self, widget: &gtk::Widget) -> bool {
         role_name(widget) == self.role
             && self.name.is_none_or(|name| accessible_name(widget) == name)
+            && self
+                .name_matches
+                .as_ref()
+                .is_none_or(|pattern| pattern.is_match(&accessible_name(widget)))
+            && self.states.iter().all(|state| has_state(widget, *state))
             && (self.name_ends_with.is_empty() || {
                 let name = accessible_name(widget);
                 self.name_ends_with
@@ -494,7 +530,7 @@ impl Wanted<'_> {
 
     /// The showing match in DFS order `nth` picks, the first without it, as
     /// `Node.find(role=..., ...)` and `find_all(...)[nth]` return it.
-    fn find(&self, root: &gtk::Widget) -> Result<gtk::Widget, LookupError> {
+    pub(crate) fn find(&self, root: &gtk::Widget) -> Result<gtk::Widget, LookupError> {
         let found = presented(root)
             .into_iter()
             .filter(|widget| self.matches(widget) && state::rendered_bounds(widget).is_some());
@@ -579,6 +615,8 @@ pub(crate) fn presented_target(
             within,
             name_ends_with,
             nth,
+            states,
+            name_matches,
         } => {
             let wanted = Wanted {
                 role,
@@ -586,6 +624,8 @@ pub(crate) fn presented_target(
                 description: description.as_deref(),
                 name_ends_with,
                 nth: *nth,
+                states,
+                name_matches: pattern(name_matches.as_deref())?,
             };
             let scope = match within {
                 None => window.clone().upcast::<gtk::Widget>(),
@@ -605,10 +645,18 @@ pub(crate) fn presented_target(
     }
 }
 
-/// The description Strata's naming helpers set, as AT-SPI reports it; empty without one.
+/// The description Strata's naming helpers set, as AT-SPI reports it, or
+/// else a picture's alternative text, which GTK reports as its description;
+/// empty without one.
 pub(crate) fn accessible_description(widget: &gtk::Widget) -> String {
     names::naming(widget)
         .and_then(|naming| naming.description)
+        .or_else(|| {
+            widget
+                .downcast_ref::<gtk::Picture>()
+                .and_then(gtk::Picture::alternative_text)
+                .map(|text| text.to_string())
+        })
         .unwrap_or_default()
 }
 
@@ -719,6 +767,16 @@ pub(crate) fn editable_fields(window: &gtk::Window) -> usize {
         .count()
 }
 
+/// The text of every editable text field on screen, as
+/// `[node.text for node in window.find_all(role="text", states={"editable"})]`.
+pub(crate) fn editable_texts(window: &gtk::Window) -> Vec<String> {
+    presented(window.upcast_ref())
+        .iter()
+        .filter(|widget| is_field(widget) && state::rendered_bounds(widget).is_some())
+        .filter_map(text_content)
+        .collect()
+}
+
 /// `editable_field()`: the first editable text on screen holding focus.
 pub(crate) fn focused_field(presented: &[gtk::Widget]) -> Option<gtk::Widget> {
     presented
@@ -779,16 +837,28 @@ pub(crate) fn states(widget: &gtk::Widget) -> States {
             .and_then(|naming| naming.checked)
             .unwrap_or(false)
     };
+    // GTK's AT-SPI bridge reports an active switch as pressed as well as checked.
     let pressed = if let Some(toggle) = widget.downcast_ref::<gtk::ToggleButton>() {
         toggle.is_active()
+    } else if let Some(switch) = widget.downcast_ref::<gtk::Switch>() {
+        switch.is_active()
     } else {
-        recorded.and_then(|naming| naming.pressed).unwrap_or(false)
+        recorded
+            .as_ref()
+            .and_then(|naming| naming.pressed)
+            .unwrap_or(false)
     };
     States {
         // A list box row reports its own selection, as GTK's AT-SPI bridge does.
-        selected: widget
-            .downcast_ref::<gtk::ListBoxRow>()
-            .map_or_else(|| state::row_selected(widget), gtk::ListBoxRow::is_selected),
+        selected: widget.downcast_ref::<gtk::ListBoxRow>().map_or_else(
+            || {
+                recorded
+                    .as_ref()
+                    .and_then(|naming| naming.selected)
+                    .unwrap_or_else(|| state::row_selected(widget))
+            },
+            gtk::ListBoxRow::is_selected,
+        ),
         focused: if widget.is::<gtk::Editable>() {
             editable_focused(widget)
         } else {
@@ -870,6 +940,10 @@ pub(crate) fn role_name(widget: &gtk::Widget) -> &'static str {
     use gtk::AccessibleRole as Role;
     if widget.is::<gtk::ScrolledWindow>() {
         return "scroll pane";
+    }
+    // GTK's AT-SPI bridge reports a scale as a slider, as `Node.role` reads it.
+    if widget.is::<gtk::Scale>() {
+        return "slider";
     }
     match widget.accessible_role() {
         Role::AlertDialog => "alert",

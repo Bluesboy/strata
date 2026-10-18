@@ -2285,6 +2285,7 @@ fn icons_controls(browser: &Rc<Browser>, depth: usize, thumbnail_size: i32) -> I
         .tooltip_text(crate::i18n::tr("Thumbnail size"))
         .popover(&thumbnail_popover)
         .build();
+    super::accessibility::set_label(&thumbnail_menu, &crate::i18n::tr("Thumbnail size"));
     crate::ui::controls::pane_header_action(&thumbnail_menu);
     thumbnail_menu.add_css_class("icons-thumbnail-menu");
     thumbnail_menu.set_child(Some(&crate::assets::chrome_icon(

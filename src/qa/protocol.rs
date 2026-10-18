@@ -105,6 +105,12 @@ pub(crate) enum Command {
         sorted: bool,
         /// For a list: one name, `names[pick]`, counting back when negative.
         pick: Option<i64>,
+        /// For `number`, what to work out.
+        expr: Option<Expr>,
+        /// For `number` with `until_found`: bounds the number itself must be
+        /// within, so the value kept is the one the satisfying poll read, as
+        /// `strata.wait(lambda: (width := saved()) > 300 and width)` keeps it.
+        until: Vec<Bound>,
     },
     Move {
         target: Target,
@@ -224,17 +230,33 @@ pub(crate) enum Command {
     /// `message` names the twin's assertion, as a wait's names its `strata.wait`.
     /// With a timeout it polls until every predicate holds, as a twin's
     /// `try: strata.wait(...) except TreeTimeout: failures.append(...)` does,
-    /// and reports the mismatches when time runs out.
+    /// and reports the mismatches when time runs out; with `hold` too they
+    /// must hold that long in a row, else hold once more when time runs out,
+    /// as `test_preview_media_controls._settles` decides.
     Expect {
         predicates: Vec<Predicate>,
         message: Option<String>,
         timeout: Option<Duration>,
+        hold: Option<Duration>,
+    },
+    /// Opens a second connection to the display and owns its clipboard with
+    /// this text, as `table_clipboard_text(before_read=...)` sets it before
+    /// the steps that copy.
+    ClipboardSet(String),
+    /// Reads the clipboard through a second display connection (the one
+    /// `clipboard_set` opened, if any), then closes it, as
+    /// `table_clipboard_text` does, and fails unless the text matches.
+    Clipboard {
+        text: TextMatch,
+        message: Option<String>,
     },
     Query(Query),
 }
 
-pub(crate) const COMMANDS: [&str; 31] = [
+pub(crate) const COMMANDS: [&str; 33] = [
     "key",
+    "clipboard_set",
+    "clipboard",
     "click_result_rows",
     "keys_until",
     "key_down",
@@ -432,6 +454,9 @@ struct NoteFields {
     #[serde(default)]
     sorted: bool,
     pick: Option<i64>,
+    expr: Option<Expr>,
+    #[serde(default)]
+    until: Vec<Bound>,
 }
 
 #[derive(Deserialize)]
@@ -619,10 +644,24 @@ struct ExpectFields {
     expect: Value,
     message: Option<String>,
     timeout_ms: Option<u64>,
+    hold_ms: Option<u64>,
     /// The runner keeps whether the expectation held under this name, for a
     /// later step's `if` or `unless`; the process ignores it.
     #[serde(rename = "as")]
     _name: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClipboardSetFields {
+    clipboard_set: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClipboardFields {
+    clipboard: TextMatch,
+    message: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -708,6 +747,17 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
                 Command::KeyDown(key)
             } else {
                 Command::KeyUp(key)
+            })
+        }
+        "clipboard_set" => {
+            let fields: ClipboardSetFields = serde_json::from_value(fields).map_err(invalid)?;
+            Ok(Command::ClipboardSet(fields.clipboard_set))
+        }
+        "clipboard" => {
+            let fields: ClipboardFields = serde_json::from_value(fields).map_err(invalid)?;
+            Ok(Command::Clipboard {
+                text: fields.clipboard,
+                message: fields.message,
             })
         }
         "keys_until" => {
@@ -875,6 +925,13 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
             {
                 return Err("middle, plus, sorted, and pick take a list".to_owned());
             }
+            if fields.expr.is_some() != (fields.note == Accessor::Number) {
+                return Err("expr belongs to, and is needed by, number".to_owned());
+            }
+            if !fields.until.is_empty() && !(fields.note == Accessor::Number && fields.until_found)
+            {
+                return Err("until bounds a number noted with until_found".to_owned());
+            }
             Ok(Command::Note {
                 value: fields.note,
                 dir: fields.dir,
@@ -892,6 +949,8 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
                 plus: fields.plus,
                 sorted: fields.sorted,
                 pick: fields.pick,
+                expr: fields.expr,
+                until: fields.until,
             })
         }
         "click" => {
@@ -1069,10 +1128,14 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
                     .map_err(invalid)?,
                 one => vec![serde_json::from_value(one).map_err(invalid)?],
             };
+            if fields.hold_ms.is_some() && fields.timeout_ms.is_none() {
+                return Err("hold_ms belongs to an expect with timeout_ms".to_owned());
+            }
             Ok(Command::Expect {
                 predicates,
                 message: fields.message,
                 timeout: fields.timeout_ms.map(Duration::from_millis),
+                hold: fields.hold_ms.map(Duration::from_millis),
             })
         }
         _ => {
@@ -1329,6 +1392,11 @@ pub(crate) enum Target {
         /// Which of the matches in DFS order, counting back when negative, as
         /// `find_all(...)[-1]`; the first without it.
         nth: Option<i64>,
+        /// States every match must have, as `find(..., states={"selected"})`.
+        states: Vec<StateName>,
+        /// A regular expression the name must contain a match of, as
+        /// `find_all(..., name_matches=CLOCK.pattern)`.
+        name_matches: Option<String>,
     },
     /// The entry list below its last entry; `background_point(directory)`.
     Background { dir: Option<String> },
@@ -1551,6 +1619,9 @@ impl Target {
             #[serde(default)]
             name_ends_with: Vec<String>,
             nth: Option<i64>,
+            #[serde(default)]
+            states: Vec<StateName>,
+            name_matches: Option<String>,
         }
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
@@ -1614,6 +1685,11 @@ impl Target {
                 .map_err(invalid),
             "role" => {
                 let fields: RoleFields = serde_json::from_value(value).map_err(invalid)?;
+                if let Some(pattern) = &fields.name_matches {
+                    regex::Regex::new(pattern).map_err(|error| {
+                        format!("invalid role target: name_matches {pattern:?}: {error}")
+                    })?;
+                }
                 Ok(Self::Role {
                     role: fields.role,
                     name: fields.name,
@@ -1621,6 +1697,8 @@ impl Target {
                     within: fields.within.map(Box::new),
                     name_ends_with: fields.name_ends_with,
                     nth: fields.nth,
+                    states: fields.states,
+                    name_matches: fields.name_matches,
                 })
             }
             "background" => {
@@ -1757,9 +1835,17 @@ impl Target {
                 within,
                 name_ends_with,
                 nth,
+                states,
+                name_matches,
             } => {
                 let mut object = Map::new();
                 object.insert("role".to_owned(), json!(role));
+                if !states.is_empty() {
+                    object.insert("states".to_owned(), json!(states));
+                }
+                if let Some(pattern) = name_matches {
+                    object.insert("name_matches".to_owned(), json!(pattern));
+                }
                 if let Some(name) = name {
                     object.insert("name".to_owned(), json!(name));
                 }
@@ -1842,6 +1928,20 @@ impl Serialize for Target {
     }
 }
 
+/// An AT-SPI state a role target's match must have.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum StateName {
+    Selected,
+    Focused,
+    Checked,
+    Pressed,
+    Sensitive,
+    /// A horizontal scroll bar, slider, or other oriented widget.
+    Horizontal,
+    Vertical,
+}
+
 /// An entry row by name, in the named pane or in any pane on screen; with
 /// `part`, its name label (`entry.find(role="label", name=name)`), its icon
 /// (`entry.find(role="image")`), or its first other named label (`metadata`).
@@ -1905,6 +2005,12 @@ pub(crate) enum Accessor {
     EditableFields,
     /// `menu_items()`: the open menu's items, empty while none is open.
     MenuItems,
+    /// A number worked out from the window, as a twin keeps
+    /// `fitted = column.width / 300` or a saved preference: `expr`.
+    Number,
+    /// The deepest pane's entries whose top edge lies inside its scroll
+    /// viewport, in visual order, as `test_monitor_selection.visible_entries`.
+    VisibleTop,
 }
 
 impl Accessor {
@@ -1933,6 +2039,7 @@ impl Accessor {
                 | Self::Matches
                 | Self::Visible
                 | Self::MenuItems
+                | Self::VisibleTop
         )
     }
 }
@@ -2075,6 +2182,248 @@ pub(crate) enum Check {
     /// whose rendered labels, joined, are one of `hits`' paths must be
     /// `hits[name]`, as `test_search_filter_sort.footer_hit` reads it.
     HitPath(HitPath),
+    /// Two numbers worked out from the window compare so, as a twin's
+    /// `abs(heading.center[1] - button.center[1]) <= 2`.
+    Compare(Comparison),
+    /// The panes, left to right, in which a role target is on screen, as
+    /// `[name for name in pane_names() if pane(name).find(...) is not None]`.
+    PanesWith(PanesWith),
+    /// A target's accessible name, as `clocks[0].name == shown`.
+    Name(NameCheck),
+    /// Some editable text field on screen shows exactly this text, as
+    /// `any(node.text == "todo" for node in window.find_all(role="text", states={"editable"}))`.
+    EditableText(String),
+    /// The deepest pane's entries whose top edge lies inside its scroll
+    /// viewport, as `test_monitor_selection.visible_entries`.
+    VisibleTop(Names),
+}
+
+/// A bound on a noted number: `number <op> than`.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Bound {
+    pub(crate) op: CompareOp,
+    pub(crate) than: Expr,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Comparison {
+    pub(crate) left: Expr,
+    pub(crate) op: CompareOp,
+    pub(crate) right: Expr,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub(crate) enum CompareOp {
+    #[serde(rename = "<")]
+    Less,
+    #[serde(rename = "<=")]
+    AtMost,
+    #[serde(rename = "==")]
+    Equal,
+    #[serde(rename = "!=")]
+    Unequal,
+    #[serde(rename = ">=")]
+    AtLeast,
+    #[serde(rename = ">")]
+    Greater,
+}
+
+impl CompareOp {
+    pub(crate) fn holds(self, left: f64, right: f64) -> bool {
+        match self {
+            Self::Less => left < right,
+            Self::AtMost => left <= right,
+            #[expect(clippy::float_cmp, reason = "Python compares the numbers exactly")]
+            Self::Equal => left == right,
+            #[expect(clippy::float_cmp, reason = "Python compares the numbers exactly")]
+            Self::Unequal => left != right,
+            Self::AtLeast => left >= right,
+            Self::Greater => left > right,
+        }
+    }
+}
+
+/// A number from the window: a literal; a target's box in whole pixels
+/// (`x`, `y`, `width`, `height`, `right` as `x + width`, `bottom`,
+/// `center_x` as `x + width // 2`, `center_y`) or its numeric `value`, as
+/// AT-SPI's Value interface reads a slider; a preference, parsed as a
+/// number, with an optional default for a missing key; how many widgets
+/// match (`count`); or arithmetic over them. Division is Python's `/` and
+/// `//`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Expr {
+    Number(serde_json::Number),
+    Of {
+        target: Box<Target>,
+        get: Measure,
+    },
+    Pref {
+        key: String,
+        default: Option<serde_json::Number>,
+    },
+    Count(Box<CountSpec>),
+    Sum(Vec<Expr>),
+    Minus(Box<[Expr; 2]>),
+    Times(Box<[Expr; 2]>),
+    Divide(Box<[Expr; 2]>),
+    FloorDivide(Box<[Expr; 2]>),
+    Ceil(Box<Expr>),
+    Abs(Box<Expr>),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Measure {
+    X,
+    Y,
+    Width,
+    Height,
+    Right,
+    Bottom,
+    CenterX,
+    CenterY,
+    Value,
+}
+
+/// `len(root.find_all(role=..., name=..., description=..., rendered=...))`.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CountSpec {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) within: Option<Target>,
+    #[serde(default = "yes")]
+    pub(crate) rendered: bool,
+}
+
+impl Expr {
+    fn from_value(value: &Value) -> Result<Self, String> {
+        if let Value::Number(number) = value {
+            return Ok(Self::Number(number.clone()));
+        }
+        let Value::Object(object) = value else {
+            return Err(format!("a number is a literal or an object, not {value}"));
+        };
+        let pair = |value: &Value| -> Result<Box<[Expr; 2]>, String> {
+            match value.as_array().map(Vec::as_slice) {
+                Some([first, second]) => Ok(Box::new([
+                    Self::from_value(first)?,
+                    Self::from_value(second)?,
+                ])),
+                _ => Err(format!("an operation takes two numbers, not {value}")),
+            }
+        };
+        let only = |keys: &[&str]| -> Result<(), String> {
+            match object.keys().find(|key| !keys.contains(&key.as_str())) {
+                Some(key) => Err(format!("a number has no field {key:?} here")),
+                None => Ok(()),
+            }
+        };
+        let target = |value: &Value| -> Result<Box<Target>, String> {
+            serde_json::from_value(value.clone())
+                .map(Box::new)
+                .map_err(|error| error.to_string())
+        };
+        if let Some(of) = object.get("of") {
+            only(&["of", "get"])?;
+            let get = object.get("get").ok_or("of needs get, such as \"width\"")?;
+            return Ok(Self::Of {
+                target: target(of)?,
+                get: serde_json::from_value(get.clone()).map_err(|error| error.to_string())?,
+            });
+        }
+        if let Some(key) = object.get("pref") {
+            only(&["pref", "default"])?;
+            return Ok(Self::Pref {
+                key: key.as_str().ok_or("pref names a key")?.to_owned(),
+                default: match object.get("default") {
+                    None => None,
+                    Some(Value::Number(number)) => Some(number.clone()),
+                    Some(other) => return Err(format!("default is a number, not {other}")),
+                },
+            });
+        }
+        let [(key, inner)] = object.iter().collect::<Vec<_>>()[..] else {
+            return Err(format!("a number has one operation, not {value}"));
+        };
+        Ok(match key.as_str() {
+            "count" => Self::Count(Box::new(
+                serde_json::from_value(inner.clone()).map_err(|error| error.to_string())?,
+            )),
+            "sum" => Self::Sum(
+                inner
+                    .as_array()
+                    .ok_or("sum takes a list")?
+                    .iter()
+                    .map(Self::from_value)
+                    .collect::<Result<_, _>>()?,
+            ),
+            "minus" => Self::Minus(pair(inner)?),
+            "times" => Self::Times(pair(inner)?),
+            "divide" => Self::Divide(pair(inner)?),
+            "floor_divide" => Self::FloorDivide(pair(inner)?),
+            "ceil" => Self::Ceil(Box::new(Self::from_value(inner)?)),
+            "abs" => Self::Abs(Box::new(Self::from_value(inner)?)),
+            other => return Err(format!("no number operation {other:?}")),
+        })
+    }
+
+    pub(crate) fn to_json(&self) -> Value {
+        let pair = |items: &[Expr; 2]| json!([items[0].to_json(), items[1].to_json()]);
+        match self {
+            Self::Number(number) => Value::Number(number.clone()),
+            Self::Of { target, get } => json!({ "of": target.to_json(), "get": get }),
+            Self::Pref { key, default: None } => json!({ "pref": key }),
+            Self::Pref {
+                key,
+                default: Some(default),
+            } => json!({ "pref": key, "default": default }),
+            Self::Count(spec) => json!({ "count": spec }),
+            Self::Sum(items) => {
+                json!({ "sum": items.iter().map(Self::to_json).collect::<Vec<_>>() })
+            }
+            Self::Minus(items) => json!({ "minus": pair(items) }),
+            Self::Times(items) => json!({ "times": pair(items) }),
+            Self::Divide(items) => json!({ "divide": pair(items) }),
+            Self::FloorDivide(items) => json!({ "floor_divide": pair(items) }),
+            Self::Ceil(inner) => json!({ "ceil": inner.to_json() }),
+            Self::Abs(inner) => json!({ "abs": inner.to_json() }),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Expr {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::from_value(&Value::deserialize(deserializer)?).map_err(serde::de::Error::custom)
+    }
+}
+
+impl Serialize for Expr {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.to_json().serialize(serializer)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PanesWith {
+    /// A role target, searched inside each pane in turn.
+    pub(crate) target: Target,
+    pub(crate) names: Names,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct NameCheck {
+    pub(crate) target: Target,
+    pub(crate) text: TextMatch,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -2298,7 +2647,12 @@ impl Check {
             | Self::Pixel(_)
             | Self::AccentPixels(_)
             | Self::HitPath(_)
-            | Self::AnyResultRow(_) => true,
+            | Self::AnyResultRow(_)
+            | Self::Compare(_)
+            | Self::PanesWith(_)
+            | Self::Name(_)
+            | Self::EditableText(_)
+            | Self::VisibleTop(_) => true,
             Self::Any(predicates) | Self::All(predicates) => {
                 predicates.iter().any(|predicate| predicate.check.is_live())
             }
@@ -2437,6 +2791,9 @@ pub(crate) struct TextPattern {
     /// Part of the lower-cased text, as `"q" in field.text.lower()`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) lowercase_contains: Option<String>,
+    /// More characters than this, as `len(copied) > len(word)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) longer_than: Option<usize>,
 }
 
 impl TextMatch {
@@ -2460,6 +2817,9 @@ impl TextMatch {
                         .lowercase_contains
                         .as_deref()
                         .is_none_or(|part| actual.to_lowercase().contains(part))
+                    && pattern
+                        .longer_than
+                        .is_none_or(|length| actual.chars().count() > length)
             }
         }
     }
@@ -2486,7 +2846,18 @@ impl CaretMatch {
 #[serde(deny_unknown_fields)]
 pub(crate) struct PrefCheck {
     pub(crate) key: String,
-    pub(crate) value: Value,
+    /// The value, null for a missing key.
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(crate) value: Option<Value>,
+    /// Part of the raw `key = value` text, as `'"size"' in
+    /// read_preferences().get(key, "")`: a list holding this string, or a
+    /// string containing it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) contains: Option<String>,
 }
 
 /// Each given state must match; the names are AT-SPI's.
@@ -2519,6 +2890,11 @@ pub(crate) struct Movement {
     pub(crate) since: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) y_within: Option<u16>,
+    /// With direction `none`: within this many pixels on both axes and the
+    /// same size, as `abs(actual.x - expected.x) <= 1 and ... and
+    /// actual.width == expected.width`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) within: Option<u16>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -2675,6 +3051,20 @@ impl<'de> Deserialize<'de> for Predicate {
             && predicates.is_empty()
         {
             return Err(serde::de::Error::custom("all takes at least one predicate"));
+        }
+        if let Check::Pref(pref) = &check
+            && pref.value.is_some() == pref.contains.is_some()
+        {
+            return Err(serde::de::Error::custom(
+                "pref takes exactly one of value and contains",
+            ));
+        }
+        if let Check::PanesWith(panes) = &check
+            && !matches!(panes.target, Target::Role { within: None, .. })
+        {
+            return Err(serde::de::Error::custom(
+                "panes_with takes a role target without within",
+            ));
         }
         if let Check::Mentions(mention) = &check
             && mention.text.is_some() == mention.words.is_some()

@@ -56,6 +56,7 @@ scenarios! {
     airy_committed_rename_visible,
     alt_up_and_history,
     appearance_menu_switches_view,
+    appearance_menu_switches_view_list,
     arrow_keys_move_focus,
     arrow_keys_move_focus_remaining,
     arrow_scope_toggles_live,
@@ -63,6 +64,7 @@ scenarios! {
     background_customize_ancestor_column,
     background_customize_presented_folder,
     background_press_clears_before_drag,
+    background_rename_keeps_scroll,
     beside_last_column_clears,
     breadcrumb_returns_to_parent,
     click_after_navigating_reanchors,
@@ -71,15 +73,25 @@ scenarios! {
     click_then_double_click_no_rename,
     clicking_inside_keeps_new_entry,
     clicking_open_folder_focuses_column,
+    column_autofit_stays_inside,
+    column_background_click_focuses_parent,
     column_edge_scrolls_listing,
+    column_header_titles_bounded,
+    column_preview_fills_free_space,
+    columns_dismissed_preview_stays_closed,
     columns_home_end_mirror,
+    columns_keyboard_opens_preview,
+    columns_keyboard_respects_disabled_previews,
+    columns_keyboard_stays_without_mirror,
     columns_never_hover_peek,
+    columns_preview_reopens_after_closing,
     columns_reclick_open_folder_renames,
     columns_return_selects_source_folder,
     committed_rename_stays_visible,
     compress_then_chooser_extracts,
     context_menu_copy_and_paste,
     context_menu_cut_and_paste,
+    context_menu_keeps_column_target,
     control_click_toggles,
     copy_leaves_source,
     copying_directory_copies_contents,
@@ -88,6 +100,7 @@ scenarios! {
     cross_volume_enter_choice,
     cross_volume_plain_copy,
     ctrl_drag_copies_keeps_selection,
+    ctrl_drop_on_tab_copies,
     current_breadcrumb_opens_hierarchy,
     customization_follows_move_and_trash,
     customization_follows_rename,
@@ -115,6 +128,7 @@ scenarios! {
     drop_keeps_selection_at_destination,
     drop_on_parent_breadcrumb,
     drop_on_partially_visible_column,
+    drop_on_tab_moves_files,
     empty_column_clears_other_columns,
     empty_name_space_drag_starts_marquee,
     enter_after_escape_opens_folder,
@@ -128,6 +142,7 @@ scenarios! {
     executable_requires_confirmation,
     file_drag_does_not_open_preview,
     file_properties_describes_and_closes,
+    filled_preview_outlines_minimum,
     filter_rename_shortcuts_hidden_selection,
     filter_results_follow_external_changes,
     filter_right_arrow_moves_caret,
@@ -146,6 +161,7 @@ scenarios! {
     filtering_pane_narrows_listing,
     floating_chooser_transfers_files,
     focus_usable_after_view_change,
+    folder_click_keeps_tab_name,
     folder_into_another_folder,
     global_search_activation_in_open_folder,
     global_search_activation_previews_file,
@@ -155,6 +171,8 @@ scenarios! {
     global_search_reveal,
     global_search_reveal_visited_list,
     hidden_files_toggle,
+    hovered_tab_takes_drop,
+    icons_keep_layout_until_toggled,
     invalid_archive_name_keeps_dialog,
     invalid_names_retain_original,
     invalid_new_file_names_corrected,
@@ -166,18 +184,27 @@ scenarios! {
     keyboard_open_selects_first_child,
     keyboard_selection_in_single_click_mode,
     leftover_click_honors_modifiers,
+    list_column_resize_tracks_pointer,
+    list_preview_keeps_horizontal_scroll,
     list_transfer_reveal_selects_copy,
     list_typed_file_path,
     local_filtered_result_opens_once,
     long_rename_keeps_caret,
+    markdown_equations_keep_prose,
+    markdown_preview_renders_media,
     marquee_beside_content_full_pane,
+    marquee_keeps_preview_closed,
     matching_rename_stays_searchable,
+    media_keys_step_timeline_and_volume,
     merge_combines_folder_contents,
     modal_dialog_blocks_window_shortcuts,
+    model_preview_reports_limits,
     modifier_click_focuses_target,
     modifier_clicks_inert_space_select,
     multi_selection_drag_moves_every_entry,
     named_location_controls,
+    narrow_window_keeps_last_column,
+    navigation_survives_insertion,
     new_file_collision_dialog,
     new_folder_collision_dialog,
     new_folder_with_selection_groups,
@@ -187,19 +214,36 @@ scenarios! {
     new_items_in_empty_directory,
     one_click_only_selects,
     opening_child_keeps_paste_under_pointer,
+    outside_wheel_moves_pointed_column,
+    oversized_column_width_fits,
     pane_corner_marquee_keeps_sidebar,
     pane_menu_directory_actions,
     panel_wheel_routing,
+    panel_wheel_routing_remaining,
     parent_pane_anchors_first_entry,
     paste_availability_follows_clipboard,
     paste_into_explicit_selection,
     paste_into_parent_current_directory,
     paste_targets_selected_directory,
+    pdf_preview_copies_text,
+    pdf_zoom_keeps_text_size,
+    peek_click_reveals_column,
     permanent_delete_confirmation,
     permanent_delete_symlinked_parent,
     preselected_entry_hover,
     preview_blank_click_keeps_selection,
+    preview_boundary_resizes_grabbed_side,
+    preview_find_navigates_content,
+    preview_follows_extended_selection,
+    preview_follows_selection,
+    preview_hides_on_folder,
+    preview_hides_on_shift_range_folder,
+    preview_mode_survives_unsupported,
+    preview_source_text_copies,
     properties_pins_and_unpins_folder,
+    recent_absent_from_sidebar,
+    recent_preference_adds_no_place,
+    recent_uri_spellings_refused,
     recursive_file_double_click_launches_once,
     recursive_filtered_result_opens_once,
     refresh_keeps_cursor_and_viewport,
@@ -214,6 +258,7 @@ scenarios! {
     rename_shortcuts,
     rename_shortcuts_leave_location,
     renaming_open_folder_follows_it,
+    rendered_document_word_selection,
     repeated_renames_select_stem,
     replace_restores_original_on_undo,
     replacing_duplicate_name_overwrites,
@@ -223,6 +268,7 @@ scenarios! {
     right_click_selects_entry,
     row_padding_drag_view_policy,
     same_folder_copy_numbered_duplicate,
+    sandboxed_office_shared_preview,
     scrolling_extends_marquee,
     second_selection_replaces_first,
     secondary_click_retargets_menu,
@@ -235,6 +281,7 @@ scenarios! {
     shift_click_revisits_after_folder,
     shift_drag_moves_file,
     shortcut_reference_opens_and_closes,
+    shortcut_round_trip_keeps_selection,
     sidebar_destinations_accept_three_files,
     sidebar_marquee_keeps_scrolled_list,
     sidebar_marquee_reaches_leading_pane,
@@ -250,10 +297,17 @@ scenarios! {
     slow_click_rename_escape_stem,
     sorting_by_size,
     space_completes_composition,
+    space_enters_folder_without_preview,
+    space_opens_and_closes_preview,
     space_previews_filtered_result,
+    space_previews_filtered_result_pointer,
     spring_navigation_keeps_drag,
     strip_edge_scrolls_columns_in,
     submenu_arrows_return_to_parent,
+    switching_keeps_directory_and_sort,
+    switching_keeps_pane_filter,
+    tab_drag_reorders_numbers,
+    tabs_keep_locations_numbered,
     tenxer_d_without_trash_confirms,
     tenxer_escape_closes_peek,
     tenxer_escape_filter_preview_fill,
@@ -268,9 +322,11 @@ scenarios! {
     tenxer_history_prompts,
     tenxer_icons_edges_search_peek,
     tenxer_keeps_location_edit,
+    tenxer_l_enters_preview,
     tenxer_sidebar_header_round_trips,
     tenxer_sort_chords_keep_cursor,
     tenxer_space_toggles_cursor,
+    tenxer_tab_chords,
     tenxer_visual_ranges,
     tone_mark_escape_before_rename,
     trashing_open_folder_opens_next,
@@ -287,6 +343,7 @@ scenarios! {
     visible_rename_preserves_scroll,
     wildcard_filter_patterns,
     window_accelerators_leave_rename,
+    zero_selects_tenth_tab,
 }
 
 const REPOSITORY: &str = env!("CARGO_MANIFEST_DIR");
@@ -308,7 +365,15 @@ const DEFAULT_LAYOUT: &str = "us";
 const ALL_MODIFIERS: u16 = 0xff;
 /// The error `strata --qa` replies with before it exits on a harness bug.
 const CONTROLLER_PANIC: &str = "the QA controller panicked";
-const RUNNER_COMMANDS: [&str; 5] = ["layout", "fs", "increment", "slice", "screenshot"];
+const RUNNER_COMMANDS: [&str; 7] = [
+    "layout",
+    "fs",
+    "increment",
+    "slice",
+    "screenshot",
+    "stem",
+    "flag",
+];
 /// What a run-time note stands for while steps are checked before the launch.
 const NOTED_PLACEHOLDER: &str = "noted";
 /// `ffmpeg` writing a generated media file, as a twin's `subprocess.run(..., timeout=30)`.
@@ -585,6 +650,11 @@ struct Header {
     /// reads them.
     #[serde(default)]
     state_parity_ignore: Vec<String>,
+    /// Input events of one run whose pointer position input parity leaves
+    /// out, where the app itself puts the target in either of two places
+    /// under both harnesses; `scripts/qa_parity.py` reads them.
+    #[serde(default)]
+    input_parity_ignore: Vec<InputParityIgnore>,
     /// `fs` actions taken before the launch, as a twin's fixture writes files
     /// before `strata` starts: an executable in the tree, or desktop entries
     /// and actions under `$data` and `$config`.
@@ -594,6 +664,24 @@ struct Header {
     /// twin's `finally:` restores what it changed: `chmod` back to a readable mode.
     #[serde(default)]
     teardown: Vec<Value>,
+}
+
+/// One run's pointer events whose position is not compared, each named by
+/// its 1-based number among the run's key and pointer events and the event
+/// expected there, so a step added before it cannot shift the exemption.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InputParityIgnore {
+    run: String,
+    events: Vec<IgnoredEvent>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct IgnoredEvent {
+    position: usize,
+    /// `button <n> down` or `button <n> up`.
+    event: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -617,6 +705,13 @@ struct Variant {
     vars: BTreeMap<String, String>,
     /// This variant's pytest node, when the header's pattern does not fit it.
     twin: Option<String>,
+    /// This variant's fixture tree in place of the header's, as an indirect
+    /// `fixture_tree` parametrization gives each case its own.
+    tree: Option<Value>,
+    /// `fs` actions taken after the header's `setup`, before the launch, as
+    /// such a case's fixture writes its own file's bytes.
+    #[serde(default)]
+    setup: Vec<Value>,
 }
 
 fn default_layout() -> String {
@@ -691,10 +786,20 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
     ) {
         view_name(mode)?;
     }
-    if let Some(tree) = &header.tree {
+    for tree in header.tree.iter().chain(
+        header
+            .variants
+            .iter()
+            .filter_map(|variant| variant.tree.as_ref()),
+    ) {
         expand_tree(tree, &manifest())?;
     }
-    for (index, step) in header.setup.iter().enumerate() {
+    for (index, step) in header
+        .setup
+        .iter()
+        .chain(header.variants.iter().flat_map(|variant| &variant.setup))
+        .enumerate()
+    {
         let parsed: FsStep = serde_json::from_value(step.clone())
             .map_err(|error| format!("setup {}: invalid fs step: {error}", index + 1))?;
         if !parsed.fs.acts() || parsed.timeout_ms.is_some() || parsed.message.is_some() {
@@ -745,6 +850,7 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
             return Err("state_parity_ignore must leave a compared key".to_owned());
         }
     }
+    check_input_parity_ignore(&header)?;
     let mut steps = Vec::new();
     for (index, line) in lines {
         let step: Value =
@@ -790,9 +896,21 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
                 .find(|(number, _)| *number == line)
                 .map(|(_, step)| step)
                 .ok_or_else(|| format!("known_bug_step {line} is not a step line"))?;
-            if step.get("layout").is_some() {
+            if let Some(kind) = [
+                "layout",
+                "flag",
+                "note",
+                "slice",
+                "increment",
+                "stem",
+                "screenshot",
+            ]
+            .into_iter()
+            .find(|kind| step.get(*kind).is_some())
+            {
                 return Err(format!(
-                    "known_bug_step {line} is a layout switch, which cannot fail as a scenario step"
+                    "known_bug_step {line} is a {kind} step, which only keeps or switches state \
+                     and cannot fail as the scenario's expected failure"
                 ));
             }
             if [STEP_WHEN, STEP_IF, STEP_UNLESS]
@@ -810,6 +928,56 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
         (None, Some(_)) => return Err("known_bug_step needs known_bug".to_owned()),
     }
     Ok(Scenario { header, steps })
+}
+
+/// `input_parity_ignore` names distinct runs of the scenario, each with
+/// distinct event numbers from 1, and only in a scenario without a mutation,
+/// as `input_parity_ignore` in `scripts/qa_parity.py` checks.
+fn check_input_parity_ignore(header: &Header) -> Result<(), String> {
+    if header.input_parity_ignore.is_empty() {
+        return Ok(());
+    }
+    if header.mutation.is_some() {
+        return Err(
+            "input_parity_ignore is for baseline parity; a scenario with a mutation keeps every check"
+                .to_owned(),
+        );
+    }
+    let labels: Vec<String> = runs(header).into_iter().map(|run| run.label).collect();
+    for (index, entry) in header.input_parity_ignore.iter().enumerate() {
+        if !labels.contains(&entry.run)
+            || header.input_parity_ignore[..index]
+                .iter()
+                .any(|earlier| earlier.run == entry.run)
+        {
+            return Err(format!(
+                "input_parity_ignore names distinct runs of {labels:?}, not {:?}",
+                entry.run
+            ));
+        }
+        let mut seen = Vec::new();
+        for ignored in &entry.events {
+            let named = ignored
+                .event
+                .strip_prefix("button ")
+                .and_then(|rest| rest.split_once(' '))
+                .is_some_and(|(button, direction)| {
+                    button.parse::<u8>().is_ok() && matches!(direction, "down" | "up")
+                });
+            if ignored.position == 0 || seen.contains(&ignored.position) || !named {
+                return Err(
+                    "an input_parity_ignore event is {\"position\": N, \"event\": \"button 1 down\"} \
+                     with a distinct position from 1"
+                        .to_owned(),
+                );
+            }
+            seen.push(ignored.position);
+        }
+        if seen.is_empty() {
+            return Err("input_parity_ignore events name at least one event".to_owned());
+        }
+    }
+    Ok(())
 }
 
 /// The view a mode draws, as `view_mode` predicates and `$view` spell it.
@@ -860,12 +1028,13 @@ fn run_steps(
                 && !flags.iter().any(|kept| kept == flag)
             {
                 return Err(format!(
-                    "line {line}: {key} names {flag:?}, which no earlier expect keeps"
+                    "line {line}: {key} names {flag:?}, which no earlier expect or flag keeps"
                 ));
             }
         }
         if let Some(flag) = checked
             .get("expect")
+            .or(checked.get("flag"))
             .and(checked.get("as"))
             .and_then(Value::as_str)
         {
@@ -913,12 +1082,25 @@ fn kept_note(step: &Value, notes: &[(String, Value)]) -> Result<Option<(String, 
             json!(0.0)
         } else if value == protocol::Accessor::EditableFields {
             json!(0)
+        } else if value == protocol::Accessor::Number {
+            // A positive stand-in, so a noted size checks as a `resize` width.
+            json!(1)
         } else if value.is_list() && pick.is_none() {
             json!([NOTED_PLACEHOLDER])
         } else {
             json!(NOTED_PLACEHOLDER)
         };
         return Ok(Some((name(), placeholder)));
+    }
+    if let Some(source) = step.get("stem") {
+        let source = source.as_str().unwrap_or_default();
+        if !notes
+            .iter()
+            .any(|(note, value)| note == source && value.is_string())
+        {
+            return Err(format!("stem needs an earlier note of a name, {source:?}"));
+        }
+        return Ok(Some((name(), json!(NOTED_PLACEHOLDER))));
     }
     if let Some(source) = step.get("increment") {
         let source = source.as_str().unwrap_or_default();
@@ -969,16 +1151,29 @@ fn slice(names: &[Value], middle: Option<u64>, pick: Option<i64>) -> Result<Valu
         .ok_or_else(|| format!("index {pick} is outside {names:?}"))
 }
 
-/// A `$name` left in any string once variables and notes were replaced.
+/// A `$name` left in any string once variables and notes were replaced;
+/// `$$` is a literal `$`.
 fn unknown_variable(value: &Value) -> Option<String> {
     match value {
-        Value::String(text) => text.split('$').skip(1).find_map(|rest| {
-            let token: String = rest
-                .chars()
-                .take_while(|character| character.is_ascii_alphanumeric() || *character == '_')
-                .collect();
-            (!token.is_empty()).then_some(token)
-        }),
+        Value::String(text) => {
+            let mut rest = text.as_str();
+            while let Some(start) = rest.find('$') {
+                let after = &rest[start + 1..];
+                if let Some(escaped) = after.strip_prefix('$') {
+                    rest = escaped;
+                    continue;
+                }
+                let token: String = after
+                    .chars()
+                    .take_while(|character| character.is_ascii_alphanumeric() || *character == '_')
+                    .collect();
+                if !token.is_empty() {
+                    return Some(token);
+                }
+                rest = after;
+            }
+            None
+        }
         Value::Array(items) => items.iter().find_map(unknown_variable),
         Value::Object(object) => object.values().find_map(unknown_variable),
         _ => None,
@@ -1052,20 +1247,44 @@ fn increment(text: &str) -> Result<String, String> {
     Ok(format!("{prefix}{:0width$}", value + 1, width = digits))
 }
 
+/// `Path(name).stem`: the name without its last extension.
+fn stem(text: &str) -> Result<String, String> {
+    Path::new(text)
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .ok_or_else(|| format!("{text:?} has no stem"))
+}
+
 fn check_step(step: &Value) -> Result<(), String> {
-    if step.get("increment").is_some() {
-        let object = step.as_object().ok_or("a step must be an object")?;
-        let valid = object.len() == 2
-            && step["increment"].is_string()
-            && step["as"].as_str().is_some_and(|name| !name.is_empty());
-        return if valid {
-            Ok(())
-        } else {
-            Err("increment names a note and the name to keep the result as".to_owned())
-        };
+    for key in ["increment", "stem"] {
+        if step.get(key).is_some() {
+            let object = step.as_object().ok_or("a step must be an object")?;
+            let valid = object.len() == 2
+                && step[key].is_string()
+                && step["as"].as_str().is_some_and(|name| !name.is_empty());
+            return if valid {
+                Ok(())
+            } else {
+                Err(format!(
+                    "{key} names a note and the name to keep the result as"
+                ))
+            };
+        }
     }
     if step.get("holds").is_some() {
         return Err("holds is the runner's own check; a step uses when".to_owned());
+    }
+    if let Some(condition) = step.get("flag") {
+        let valid = step.as_object().is_some_and(|object| object.len() == 2)
+            && step["as"].as_str().is_some_and(|name| !name.is_empty());
+        if !valid {
+            return Err(
+                "flag takes a predicate and the name to keep whether it held as".to_owned(),
+            );
+        }
+        return protocol::parse_command(&json!({ "holds": condition }).to_string())
+            .map(|_| ())
+            .map_err(|error| format!("flag: {error}"));
     }
     if step.get("slice").is_some() {
         let object = step.as_object().ok_or("a step must be an object")?;
@@ -1132,11 +1351,13 @@ fn check_step(step: &Value) -> Result<(), String> {
         return Err("an expect keeps whether it held under a name in as".to_owned());
     }
     if let Some(condition) = step.get(STEP_WHEN) {
-        if ["note", "increment", "slice"]
+        if ["note", "increment", "slice", "stem"]
             .iter()
             .any(|key| step.get(*key).is_some())
         {
-            return Err("a note, increment, or slice always runs; it takes no when".to_owned());
+            return Err(
+                "a note, increment, slice, or stem always runs; it takes no when".to_owned(),
+            );
         }
         protocol::parse_command(&json!({ "holds": condition }).to_string())
             .map_err(|error| format!("when: {error}"))?;
@@ -1291,7 +1512,8 @@ fn substitute(value: &Value, variables: &[(String, String)]) -> Value {
     }
 }
 
-/// `$name` is a whole token: `$view` leaves `$viewport` alone.
+/// `$name` is a whole token: `$view` leaves `$viewport` alone. `$$` stays
+/// as it is for [`unescape`], so a later pass cannot read `$$E` as `$E`.
 fn substitute_text(text: &str, variables: &[(String, String)]) -> String {
     let identifier = |character: char| character.is_ascii_alphanumeric() || character == '_';
     let mut output = String::with_capacity(text.len());
@@ -1299,6 +1521,11 @@ fn substitute_text(text: &str, variables: &[(String, String)]) -> String {
     while let Some(start) = rest.find('$') {
         output.push_str(&rest[..start]);
         let after = &rest[start + 1..];
+        if let Some(escaped) = after.strip_prefix('$') {
+            output.push_str("$$");
+            rest = escaped;
+            continue;
+        }
         let length = after.find(|c: char| !identifier(c)).unwrap_or(after.len());
         let token = &after[..length];
         match variables.iter().find(|(name, _)| name == token) {
@@ -1312,6 +1539,21 @@ fn substitute_text(text: &str, variables: &[(String, String)]) -> String {
     }
     output.push_str(rest);
     output
+}
+
+/// Every `$$` as the literal `$` it stands for, once nothing is left to replace.
+fn unescape(value: &Value) -> Value {
+    match value {
+        Value::String(text) => Value::String(text.replace("$$", "$")),
+        Value::Array(items) => Value::Array(items.iter().map(unescape).collect()),
+        Value::Object(object) => Value::Object(
+            object
+                .iter()
+                .map(|(key, item)| (key.clone(), unescape(item)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
 }
 
 // --------------------------------------------------------------- display
@@ -1745,6 +1987,21 @@ struct FsCheck {
     /// `len(path.read_text().splitlines())`: exactly, or `{"at_least":1}`; a
     /// missing file has no lines.
     lines: Option<LineCount>,
+    /// A stored zip archive of `[name, contents]` entries in order, as
+    /// `zipfile.ZipFile(path, "w")` writes them with `writestr`: text, or
+    /// `{"image":{...}}` for a solid-colour PNG.
+    zip: Option<Vec<(String, ZipEntry)>>,
+    /// `path.open("wb").truncate(size)`: a sparse file this many bytes long.
+    truncate: Option<u64>,
+    /// `path.write_bytes((repository / name).read_bytes())`, in one write.
+    from_repository: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ZipEntry {
+    Text(String),
+    Image { image: Image },
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -1804,6 +2061,9 @@ enum FsKind<'a> {
     Lines(LineCount),
     KeepBytes(&'a str),
     BytesOf(&'a str),
+    Zip(&'a [(String, ZipEntry)]),
+    Truncate(u64),
+    FromRepository(&'a str),
 }
 
 /// What fs steps keep while a run goes: `fixture.listing()` taken by
@@ -1980,14 +2240,28 @@ impl FsCheck {
         if let Some(arguments) = &self.ffmpeg {
             kinds.push(FsKind::Ffmpeg(arguments));
         }
+        if let Some(entries) = &self.zip {
+            kinds.push(FsKind::Zip(entries));
+        }
+        if let Some(size) = self.truncate {
+            kinds.push(FsKind::Truncate(size));
+        }
+        if let Some(name) = &self.from_repository {
+            if Path::new(name).is_absolute() || name.split('/').any(|part| part == "..") {
+                return Err(format!(
+                    "from_repository names a file inside the repository, not {name:?}"
+                ));
+            }
+            kinds.push(FsKind::FromRepository(name));
+        }
         match kinds.len() {
             1 => Ok(kinds.remove(0)),
             _ => Err(
                 "fs needs a path and exactly one of exists, text, names, is, empty, \
                  unchanged, copy_of, size_of, names_from, has, names_without, can_trash, \
                  lines, bytes_of, write, remember, remember_names, keep_bytes, mkdir, chmod, \
-                 populate, image, ffmpeg, volume, remove_volume, symlink, program, remove, \
-                 or rename"
+                 populate, image, ffmpeg, zip, truncate, from_repository, volume, \
+                 remove_volume, symlink, program, remove, or rename"
                     .to_owned(),
             ),
         }
@@ -2010,7 +2284,10 @@ impl FsCheck {
                 | FsKind::RememberNames(_)
                 | FsKind::Remove
                 | FsKind::Rename(_)
-                | FsKind::KeepBytes(_))
+                | FsKind::KeepBytes(_)
+                | FsKind::Zip(_)
+                | FsKind::Truncate(_)
+                | FsKind::FromRepository(_))
         )
     }
 
@@ -2244,13 +2521,35 @@ impl FsCheck {
             // PIL's buffered save writes a file this small in one write; written in
             // pieces, the listing would see it grow and replace its row.
             FsKind::Image(image) => {
-                let mut png = std::io::Cursor::new(Vec::new());
-                image::RgbImage::from_pixel(image.width, image.height, image::Rgb(image.rgb))
-                    .write_to(&mut png, image::ImageFormat::Png)
-                    .map_err(|error| error.to_string())?;
-                fs::write(&path, png.into_inner()).map_err(|error| error.to_string())
+                fs::write(&path, png(image)?).map_err(|error| error.to_string())
             }
             FsKind::Ffmpeg(arguments) => ffmpeg(arguments, &path),
+            FsKind::Zip(entries) => {
+                let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+                let options = zip::write::SimpleFileOptions::default()
+                    .compression_method(zip::CompressionMethod::Stored);
+                for (name, entry) in entries {
+                    let bytes = match entry {
+                        ZipEntry::Text(text) => text.as_bytes().to_vec(),
+                        ZipEntry::Image { image } => png(image)?,
+                    };
+                    archive
+                        .start_file(name.as_str(), options)
+                        .and_then(|()| Ok(archive.write_all(&bytes)?))
+                        .map_err(|error| format!("{name}: {error}"))?;
+                }
+                let archive = archive.finish().map_err(|error| error.to_string())?;
+                fs::write(&path, archive.into_inner()).map_err(|error| error.to_string())
+            }
+            FsKind::Truncate(size) => File::create(&path)
+                .and_then(|file| file.set_len(size))
+                .map_err(|error| error.to_string()),
+            FsKind::FromRepository(name) => {
+                let source = Path::new(REPOSITORY).join(name);
+                let bytes =
+                    fs::read(&source).map_err(|error| format!("{}: {error}", source.display()))?;
+                fs::write(&path, bytes).map_err(|error| error.to_string())
+            }
             FsKind::Remove => {
                 contained(&path, &state.roots)?;
                 if path.is_dir() && !path.is_symlink() {
@@ -2306,6 +2605,15 @@ impl FsCheck {
             }
         }
     }
+}
+
+/// A solid-colour PNG's bytes, as `Image.new("RGB", size, colour).save(...)`.
+fn png(image: &Image) -> Result<Vec<u8>, String> {
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::RgbImage::from_pixel(image.width, image.height, image::Rgb(image.rgb))
+        .write_to(&mut png, image::ImageFormat::Png)
+        .map_err(|error| error.to_string())?;
+    Ok(png.into_inner())
 }
 
 /// `shutil.copy2(shutil.which(name), path)`: the program's bytes, mode, and
@@ -2534,7 +2842,7 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
             .teardown
             .iter()
             .filter_map(|step| {
-                let step = substitute(step, &variables(run, &places));
+                let step = unescape(&substitute(step, &variables(run, &places)));
                 wait_for_fs(&step, fixture.path(), fixture_time(manifest), fs_state)
                     .err()
                     .map(|error| format!("teardown: {error}"))
@@ -2549,8 +2857,8 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
     if let Err(error) = seed(manifest, scenario, run, &home, &runtime, fixture.path()) {
         return failed_setup(format!("setup: {error}"), &mut fs_state);
     }
-    for step in &scenario.header.setup {
-        let step = substitute(step, &variables(run, &places));
+    for step in scenario.header.setup.iter().chain(&run.variant.setup) {
+        let step = unescape(&substitute(step, &variables(run, &places)));
         if let Err(error) =
             wait_for_fs(&step, fixture.path(), fixture_time(manifest), &mut fs_state)
         {
@@ -2769,10 +3077,10 @@ fn seed(
     fs::write(strata.join("settings.toml"), render_toml(&preferences)).map_err(io)?;
 
     let tree = expand_tree(
-        scenario
-            .header
+        run.variant
             .tree
             .as_ref()
+            .or(scenario.header.tree.as_ref())
             .unwrap_or(&Value::String(DEFAULT_TREE.to_owned())),
         manifest,
     )?;
@@ -2831,6 +3139,7 @@ fn expand_directory(directory: &Value) -> Result<Value, String> {
         let child = match value {
             Value::Object(_) => expand_directory(value)?,
             Value::String(_) => value.clone(),
+            Value::Array(parts) => Value::String(file_parts(name, parts)?),
             _ => {
                 return Err(format!(
                     "fixture {name} must be a file's text or a directory"
@@ -2848,6 +3157,34 @@ fn expand_directory(directory: &Value) -> Result<Value, String> {
         }
     }
     Ok(Value::Object(expanded))
+}
+
+/// A file's text written in parts: each a string, or `{"repeat":"record-{},{}\n",
+/// "from":0,"to":999}`, the text once per number with `{}` replaced by it, as
+/// a fixture joins `f"record-{index},{index}\n" for index in range(1000)`.
+fn file_parts(name: &str, parts: &[Value]) -> Result<String, String> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Repeat {
+        repeat: String,
+        from: u32,
+        to: u32,
+    }
+    let mut text = String::new();
+    for part in parts {
+        match part {
+            Value::String(part) => text.push_str(part),
+            other => {
+                let repeat: Repeat = serde_json::from_value(other.clone()).map_err(|error| {
+                    format!("fixture {name}: a part is text or a repeat: {error}")
+                })?;
+                for number in repeat.from..=repeat.to {
+                    text.push_str(&repeat.repeat.replace("{}", &number.to_string()));
+                }
+            }
+        }
+    }
+    Ok(text)
 }
 
 /// A name, or the names a `{000..199}` range in it stands for.
@@ -2941,7 +3278,7 @@ fn drive(
     let mut notes: Vec<(String, Value)> = Vec::new();
     let mut flags: BTreeMap<String, bool> = BTreeMap::new();
     for (line, step) in context.steps {
-        let step = &substitute_notes(step, &notes);
+        let step = &unescape(&substitute_notes(step, &notes));
         let label = format!("line {line} {step}");
         let mut object = step.as_object().cloned().unwrap_or_default();
         let held = |key: &str, object: &mut Map<String, Value>| {
@@ -2977,6 +3314,24 @@ fn drive(
             let name = name.as_str().unwrap_or_default().to_owned();
             match switch(context.manifest, context.display, &name) {
                 Ok(()) => *layout = name,
+                Err(error) => {
+                    outcome.errors.push(format!("{label}: {error}"));
+                    return outcome;
+                }
+            }
+            continue;
+        }
+        if let Some(condition) = object.get("flag") {
+            let probe = json!({ "holds": condition });
+            match application.send(&probe, COMMAND_TIMEOUT) {
+                Ok(reply) => {
+                    let holds = reply["result"] == json!(true);
+                    if let Err(error) = record(&mut outcome, Some(*line), &label, &probe, reply) {
+                        file_failure(&mut outcome, *line, &label, &error);
+                        return outcome;
+                    }
+                    flags.insert(object["as"].as_str().unwrap_or_default().to_owned(), holds);
+                }
                 Err(error) => {
                     outcome.errors.push(format!("{label}: {error}"));
                     return outcome;
@@ -3021,14 +3376,18 @@ fn drive(
                 }
             }
         }
-        if let Some(source) = object.get("increment") {
+        if let Some((source, derive)) = object
+            .get("increment")
+            .map(|source| (source, increment as fn(&str) -> Result<String, String>))
+            .or_else(|| object.get("stem").map(|source| (source, stem as _)))
+        {
             let name = object["as"].as_str().unwrap_or_default().to_owned();
             let noted = notes
                 .iter()
                 .find(|(note, _)| Some(note.as_str()) == source.as_str())
                 .and_then(|(_, value)| value.as_str())
                 .ok_or_else(|| format!("no note of a name called {source}"))
-                .and_then(increment);
+                .and_then(derive);
             match noted {
                 Ok(text) => {
                     notes.retain(|(note, _)| *note != name);
@@ -3493,10 +3852,14 @@ fn a_variable_replaces_only_its_whole_token() {
         ("view".to_owned(), "Icons".to_owned()),
         ("root".to_owned(), "fixture".to_owned()),
     ];
+    let replaced = substitute_text("$view, $viewport, $root/x, $$view, $", &variables);
+    assert_eq!(replaced, "Icons, $viewport, fixture/x, $$view, $");
     assert_eq!(
-        substitute_text("$view, $viewport, $root/x, $$view, $", &variables),
-        "Icons, $viewport, fixture/x, $Icons, $"
+        unescape(&json!(replaced)),
+        json!("Icons, $viewport, fixture/x, $view, $"),
+        "$$ is a literal $ once nothing is left to replace"
     );
+    assert_eq!(unknown_variable(&json!("Energy $$E=mc^2$$")), None);
 }
 
 #[test]
@@ -3510,7 +3873,11 @@ fn a_known_bug_must_name_a_step_line_that_can_fail() {
                 "{{\"scenario\":\"example\",\"modes\":[\"columns\"],\"twin\":\"x\",\"mutation\":null{marker}}}\n\
                  {{\"layout\":\"ru\"}}\n\
                  {{\"wait\":{{\"focused\":\"a\"}}}}\n\
-                 {{\"key\":\"Escape\",\"when\":{{\"dialog\":true}}}}\n"
+                 {{\"key\":\"Escape\",\"when\":{{\"dialog\":true}}}}\n\
+                 {{\"flag\":{{\"dialog\":null}},\"as\":\"closed\"}}\n\
+                 {{\"note\":\"focused\",\"as\":\"name\"}}\n\
+                 {{\"note\":\"entries\",\"as\":\"names\"}}\n\
+                 {{\"slice\":\"names\",\"pick\":0,\"as\":\"first\"}}\n"
             ),
         )
         .expect("the scenario should be written");
@@ -3522,7 +3889,10 @@ fn a_known_bug_must_name_a_step_line_that_can_fail() {
         r#","known_bug":null,"known_bug_step":3"#,
         r#","known_bug":"issue-1","known_bug_step":2"#,
         r#","known_bug":"issue-1","known_bug_step":4"#,
-        r#","known_bug":"issue-1","known_bug_step":9"#,
+        r#","known_bug":"issue-1","known_bug_step":5"#,
+        r#","known_bug":"issue-1","known_bug_step":6"#,
+        r#","known_bug":"issue-1","known_bug_step":8"#,
+        r#","known_bug":"issue-1","known_bug_step":19"#,
     ] {
         assert!(load(marker).is_err(), "{marker} should be rejected");
     }
@@ -3639,4 +4009,132 @@ fn remove_and_rename_act_only_inside_the_run_directories() {
     assert!(contained(&fixture.join("../outside/x"), &roots).is_err());
     assert!(contained(&fixture, &[scratch.path().join("fixture/documents")]).is_err());
     assert!(contained(Path::new("/etc/passwd"), &roots).is_err());
+}
+
+#[test]
+fn file_parts_join_repeats_and_fs_actions_write_archives_and_sparse_files() {
+    let manifest = manifest();
+    let tree = expand_tree(
+        &json!({ "table.csv": ["name,value\n", { "repeat": "record-{},{}\n", "from": 0, "to": 2 }] }),
+        &manifest,
+    )
+    .expect("parts should expand");
+    assert_eq!(
+        tree["table.csv"],
+        json!("name,value\nrecord-0,0\nrecord-1,1\nrecord-2,2\n")
+    );
+    assert!(expand_tree(&json!({ "a": [{ "repeat": "x" }] }), &manifest).is_err());
+    assert_eq!(stem("042.txt").as_deref(), Ok("042"));
+
+    let root = tempfile::tempdir().expect("a scratch directory");
+    let act = |step: Value| {
+        let step: FsStep = serde_json::from_value(step).expect("the step should parse");
+        assert!(
+            step.fs.acts(),
+            "an archive, a truncation, and a copy act at once"
+        );
+        step.fs
+            .observe(root.path(), SystemTime::UNIX_EPOCH, &mut FsState::default())
+    };
+    act(json!({ "fs": { "path": "a.zip", "zip": [
+        ["3D/3dmodel.model", "geometry"],
+        ["Metadata/thumbnail.png", { "image": { "width": 2, "height": 2, "rgb": [255, 0, 0] } }],
+    ] } }))
+    .expect("the archive should be written");
+    let mut archive =
+        zip::ZipArchive::new(File::open(root.path().join("a.zip")).expect("the archive"))
+            .expect("a readable zip");
+    assert_eq!(
+        archive.file_names().collect::<Vec<_>>(),
+        ["3D/3dmodel.model", "Metadata/thumbnail.png"]
+    );
+    assert_eq!(
+        archive.by_index(0).expect("an entry").compression(),
+        zip::CompressionMethod::Stored,
+        "zipfile writes stored entries by default"
+    );
+    act(json!({ "fs": { "path": "big.stl", "truncate": 4097 } }))
+        .expect("the file should be sized");
+    assert_eq!(
+        fs::metadata(root.path().join("big.stl"))
+            .map(|m| m.len())
+            .ok(),
+        Some(4097)
+    );
+    act(json!({ "fs": { "path": "copy.json", "from_repository": "tests/fixtures/harness.json" } }))
+        .expect("the repository file should be copied");
+    assert_eq!(
+        fs::read(root.path().join("copy.json")).ok(),
+        fs::read(Path::new(REPOSITORY).join("tests/fixtures/harness.json")).ok()
+    );
+    let escape: FsStep = serde_json::from_value(
+        json!({ "fs": { "path": "x", "from_repository": "../etc/passwd" } }),
+    )
+    .expect("the step should parse");
+    assert!(
+        escape.fs.kind().is_err(),
+        "from_repository stays inside the repository"
+    );
+}
+
+#[test]
+fn a_flag_keeps_whether_a_predicate_held_and_always_runs() {
+    assert!(check_step(&json!({ "flag": { "dialog": null }, "as": "enabled" })).is_ok());
+    assert!(check_step(&json!({ "flag": { "dialog": null } })).is_err());
+    assert!(check_step(&json!({ "flag": { "nope": 1 }, "as": "enabled" })).is_err());
+    assert!(
+        check_step(
+            &json!({ "flag": { "dialog": null }, "as": "enabled", "when": { "dialog": null } })
+        )
+        .is_err(),
+        "a flag always runs"
+    );
+}
+
+#[test]
+fn input_parity_may_ignore_only_named_positions_of_one_run() {
+    let directory = tempfile::tempdir().expect("a scratch directory");
+    let path = directory.path().join("example.jsonl");
+    let load_with = |mutation: &str, ignore: &str| {
+        fs::write(
+            &path,
+            format!(
+                "{{\"scenario\":\"example\",\"modes\":[\"columns\"],\"twin\":\"x[$v]\",\"mutation\":{mutation},\"known_bug\":null,\
+                 \"variants\":[{{\"id\":\"wheel\",\"vars\":{{\"v\":\"w\"}}}},{{\"id\":\"reset\",\"vars\":{{\"v\":\"r\"}}}}],\
+                 \"input_parity_ignore\":{ignore}}}\n\
+                 {{\"wait\":{{\"focused\":\"a\"}}}}\n"
+            ),
+        )
+        .expect("the scenario should be written");
+        load_scenario(&path).map(|_| ())
+    };
+    let load = |ignore: &str| load_with("null", ignore);
+    assert!(load(r#"[{"run":"columns-wheel","events":[{"position":19,"event":"button 1 down"},{"position":20,"event":"button 1 up"}]}]"#).is_ok());
+    assert!(load("[]").is_ok());
+    assert!(
+        load_with(
+            r#""quick-preview""#,
+            r#"[{"run":"columns-wheel","positions":[19]}]"#
+        )
+        .is_err(),
+        "a scenario with a mutation keeps every input check"
+    );
+    for bad in [
+        r#"[{"run":"columns","events":[{"position":1,"event":"button 1 down"}]}]"#,
+        r#"[{"run":"columns-wheel","events":[]}]"#,
+        r#"[{"run":"columns-wheel","events":[{"position":0,"event":"button 1 down"}]}]"#,
+        r#"[{"run":"columns-wheel","events":[{"position":2,"event":"button 1 down"},{"position":2,"event":"button 1 up"}]}]"#,
+        r#"[{"run":"columns-wheel","events":[{"position":2,"event":"key 37 down"}]}]"#,
+        r#"[{"run":"columns-wheel","events":[{"position":2}]}]"#,
+        r#"[{"run":"columns-wheel","positions":[19]}]"#,
+        r#"[{"run":"columns-wheel","events":[{"position":1,"event":"button 1 down"}]},{"run":"columns-wheel","events":[{"position":2,"event":"button 1 up"}]}]"#,
+    ] {
+        assert!(load(bad).is_err(), "{bad} should be rejected");
+    }
+    let python = fs::read_to_string(Path::new(REPOSITORY).join("scripts/qa_parity.py"))
+        .expect("qa_parity.py should be readable");
+    assert!(
+        python.contains("def input_parity_ignore("),
+        "qa_parity.py should read input_parity_ignore too"
+    );
 }

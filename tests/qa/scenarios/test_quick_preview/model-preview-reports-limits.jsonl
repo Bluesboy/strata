@@ -1,0 +1,35 @@
+{"scenario":"model-preview-reports-limits","modes":["list"],"prefs":{"single_click_previews":false},"layout":"us","twin":"tests/e2e/scenarios/test_quick_preview.py::test_model_preview_renders_stl_prefers_thumbnails_and_reports_limits","mutation":null,"known_bug":null,"tree":{"notes.txt":"the quick brown fox\n","page.md":"# Heading\n\nBody text.\n","third.txt":"third preview fixture\n","data.csv":"name,value\nalpha,1\n","folder":{"inner.txt":"inner\n","nested-notes.txt":"nested preview fixture\n"}}}
+{"fs":{"path":"sample.stl","write":"solid sample\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid\n"}}
+{"fs":{"path":"sample.3mf","zip":[["3D/3dmodel.model","geometry must not be parsed when one usable thumbnail exists"],["Metadata/thumbnail.png",{"image":{"width":32,"height":32,"rgb":[255,0,0]}}],["Metadata/invalid-thumbnail.png","invalid image"]]}}
+{"fs":{"path":"sample.3mf","rename":"model-blob"}}
+{"fs":{"path":"sample.3mf","symlink":"model-blob"}}
+{"wait":{"entry":"sample.stl"},"message":"STL file in listing"}
+{"select":{"entry":"sample.stl"}}
+{"key":"space"}
+{"wait":{"present":{"role":"image","name":"Model preview","within":{"preview":true}}},"message":"rendered STL preview"}
+{"click":{"role":"button","name":"Close preview (Space)","within":{"preview":true}}}
+{"wait":{"preview":null},"message":"STL preview to close"}
+{"select":{"entry":"sample.3mf"}}
+{"key":"space"}
+{"wait":{"present":{"role":"image","name":"Model preview","within":{"preview":true}}},"message":"embedded 3MF thumbnail"}
+{"click":{"role":"button","name":"Close preview (Space)","within":{"preview":true}}}
+{"wait":{"preview":null},"message":"model preview to close"}
+{"fs":{"path":"assembly.3mf","zip":[["3D/Objects/part.model","<model/>"],["3D/3dmodel.model","<model/>"]]}}
+{"wait":{"entry":"assembly.3mf"},"message":"multipart model in listing"}
+{"select":{"entry":"assembly.3mf"}}
+{"key":"space"}
+{"wait":{"preview":"Multipart model detected. Unable to render preview."},"message":"multipart model notice"}
+{"click":{"role":"button","name":"Close preview (Space)","within":{"preview":true}}}
+{"wait":{"preview":null},"message":"multipart preview to close"}
+{"fs":{"path":"missing.FCStd","zip":[["Document.xml","<Document/>"]]}}
+{"wait":{"entry":"missing.FCStd"},"message":"FreeCAD file in listing"}
+{"select":{"entry":"missing.FCStd"}}
+{"key":"space"}
+{"wait":{"preview":"This FreeCAD file has no usable embedded thumbnail"},"message":"specific sandbox error"}
+{"click":{"role":"button","name":"Close preview (Space)","within":{"preview":true}}}
+{"wait":{"preview":null},"message":"FreeCAD preview to close"}
+{"fs":{"path":"oversized.stl","truncate":134217729}}
+{"wait":{"entry":"oversized.stl"},"message":"oversized STL in listing"}
+{"select":{"entry":"oversized.stl"}}
+{"key":"space"}
+{"wait":{"preview":"128 MiB preview limit"},"message":"explicit file size limit"}

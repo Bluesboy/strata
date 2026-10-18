@@ -26,9 +26,11 @@ pub(crate) struct Naming {
     pub(crate) label: Option<String>,
     pub(crate) description: Option<String>,
     pub(crate) mark: Option<Mark>,
-    /// The accessible `checked` and `pressed` states, which GTK cannot read back either.
+    /// The accessible `checked`, `pressed`, and `selected` states, which GTK
+    /// cannot read back either.
     pub(crate) checked: Option<bool>,
     pub(crate) pressed: Option<bool>,
+    pub(crate) selected: Option<bool>,
 }
 
 struct Record {

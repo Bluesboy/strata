@@ -117,6 +117,12 @@ pub(super) fn set_labelled_by(widget: &impl IsA<gtk::Accessible>, labels: &[&gtk
     qa::record_labelled_by(widget, labels);
 }
 
+pub(super) fn set_selected(widget: &impl IsA<gtk::Accessible>, selected: bool) {
+    widget.update_state(&[gtk::accessible::State::Selected(Some(selected))]);
+    #[cfg(feature = "qa")]
+    qa::record(widget, |naming| naming.selected = Some(selected));
+}
+
 pub(super) fn set_pressed(widget: &impl IsA<gtk::Accessible>, pressed: bool) {
     widget.update_state(&[gtk::accessible::State::Pressed(tristate(pressed))]);
     #[cfg(feature = "qa")]
@@ -175,6 +181,7 @@ pub(super) fn describe_entry(item: &gtk::ListItem, display_name: &str, entry: Op
             mark: Some(qa::Mark::Entry),
             checked: naming.checked,
             pressed: naming.pressed,
+            selected: naming.selected,
         };
     });
 }
@@ -223,6 +230,7 @@ pub(super) fn describe_pane(pane: &impl IsA<gtk::Accessible>, directory: &str, m
             })),
             checked: naming.checked,
             pressed: naming.pressed,
+            selected: naming.selected,
         };
     });
 }
@@ -243,6 +251,7 @@ pub(super) fn describe_entry_container(container: &impl IsA<gtk::Accessible>, di
             mark: Some(qa::Mark::EntryContainer),
             checked: naming.checked,
             pressed: naming.pressed,
+            selected: naming.selected,
         };
     });
 }
@@ -268,6 +277,7 @@ pub(super) fn describe_pane_surface(
             mark: Some(qa::Mark::PaneSurface),
             checked: naming.checked,
             pressed: naming.pressed,
+            selected: naming.selected,
         };
     });
 }
@@ -305,6 +315,7 @@ pub(super) fn describe_menu_item(
             mark: Some(qa::Mark::MenuItem),
             checked: naming.checked,
             pressed: naming.pressed,
+            selected: naming.selected,
         };
     });
 }

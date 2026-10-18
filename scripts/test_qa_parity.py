@@ -19,6 +19,7 @@ from qa_parity import (
     compare_state,
     exit_accounted,
     fail_parity,
+    input_parity_ignore,
     parse_junit,
     parse_qa_log,
     pass_parity,
@@ -176,6 +177,13 @@ class InputParityTests(unittest.TestCase):
         self.assertFalse(compare_input(hover, hover.replace("273 158", "276 158")).agree)
         self.assertFalse(compare_input(hover, hover.rsplit("\n", 1)[0]).agree)
         self.assertFalse(compare_input("", "").agree)
+        self.assertTrue(compare_input("", "", sends_input=False).agree)
+        long = "tests/e2e/scenarios/test_column_headers.py::test_titles[" + "x" * 300 + "]"
+        name = qa_parity.node_file_name(long)
+        self.assertLessEqual(len(name), qa_parity.NODE_FILE_NAME_LIMIT)
+        self.assertNotEqual(name, qa_parity.node_file_name(long.replace("x]", "y]")))
+        self.assertEqual(qa_parity.node_file_name("a::b[c]"), "a_b_c_")
+        self.assertFalse(compare_input("", "motion 1 2\n", sends_input=False).agree)
 
 
 class StateParityIgnoreTests(unittest.TestCase):
@@ -211,6 +219,61 @@ class StateParityIgnoreTests(unittest.TestCase):
             with self.subTest(bad=bad):
                 with self.assertRaises(ValueError):
                     state_parity_ignore({"state_parity_ignore": bad})
+
+    def test_input_parity_may_ignore_named_pointer_positions_of_one_run(self):
+        down = {"position": 19, "event": "button 1 down"}
+        up = {"position": 20, "event": "button 1 up"}
+        header = {
+            "modes": ["columns"],
+            "variants": [{"id": "wheel"}, {"id": "reset"}],
+            "input_parity_ignore": [{"run": "columns-wheel", "events": [down, up]}],
+        }
+        self.assertEqual(
+            input_parity_ignore(header),
+            (("columns-wheel", ((19, "button 1 down"), (20, "button 1 up"))),),
+        )
+        self.assertEqual(input_parity_ignore({"modes": ["columns"]}), ())
+        for bad in [
+            [{"run": "columns", "events": [down]}],
+            [{"run": "columns-wheel", "events": []}],
+            [{"run": "columns-wheel", "events": [{"position": 0, "event": "button 1 down"}]}],
+            [{"run": "columns-wheel", "events": [down, down]}],
+            [{"run": "columns-wheel", "events": [{"position": True, "event": "button 1 down"}]}],
+            [{"run": "columns-wheel", "events": [{"position": 2, "event": "key 37 down"}]}],
+            [{"run": "columns-wheel", "events": [{"position": 2}]}],
+            [{"run": "columns-wheel", "events": [down], "why": "x"}],
+            [{"run": "columns-wheel", "positions": [19]}],
+            [{"run": "columns-wheel", "events": [down]}, {"run": "columns-wheel", "events": [up]}],
+            {"run": "columns-wheel", "events": [down]},
+        ]:
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    input_parity_ignore({**header, "input_parity_ignore": bad})
+        with self.assertRaises(ValueError):
+            input_parity_ignore({**header, "mutation": "quick-preview"})
+
+    def test_ignored_positions_must_hold_the_named_events_and_the_rest_still_compare(self):
+        python = "key 37 down\npointer 968 416 button 1 down\npointer 968 416 button 1 up\nkey 37 up\n"
+        qa = "key 37 down\npointer 1035 387 button 1 down\npointer 1035 387 button 1 up\nkey 37 up\n"
+        click = ((2, "button 1 down"), (3, "button 1 up"))
+        self.assertFalse(compare_input(python, qa).agree)
+        self.assertTrue(compare_input(python, qa, positions=click).agree)
+        self.assertFalse(compare_input(python, qa, positions=click[:1]).agree)
+        released = qa.replace("button 1 down", "button 1 up", 1)
+        self.assertFalse(compare_input(python, released, positions=click).agree)
+        self.assertFalse(
+            compare_input(python, qa, positions=((2, "button 3 down"), (3, "button 1 up"))).agree,
+            "the event at the position must be the one named",
+        )
+        shifted = "key 37 down\n" + qa
+        self.assertFalse(compare_input("key 37 down\n" + python, shifted, positions=click).agree)
+        self.assertFalse(
+            compare_input(python, qa, positions=click + ((9, "button 1 down"),)).agree,
+            "a position past either log is rejected",
+        )
+        self.assertFalse(compare_input(python, python, positions=((1, "button 1 down"),)).agree)
+        everything = ((1, "button 1 down"), (2, "button 1 down"), (3, "button 1 up"), (4, "button 1 up"))
+        self.assertFalse(compare_input(python, python, positions=everything).agree)
 
     def test_a_mutation_scenario_or_ignoring_every_key_is_rejected(self):
         self.assertEqual(state_parity_ignore({"mutation": "clipboard"}), ())

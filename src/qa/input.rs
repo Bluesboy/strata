@@ -113,6 +113,33 @@ impl Injector {
     }
 
     pub(crate) fn send(&self, event: Event) -> Result<(), String> {
+        self.fake(event, 0)?;
+        // The round trip guarantees the server has generated the events for
+        // GTK's connection before the main loop is drained.
+        self.connection.sync().map_err(|error| error.to_string())?;
+        self.log(event)
+    }
+
+    /// Sends the event for the server to generate `delay` after the last
+    /// one, without waiting for it, so neither this process nor its main loop
+    /// can hold it back, as the twin's own sleep before the next event cannot.
+    pub(crate) fn send_after(
+        &self,
+        event: Event,
+        delay: std::time::Duration,
+    ) -> Result<(), String> {
+        let delay = u32::try_from(delay.as_millis()).map_err(|error| error.to_string())?;
+        self.fake(event, delay)?;
+        self.connection.flush().map_err(|error| error.to_string())?;
+        self.log(event)
+    }
+
+    /// Waits until the server has generated every event sent so far.
+    pub(crate) fn sync(&self) -> Result<(), String> {
+        self.connection.sync().map_err(|error| error.to_string())
+    }
+
+    fn fake(&self, event: Event, delay: u32) -> Result<(), String> {
         let (kind, detail, x, y) = match event {
             Event::Key { keycode, pressed } => (
                 if pressed {
@@ -136,21 +163,9 @@ impl Injector {
             ),
             Event::Motion { x, y } => (xproto::MOTION_NOTIFY_EVENT, 0, x, y),
         };
-        xtest::fake_input(
-            &self.connection,
-            kind,
-            detail,
-            x11rb::CURRENT_TIME,
-            self.root,
-            x,
-            y,
-            0,
-        )
-        .map_err(|error| error.to_string())?;
-        // The round trip guarantees the server has generated the events for
-        // GTK's connection before the main loop is drained.
-        self.connection.sync().map_err(|error| error.to_string())?;
-        self.log(event)
+        xtest::fake_input(&self.connection, kind, detail, delay, self.root, x, y, 0)
+            .map_err(|error| error.to_string())?;
+        Ok(())
     }
 
     fn log(&self, event: Event) -> Result<(), String> {

@@ -75,6 +75,7 @@ fn qa_reads_back_what_the_naming_helpers_set() {
                     mark: Some(qa::Mark::Pane("Icons")),
                     checked: None,
                     pressed: None,
+                    selected: None,
                 })
             );
 
@@ -91,10 +92,15 @@ fn qa_reads_back_what_the_naming_helpers_set() {
             let option = gtk::ToggleButton::new();
             set_checked(&option, true);
             set_pressed(&option, false);
+            set_selected(&option, true);
             let title = gtk::Label::new(Some("List view"));
             set_labelled_by(&option, &[title.upcast_ref(), option.upcast_ref()]);
             assert_eq!(
                 qa::naming(&option).and_then(|naming| naming.checked),
+                Some(true)
+            );
+            assert_eq!(
+                qa::naming(&option).and_then(|naming| naming.selected),
                 Some(true)
             );
             assert_eq!(

@@ -114,6 +114,8 @@ fn commands_parse_from_the_scenario_spelling_with_their_defaults() {
                 within: None,
                 name_ends_with: Vec::new(),
                 nth: None,
+                states: Vec::new(),
+                name_matches: None,
             },
             message: Some("m".to_owned()),
         })
@@ -129,6 +131,7 @@ fn commands_parse_from_the_scenario_spelling_with_their_defaults() {
         predicates,
         message: None,
         timeout: None,
+        hold: None,
     }) = parse_command(r#"{"expect":[{"selected":["a"],"dir":"x"},{"focused":null}]}"#)
     else {
         panic!("expect should take a list of predicates");
@@ -456,6 +459,8 @@ fn every_target_kind_parses_from_its_key() {
             within: None,
             name_ends_with: Vec::new(),
             nth: None,
+            states: Vec::new(),
+            name_matches: None,
         }
     );
     assert_eq!(
@@ -497,6 +502,8 @@ fn every_target_kind_parses_from_its_key() {
             within: None,
             name_ends_with: vec!["/a".to_owned()],
             nth: Some(-1),
+            states: Vec::new(),
+            name_matches: None,
         }
     );
     assert_eq!(target(r#"{"focused_widget":true}"#), Target::FocusedWidget);
@@ -1337,5 +1344,130 @@ fn result_row_states_parse_and_need_a_state() {
         predicate(json!({ "any_result_row": { "focused": true } }))
             .check
             .is_live()
+    );
+}
+
+#[test]
+fn numbers_compare_and_parse_from_their_operations() {
+    use super::protocol::{CompareOp, Expr, Measure};
+    assert!(CompareOp::AtMost.holds(2.0, 2.0));
+    assert!(!CompareOp::Less.holds(2.0, 2.0));
+    assert!(CompareOp::Unequal.holds(560.0, 412.0));
+    let compare = predicate(json!({"compare": {
+        "left": {"abs": {"minus": [{"of": {"preview": true}, "get": "x"}, {"of": {"pane": null}, "get": "right"}]}},
+        "op": "<=",
+        "right": 3,
+    }}));
+    let Check::Compare(comparison) = &compare.check else {
+        panic!("compare parses as a comparison");
+    };
+    assert_eq!(comparison.op, CompareOp::AtMost);
+    let Expr::Abs(inner) = &comparison.left else {
+        panic!("abs wraps the difference");
+    };
+    let Expr::Minus(pair) = &**inner else {
+        panic!("minus takes two numbers");
+    };
+    assert_eq!(
+        pair[0],
+        Expr::Of {
+            target: Box::new(Target::Preview),
+            get: Measure::X
+        }
+    );
+    assert_eq!(
+        serde_json::to_value(&compare).expect("a predicate serializes")["compare"]["left"],
+        json!({"abs": {"minus": [{"of": {"preview": true}, "get": "x"}, {"of": {"pane": null}, "get": "right"}]}}),
+        "a number serializes back to its spelling"
+    );
+    for bad in [
+        json!({"compare": {"left": {"of": {"preview": true}}, "op": "<", "right": 1}}),
+        json!({"compare": {"left": {"minus": [1]}, "op": "<", "right": 1}}),
+        json!({"compare": {"left": {"pow": [1, 2]}, "op": "<", "right": 1}}),
+        json!({"compare": {"left": 1, "op": "=<", "right": 1}}),
+    ] {
+        assert!(
+            serde_json::from_value::<Predicate>(bad.clone()).is_err(),
+            "{bad}"
+        );
+    }
+    assert!(serde_json::from_value::<Predicate>(json!({"compare": {"left": {"count": {"description": "Columns view", "rendered": false}}, "op": "==", "right": {"pref": "text_size", "default": 0}}})).is_ok());
+}
+
+#[test]
+fn prefs_panes_clipboard_holds_and_notes_parse_only_in_their_valid_shapes() {
+    assert!(
+        serde_json::from_value::<Predicate>(
+            json!({"pref": {"key": "list_hidden_columns", "contains": "size"}})
+        )
+        .is_ok()
+    );
+    assert!(
+        serde_json::from_value::<Predicate>(json!({"pref": {"key": "k", "value": null}})).is_ok()
+    );
+    for bad in [
+        json!({"pref": {"key": "k"}}),
+        json!({"pref": {"key": "k", "value": 1, "contains": "x"}}),
+        json!({"panes_with": {"target": {"entry": "a"}, "names": []}}),
+        json!({"panes_with": {"target": {"role": "button", "within": {"preview": true}}, "names": []}}),
+        json!({"present": {"role": "label", "name_matches": "("}}),
+        json!({"present": {"role": "label", "states": ["active"]}}),
+    ] {
+        assert!(
+            serde_json::from_value::<Predicate>(bad.clone()).is_err(),
+            "{bad}"
+        );
+    }
+    assert_eq!(
+        parse_command(r#"{"clipboard":{"starts_with":"alpha","longer_than":5},"message":"m"}"#),
+        Ok(Command::Clipboard {
+            text: serde_json::from_value(json!({"starts_with": "alpha", "longer_than": 5}))
+                .expect("the json should parse"),
+            message: Some("m".to_owned()),
+        })
+    );
+    assert_eq!(
+        parse_command(r#"{"clipboard_set":"selection-cleared"}"#),
+        Ok(Command::ClipboardSet("selection-cleared".to_owned()))
+    );
+    assert!(parse_command(r#"{"expect":{"focused":null},"hold_ms":400}"#).is_err());
+    assert!(
+        parse_command(r#"{"expect":{"focused":null},"timeout_ms":3000,"hold_ms":400}"#).is_ok()
+    );
+    assert!(parse_command(r#"{"note":"number","as":"n"}"#).is_err());
+    assert!(parse_command(r#"{"note":"entries","expr":1,"as":"n"}"#).is_err());
+    assert!(
+        parse_command(r#"{"note":"number","expr":{"of":{"window":true},"get":"width"},"as":"n"}"#)
+            .is_ok()
+    );
+    assert!(parse_command(r#"{"note":"visible_top","pick":0,"as":"n"}"#).is_ok());
+    assert!(parse_command(
+        r#"{"note":"number","expr":{"pref":"w"},"until":[{"op":">","than":300}],"until_found":true,"as":"n"}"#
+    )
+    .is_ok());
+    assert!(
+        parse_command(
+            r#"{"note":"number","expr":{"pref":"w"},"until":[{"op":">","than":300}],"as":"n"}"#
+        )
+        .is_err(),
+        "until needs until_found"
+    );
+    let longer: TextMatch =
+        serde_json::from_value(json!({"starts_with": "alpha", "longer_than": 5}))
+            .expect("the json should parse");
+    assert!(longer.matches("alpha bravo"));
+    assert!(!longer.matches("alpha"));
+    assert!(!longer.matches("bravo alpha"));
+}
+
+#[test]
+fn role_targets_carry_states_and_name_patterns() {
+    let target: Target = serde_json::from_value(
+        json!({"role": "page tab", "name": "docs", "states": ["selected"], "name_matches": "^d"}),
+    )
+    .expect("the json should parse");
+    assert_eq!(
+        target.to_json(),
+        json!({"role": "page tab", "name": "docs", "states": ["selected"], "name_matches": "^d"})
     );
 }

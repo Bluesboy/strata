@@ -370,7 +370,12 @@ impl Observation {
             | Check::Pixel(_)
             | Check::AccentPixels(_)
             | Check::HitPath(_)
-            | Check::AnyResultRow(_) => (false, json!("needs the live window")),
+            | Check::AnyResultRow(_)
+            | Check::Compare(_)
+            | Check::PanesWith(_)
+            | Check::Name(_)
+            | Check::EditableText(_)
+            | Check::VisibleTop(_) => (false, json!("needs the live window")),
             Check::Not(inner) => match self.evaluate(inner) {
                 Ok(()) => (false, json!("the negated predicate holds")),
                 Err(failure) => (true, failure.actual),
@@ -523,6 +528,10 @@ impl Scene {
     pub(crate) fn pane_widgets(&self, directory: Option<&str>) -> Option<&PaneWidgets> {
         self.pane_index(directory)
             .and_then(|index| self.widgets.get(index))
+    }
+    /// The widgets of the pane at this index, left to right.
+    pub(crate) fn pane_widgets_at(&self, index: usize) -> Option<&PaneWidgets> {
+        self.widgets.get(index)
     }
 }
 
@@ -817,6 +826,22 @@ const MAX_TREE_DEPTH: usize = 64;
 pub(crate) fn dump(window: &gtk::Window) -> String {
     let rows = rows();
     let mut output = String::new();
+    // The window's focus even when it sits on a widget that is not mapped,
+    // which the tree below leaves out.
+    if let Some(focus) = gtk::prelude::GtkWindowExt::focus(window) {
+        let _ = writeln!(
+            output,
+            "focus: {} role={:?} name={:?}{}",
+            focus.type_().name(),
+            targets::role_name(&focus),
+            targets::accessible_name(&focus),
+            if focus.is_mapped() {
+                ""
+            } else {
+                " (not mapped)"
+            }
+        );
+    }
     dump_widget(window.upcast_ref(), 0, &rows, &mut output);
     output
 }

@@ -30,6 +30,7 @@ named after its patch or else after the scenario, and `summary.md`. See
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -74,11 +75,24 @@ INPUT_MOTION = re.compile(r"^motion (-?\d+) (-?\d+)$")
 
 # ------------------------------------------------------------------ scenarios
 
+# The scenario steps that send synthetic input; a scenario with none of them
+# agrees on input when neither side logged any.
+INPUT_COMMANDS = frozenset({
+    "key", "type", "click", "click_result_rows", "select", "select_with_keyboard",
+    "open_menu", "move", "move_by", "wheel", "drag", "button_down", "button_up",
+    "key_down", "key_up", "keys_until", "drop_samples",
+})
+
+
 @dataclass(frozen=True)
 class Scenario:
     name: str
     mutation: str | None
     state_parity_ignore: tuple[str, ...] = ()
+    sends_input: bool = True
+    # Per run label, the (1-based number, expected event) pairs whose pointer
+    # position is not compared.
+    input_parity_ignore: tuple[tuple[str, tuple[tuple[int, str], ...]], ...] = ()
 
     @property
     def unit(self) -> str:
@@ -93,10 +107,87 @@ def scenarios() -> list[Scenario]:
         header = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
         try:
             ignored = state_parity_ignore(header)
+            positions = input_parity_ignore(header)
         except ValueError as error:
             raise SystemExit(f"{path}: {error}") from None
-        found.append(Scenario(path.stem, header.get("mutation"), ignored))
+        found.append(
+            Scenario(path.stem, header.get("mutation"), ignored, sends_input(path), positions)
+        )
     return found
+
+
+def sends_input(path: Path) -> bool:
+    """Whether any step of the scenario sends synthetic input."""
+
+    steps = path.read_text(encoding="utf-8").splitlines()[1:]
+    return any(
+        INPUT_COMMANDS & json.loads(line).keys() for line in steps if line.strip()
+    )
+
+
+def run_labels(header: dict) -> list[str]:
+    """The run labels `tests/qa.rs` gives a scenario's runs: the mode, plus `-<variant>`."""
+
+    variants = header.get("variants") or []
+    if not variants:
+        return list(header.get("modes", []))
+    return [
+        f"{mode}-{variant['id']}"
+        for variant in variants
+        for mode in (variant.get("modes") or header.get("modes", []))
+    ]
+
+
+IGNORED_EVENT = re.compile(r"^button (\d+) (down|up)$")
+
+
+def input_parity_ignore(header: dict) -> tuple[tuple[str, tuple[tuple[int, str], ...]], ...]:
+    """The input events a scenario's input parity compares without their pointer position.
+
+    Each entry names one run and, for each such event, its 1-based number
+    among the run's key and pointer events (motion lines aside) and the event
+    expected there, such as `button 1 down`; the event itself, and every other
+    event, is still compared, so a step added before it cannot shift the
+    exemption onto another event. `tests/qa.rs` rejects the same values when
+    it loads the scenario.
+    """
+
+    entries = header.get("input_parity_ignore", [])
+    if not isinstance(entries, list):
+        raise ValueError("input_parity_ignore is a list of {run, events} entries")
+    if entries and header.get("mutation") is not None:
+        raise ValueError(
+            "input_parity_ignore is for baseline parity; a scenario with a mutation keeps every check"
+        )
+    labels = run_labels(header)
+    found: list[tuple[str, tuple[tuple[int, str], ...]]] = []
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != {"run", "events"}:
+            raise ValueError("an input_parity_ignore entry is {\"run\": ..., \"events\": [...]}")
+        run, events = entry["run"], entry["events"]
+        if run not in labels or run in (name for name, _ in found):
+            raise ValueError(f"input_parity_ignore names distinct runs of {labels}, not {run!r}")
+        if not isinstance(events, list) or not events:
+            raise ValueError("input_parity_ignore events name at least one event")
+        kept: list[tuple[int, str]] = []
+        for event in events:
+            if (
+                not isinstance(event, dict)
+                or set(event) != {"position", "event"}
+                or not isinstance(event["position"], int)
+                or isinstance(event["position"], bool)
+                or event["position"] < 1
+                or event["position"] in (position for position, _ in kept)
+                or not isinstance(event["event"], str)
+                or not IGNORED_EVENT.match(event["event"])
+            ):
+                raise ValueError(
+                    "an input_parity_ignore event is {\"position\": N, \"event\": \"button 1 down\"}"
+                    " with a distinct position from 1"
+                )
+            kept.append((event["position"], event["event"]))
+        found.append((run, tuple(kept)))
+    return tuple(found)
 
 
 def state_parity_ignore(header: dict) -> tuple[str, ...]:
@@ -144,8 +235,18 @@ def scenario_named(name: str) -> Scenario:
     return by_name[0]
 
 
+# File names stay well inside the 255-byte limit; a longer node id keeps its
+# start and a digest of the whole, as `tests/e2e/conftest.py` names it.
+NODE_FILE_NAME_LIMIT = 200
+NODE_FILE_NAME_KEPT = 180
+
+
 def node_file_name(node_id: str) -> str:
-    return UNSAFE_NAME.sub("_", node_id)
+    name = UNSAFE_NAME.sub("_", node_id)
+    if len(name) <= NODE_FILE_NAME_LIMIT:
+        return name
+    digest = hashlib.sha256(node_id.encode()).hexdigest()[:16]
+    return f"{name[:NODE_FILE_NAME_KEPT]}-{digest}"
 
 
 # -------------------------------------------------------------------- results
@@ -280,11 +381,15 @@ class Comparison:
     note: str = ""
 
 
-def compare_input(python: str, qa: str) -> Comparison:
+def compare_input(
+    python: str, qa: str, sends_input: bool = True, positions: tuple[tuple[int, str], ...] = ()
+) -> Comparison:
     """Key and pointer-button lines in order; pointer positions within a pixel.
 
     A run that only moves the pointer, as a hover does, compares its motion
-    lines the same way instead.
+    lines the same way instead. Two empty logs agree only for a scenario that
+    sends no input at all. Each `(number, "button 1 down")` in `positions` must
+    be that pointer event on both sides, and is compared without its coordinates.
     """
 
     def events(text: str, side: str) -> tuple[list[tuple], list[tuple]]:
@@ -307,9 +412,30 @@ def compare_input(python: str, qa: str) -> Comparison:
         return Comparison(False, str(error))
     if not left and not right:
         if not left_motion and not right_motion:
+            if not sends_input:
+                return Comparison(True, "neither side sends input")
             return Comparison(False, "neither side logged input")
         left, right = left_motion, right_motion
+    expected = dict(positions)
+    if expected and set(expected) >= set(range(1, len(left) + 1)):
+        return Comparison(False, "input_parity_ignore leaves no event position compared")
+    for number, event in expected.items():
+        match = IGNORED_EVENT.match(event)
+        wanted = ("pointer", int(match[1]), match[2]) if match else None
+        for side, events in (("Python", left), ("QA", right)):
+            if number > len(events):
+                return Comparison(
+                    False, f"input_parity_ignore names event {number}, past {side}'s {len(events)}"
+                )
+            found = events[number - 1]
+            if (found[0], *found[3:]) != wanted:
+                return Comparison(
+                    False,
+                    f"input_parity_ignore expects {event!r} as event {number}; {side} sent {found}",
+                )
     for index, (one, other) in enumerate(zip(left, right)):
+        if index + 1 in expected:
+            continue
         if one[0] != other[0]:
             return Comparison(False, f"event {index + 1}: Python {one}, QA {other}")
         if one[0] == "key" and one != other:
@@ -593,7 +719,13 @@ class PairReport:
 def compare_baseline(report: PairReport, destination: Path) -> None:
     artifacts = destination / "qa"
     python = destination / "python"
-    ignored = {scenario.name: scenario.state_parity_ignore for scenario in scenarios()}
+    known = {scenario.name: scenario for scenario in scenarios()}
+    positions = {
+        (name, run): events
+        for name, scenario in known.items()
+        for run, events in scenario.input_parity_ignore
+    }
+    ignored = {name: scenario.state_parity_ignore for name, scenario in known.items()}
     for pair in report.baseline:
         if pair.label == "(no QA run)":
             continue
@@ -602,7 +734,12 @@ def compare_baseline(report: PairReport, destination: Path) -> None:
         python_input = python / "input" / f"{stem}.log"
         qa_input = artifacts / scenario / run / "input.log"
         report.inputs[pair.label] = (
-            compare_input(python_input.read_text(), qa_input.read_text())
+            compare_input(
+                python_input.read_text(),
+                qa_input.read_text(),
+                known[scenario].sends_input if scenario in known else True,
+                positions.get((scenario, run), ()),
+            )
             if python_input.is_file() and qa_input.is_file()
             else Comparison(False, "an input log is missing")
         )

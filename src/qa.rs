@@ -31,8 +31,9 @@ use self::{
     input::{Event, Injector},
     pixels::Capture,
     protocol::{
-        Accessor, At, Check, Chord, Command, Direction, EntryTarget, Failure, FieldRef, Modifier,
-        Orientation, PointAxis, Predicate, PressCheck, Query, Repeat, Reply, Target,
+        Accessor, At, Check, Chord, Command, Direction, EntryTarget, Expr, Failure, FieldRef,
+        Measure, Modifier, Orientation, PointAxis, Predicate, PressCheck, Query, Repeat, Reply,
+        Target,
     },
     state::FieldState,
     targets::{Aim, Boxes, Kept, LookupError, Memory, Rect},
@@ -154,6 +155,7 @@ impl Session {
             memory: RefCell::default(),
             widgets: RefCell::default(),
             samples: RefCell::default(),
+            clipboard: RefCell::default(),
         };
         // GLib would keep a panic in the task's join handle and leave the
         // runner waiting; report it and exit instead.
@@ -209,6 +211,9 @@ struct Controller {
     /// Screen captures, text measurements, and instants, by the name a step
     /// kept them under.
     samples: RefCell<HashMap<String, Sample>>,
+    /// The second display connection a `clipboard_set` opened and owns the
+    /// clipboard through, until the `clipboard` read that closes it.
+    clipboard: RefCell<Option<gdk::Display>>,
 }
 
 #[derive(Clone)]
@@ -424,6 +429,8 @@ impl Controller {
                 plus,
                 sorted,
                 pick,
+                expr,
+                until,
             } => {
                 let shape = Shape {
                     from: from.as_deref(),
@@ -454,6 +461,27 @@ impl Controller {
                         )))
                     }
                     Accessor::EditableFields => Ok(json!(targets::editable_fields(&window))),
+                    Accessor::Number => {
+                        let Some(expr) = expr.as_ref() else {
+                            return Err("number needs expr".to_owned());
+                        };
+                        let number = match evaluate(&input, expr)? {
+                            Ok(number) => number,
+                            // Polled until found, a number not there yet is no answer yet.
+                            Err(_) if wait.is_some() => return Ok(Value::Null),
+                            Err(missing) => {
+                                return Err(format!("cannot work out the number: {missing}"));
+                            }
+                        };
+                        for bound in &until {
+                            match evaluate(&input, &bound.than)? {
+                                Ok(than) if bound.op.holds(number, than) => {}
+                                _ => return Ok(Value::Null),
+                            }
+                        }
+                        Ok(number_json(number))
+                    }
+                    Accessor::VisibleTop => shape.apply(visible_top(&input)?),
                     Accessor::Visible => shape.apply(
                         visible_rows(&input, dir.as_deref())?
                             .into_iter()
@@ -806,8 +834,10 @@ impl Controller {
                 predicates,
                 message,
                 timeout,
+                hold,
             } => {
                 let deadline = timeout.map(|timeout| Instant::now() + timeout);
+                let mut since: Option<Instant> = None;
                 loop {
                     let mut failures = Vec::new();
                     for predicate in &predicates {
@@ -820,7 +850,19 @@ impl Controller {
                             Err(error) => return Outcome::error(error),
                         }
                     }
-                    if failures.is_empty()
+                    let held = match hold {
+                        None => true,
+                        Some(hold) if failures.is_empty() => {
+                            since.get_or_insert_with(Instant::now).elapsed() >= hold
+                        }
+                        Some(_) => {
+                            since = None;
+                            false
+                        }
+                    };
+                    // `_settles` gives up with one last look at the condition,
+                    // which need not hold any longer.
+                    if (failures.is_empty() && held)
                         || deadline.is_none_or(|deadline| Instant::now() >= deadline)
                     {
                         return Outcome {
@@ -829,6 +871,47 @@ impl Controller {
                         };
                     }
                     glib::timeout_future(POLL_INTERVAL).await;
+                }
+            }
+            Command::ClipboardSet(text) => match private_display() {
+                Ok(display) => {
+                    display.clipboard().set_text(&text);
+                    display.flush();
+                    if let Some(previous) = self.clipboard.replace(Some(display)) {
+                        previous.close();
+                    }
+                    Outcome::default()
+                }
+                Err(error) => Outcome::error(error),
+            },
+            Command::Clipboard { text, message } => {
+                let display = match self.clipboard.take().map_or_else(private_display, Ok) {
+                    Ok(display) => display,
+                    Err(error) => return Outcome::error(error),
+                };
+                let read = read_clipboard(&display).await;
+                display.close();
+                match read {
+                    Some(read) if text.matches(&read) => Outcome::default(),
+                    Some(read) => Outcome {
+                        failures: vec![Failure {
+                            predicate: json!({ "clipboard": text }),
+                            actual: json!(abridged(&read)),
+                            message,
+                        }],
+                        error: Some("the clipboard holds other text".to_owned()),
+                        ..Outcome::default()
+                    },
+                    None => {
+                        let failure = Failure {
+                            predicate: json!({ "clipboard": text }),
+                            actual: Value::Null,
+                            message: Some(
+                                "selected table text on the private display clipboard".to_owned(),
+                            ),
+                        };
+                        Outcome::timed_out(&window, failure, protocol::DEFAULT_WAIT)
+                    }
                 }
             }
             Command::Query(Query::State) => Outcome {
@@ -1150,7 +1233,16 @@ impl Controller {
                     .get(&check.key)
                     .cloned()
                     .unwrap_or(Value::Null);
-                verdict(actual == check.value, actual)
+                let holds = match (&check.value, &check.contains) {
+                    (Some(value), _) => actual == *value,
+                    (None, Some(part)) => match &actual {
+                        Value::Array(items) => items.iter().any(|item| item.as_str() == Some(part)),
+                        Value::String(text) => text.contains(part.as_str()),
+                        _ => false,
+                    },
+                    (None, None) => false,
+                };
+                verdict(holds, actual)
             }
             Check::EditorWithinViewport(field) => {
                 let Some(editor) = input.field(field)? else {
@@ -1228,6 +1320,12 @@ impl Controller {
                             (Direction::Down, _) => now[1] > settled[1],
                             (Direction::Left, _) => now[0] < settled[0],
                             (Direction::Right, _) => now[0] > settled[0],
+                            (Direction::None, None) if movement.within.is_some() => {
+                                let within = i64::from(movement.within.unwrap_or_default());
+                                (now[0] - settled[0]).abs() <= within
+                                    && (now[1] - settled[1]).abs() <= within
+                                    && now[2..] == settled[2..]
+                            }
                             (Direction::None, None) => now == settled,
                             (Direction::None, Some(within)) => {
                                 (now[1] - settled[1]).abs() <= i64::from(within)
@@ -1621,9 +1719,260 @@ impl Controller {
                     json!(shown),
                 )
             }
+            Check::Compare(comparison) => {
+                let left = evaluate(input, &comparison.left)?;
+                let right = evaluate(input, &comparison.right)?;
+                match (left, right) {
+                    (Ok(left), Ok(right)) => verdict(
+                        comparison.op.holds(left, right),
+                        json!({ "left": number_json(left), "right": number_json(right) }),
+                    ),
+                    (Err(missing), _) | (_, Err(missing)) => Err(mismatch(json!(missing))),
+                }
+            }
+            Check::PanesWith(panes) => {
+                let Target::Role {
+                    role,
+                    name,
+                    description,
+                    name_ends_with,
+                    nth,
+                    states,
+                    name_matches,
+                    ..
+                } = &panes.target
+                else {
+                    return Err("panes_with takes a role target".to_owned());
+                };
+                let wanted = targets::Wanted {
+                    role,
+                    name: name.as_deref(),
+                    description: description.as_deref(),
+                    name_ends_with,
+                    nth: *nth,
+                    states,
+                    name_matches: targets::pattern(name_matches.as_deref())
+                        .map_err(|error| error.message().to_owned())?,
+                };
+                let scene = state::scan(input.window);
+                let mut owners = Vec::new();
+                for (index, pane) in scene.observation.panes.iter().enumerate() {
+                    let Some(widgets) = scene.pane_widgets_at(index) else {
+                        continue;
+                    };
+                    match wanted.find(&widgets.pane) {
+                        Ok(_) => owners.push(pane.name.clone()),
+                        Err(LookupError::Missing(_)) => {}
+                        Err(LookupError::Broken(error)) => return Err(error),
+                    }
+                }
+                verdict(panes.names.matches(&owners), json!(owners))
+            }
+            Check::Name(check) => match locate(&check.target)? {
+                None => Err(mismatch(json!("not on screen"))),
+                Some(located) => {
+                    let name = targets::accessible_name(&located.widget);
+                    verdict(check.text.matches(&name), json!(name))
+                }
+            },
+            Check::EditableText(text) => {
+                let shown = targets::editable_texts(input.window);
+                verdict(shown.iter().any(|shown| shown == text), json!(shown))
+            }
+            Check::VisibleTop(names) => {
+                let visible = visible_top(input)?;
+                verdict(names.matches(&visible), json!(visible))
+            }
             _ => state::scan(input.window).observation.evaluate(predicate),
         })
     }
+}
+
+/// A second connection to the application's display, as
+/// `Gdk.Display.open(strata.display.display)` opens one beside the
+/// application's own.
+fn private_display() -> Result<gdk::Display, String> {
+    let name = gdk::Display::default()
+        .map(|display| display.name())
+        .ok_or("the application has no display")?;
+    gdk::Display::open(Some(&name)).ok_or_else(|| format!("cannot open the display {name}"))
+}
+
+/// The clipboard's text through `display`, waiting as `strata.wait` would;
+/// none when nothing came in time.
+async fn read_clipboard(display: &gdk::Display) -> Option<String> {
+    let read = display.clipboard().read_text_future();
+    match glib::future_with_timeout(protocol::DEFAULT_WAIT, read).await {
+        Ok(Ok(Some(text))) => Some(text.to_string()),
+        _ => None,
+    }
+}
+
+/// Long clipboard text cut down for a failure report.
+fn abridged(text: &str) -> String {
+    const LIMIT: usize = 200;
+    match text.char_indices().nth(LIMIT) {
+        Some((end, _)) => format!("{}… ({} characters)", &text[..end], text.chars().count()),
+        None => text.to_owned(),
+    }
+}
+
+/// A whole number as an integer, as Python prints `int`s, else a float.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "only whole numbers well inside the i64 range are converted"
+)]
+fn number_json(number: f64) -> Value {
+    if number.fract() == 0.0 && number.abs() < 1e15 {
+        json!(number as i64)
+    } else {
+        json!(number)
+    }
+}
+
+/// Works an [`Expr`] out against the window now. The outer error is a broken
+/// lookup or a malformed number; the inner one is something not there yet,
+/// such as a target off screen, which a wait keeps polling through, as a
+/// twin's condition raising inside `strata.wait` is retried.
+fn evaluate(input: &Input<'_>, expr: &Expr) -> Result<Result<f64, String>, String> {
+    let pair = |items: &[Expr; 2]| -> Result<Result<(f64, f64), String>, String> {
+        Ok(
+            match (evaluate(input, &items[0])?, evaluate(input, &items[1])?) {
+                (Ok(left), Ok(right)) => Ok((left, right)),
+                (Err(missing), _) | (_, Err(missing)) => Err(missing),
+            },
+        )
+    };
+    Ok(match expr {
+        Expr::Number(number) => Ok(number.as_f64().unwrap_or_default()),
+        Expr::Of { target, get } => match input.locate_now(target, None, Aim::Point) {
+            Err(LookupError::Broken(error)) => return Err(error),
+            Err(LookupError::Missing(missing)) => Err(missing),
+            Ok(located) => {
+                let [x, y, width, height] = located.rect.pixels();
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "screen coordinates are far below 2^52"
+                )]
+                let pixels = |value: i64| Ok(value as f64);
+                match get {
+                    Measure::X => pixels(x),
+                    Measure::Y => pixels(y),
+                    Measure::Width => pixels(width),
+                    Measure::Height => pixels(height),
+                    Measure::Right => pixels(x + width),
+                    Measure::Bottom => pixels(y + height),
+                    Measure::CenterX => pixels(x + width.div_euclid(2)),
+                    Measure::CenterY => pixels(y + height.div_euclid(2)),
+                    Measure::Value => located
+                        .widget
+                        .downcast_ref::<gtk::Range>()
+                        .map(|range| range.value())
+                        .ok_or_else(|| "the target has no numeric value".to_owned()),
+                }
+            }
+        },
+        Expr::Pref { key, default } => match preferences()?.get(key) {
+            Some(Value::Number(number)) => Ok(number.as_f64().unwrap_or_default()),
+            Some(Value::String(text)) => text
+                .trim()
+                .parse::<f64>()
+                .map_err(|_| format!("{key} is {text:?}, not a number")),
+            Some(other) => Err(format!("{key} is {other}, not a number")),
+            None => default
+                .as_ref()
+                .and_then(serde_json::Number::as_f64)
+                .ok_or_else(|| format!("settings.toml has no {key}")),
+        },
+        Expr::Count(spec) => {
+            let scope = match &spec.within {
+                None => input.window.clone().upcast::<gtk::Widget>(),
+                Some(within) => match input.locate_now(within, None, Aim::Point) {
+                    Err(LookupError::Broken(error)) => return Err(error),
+                    Err(LookupError::Missing(missing)) => return Ok(Err(missing)),
+                    Ok(located) => located.widget,
+                },
+            };
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a widget count is far below 2^52"
+            )]
+            let count = targets::presented(&scope)
+                .iter()
+                .filter(|widget| {
+                    spec.role
+                        .as_deref()
+                        .is_none_or(|role| targets::role_name(widget) == role)
+                        && spec
+                            .name
+                            .as_deref()
+                            .is_none_or(|name| targets::accessible_name(widget) == name)
+                        && spec.description.as_deref().is_none_or(|description| {
+                            targets::accessible_description(widget) == description
+                        })
+                        && (!spec.rendered || state::rendered_bounds(widget).is_some())
+                })
+                .count() as f64;
+            Ok(count)
+        }
+        Expr::Sum(items) => {
+            let mut total = 0.0;
+            for item in items {
+                match evaluate(input, item)? {
+                    Ok(value) => total += value,
+                    Err(missing) => return Ok(Err(missing)),
+                }
+            }
+            Ok(total)
+        }
+        Expr::Minus(items) => pair(items)?.map(|(left, right)| left - right),
+        Expr::Times(items) => pair(items)?.map(|(left, right)| left * right),
+        Expr::Divide(items) => pair(items)?.and_then(|(left, right)| {
+            if right == 0.0 {
+                Err("division by zero".to_owned())
+            } else {
+                Ok(left / right)
+            }
+        }),
+        Expr::FloorDivide(items) => pair(items)?.and_then(|(left, right)| {
+            if right == 0.0 {
+                Err("division by zero".to_owned())
+            } else {
+                Ok((left / right).floor())
+            }
+        }),
+        Expr::Ceil(inner) => evaluate(input, inner)?.map(f64::ceil),
+        Expr::Abs(inner) => evaluate(input, inner)?.map(f64::abs),
+    })
+}
+
+/// `test_monitor_selection.visible_entries`: the deepest pane's entries whose
+/// top edge lies inside the scroll viewport around its entry list.
+fn visible_top(input: &Input<'_>) -> Result<Vec<String>, String> {
+    let scene = state::scan(input.window);
+    let (Some(pane), Some(widgets)) = (scene.observation.pane(None), scene.pane_widgets(None))
+    else {
+        return Ok(Vec::new());
+    };
+    let Some(viewport) = widgets.container.as_ref().and_then(|container| {
+        std::iter::successors(container.parent(), WidgetExt::parent)
+            .find(|widget| widget.is::<gtk::ScrolledWindow>())
+    }) else {
+        return Ok(Vec::new());
+    };
+    let screen = |widget: &gtk::Widget| {
+        targets::screen_rect(widget, input.injector).map(|rect| rect.pixels())
+    };
+    let Ok([_, top, _, height]) = screen(&viewport) else {
+        return Ok(Vec::new());
+    };
+    Ok(pane
+        .entries
+        .iter()
+        .zip(&widgets.entries)
+        .filter(|(_, widget)| screen(widget).is_ok_and(|[_, y, _, _]| top <= y && y < top + height))
+        .map(|(entry, _)| entry.name.clone())
+        .collect())
 }
 
 /// The active theme's accent colour, as the twin reads `settings["theme"]`
@@ -2065,9 +2414,14 @@ fn note(
                 unless_first.unwrap_or_default()
             )))
         }
-        Accessor::Visible | Accessor::ScrollTarget | Accessor::Bounds => {
-            Err("visible, scroll_target, and bounds are read with the X screen".to_owned())
-        }
+        Accessor::Visible
+        | Accessor::ScrollTarget
+        | Accessor::Bounds
+        | Accessor::Number
+        | Accessor::VisibleTop => Err(
+            "visible, visible_top, scroll_target, bounds, and number are read with the X screen"
+                .to_owned(),
+        ),
         Accessor::EditableFields => Ok(json!(targets::editable_fields(window))),
         Accessor::MenuItems => list(observation.menu.clone().unwrap_or_default()),
     }
@@ -2255,15 +2609,35 @@ impl Input<'_> {
         tapped
     }
 
+    /// The key comes up `EVENT_GAP` after it went down, as the twin's sleep
+    /// between them has it, with the server timing the release: waiting for
+    /// a frame in between, as other events do, could hold the key past the X
+    /// server's 660 ms autorepeat delay while the app is busy with what the
+    /// press started, and repeat it.
     async fn tap_key(&self, keycode: u8, needs_shift: bool) -> Result<(), String> {
         let shift = if needs_shift {
             self.hold(&[Modifier::Shift]).await?
         } else {
             Vec::new()
         };
-        let mut result = self.key(keycode, true).await;
+        let up = Event::Key {
+            keycode,
+            pressed: false,
+        };
+        let mut result = self.injector.send(Event::Key {
+            keycode,
+            pressed: true,
+        });
         if result.is_ok() {
-            result = self.key(keycode, false).await;
+            result = match self.injector.send_after(up, EVENT_GAP) {
+                Ok(()) => {
+                    glib::timeout_future(EVENT_GAP).await;
+                    self.injector.sync()
+                }
+                // A key left down would autorepeat until the next press.
+                Err(error) => self.injector.send(up).and(Err(error)),
+            };
+            self.pause(EVENT_GAP).await;
         }
         self.release(&shift).await;
         result
@@ -2311,8 +2685,11 @@ impl Input<'_> {
             within: None,
             name_ends_with,
             nth: None,
+            states,
+            name_matches: None,
         } = target
             && name_ends_with.is_empty()
+            && states.is_empty()
         {
             let deadline = Instant::now() + LOCATE_TIMEOUT;
             loop {
