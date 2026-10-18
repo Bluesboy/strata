@@ -3216,6 +3216,18 @@ paned > separator {
   font-variant-numeric: tabular-nums;
 }
 
+.preview-media-center.preview-model-camera {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.preview-header-spinner {
+  margin: 0 4px;
+  min-width: 16px;
+  min-height: 16px;
+}
+
 .preview-media-seek,
 .preview-media-volume {
   border: none;

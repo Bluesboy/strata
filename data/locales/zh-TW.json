@@ -1435,5 +1435,14 @@
   "This copy was not installed from the catalog. Its folder is deleted.": "此副本並非從目錄安裝。其資料夾將被刪除。",
   "Update": "更新",
   "Disabled": "已停用",
-  "Open folder": "開啟資料夾"
+  "Open folder": "開啟資料夾",
+  "Front left": "左前方",
+  "Front right": "右前方",
+  "Back right": "右後方",
+  "Back left": "左後方",
+  "Previous model view": "上一個模型視角",
+  "Next model view": "下一個模型視角",
+  "Camera position": "攝影機位置",
+  "Binary STL": "二進位 STL",
+  "ASCII STL": "ASCII STL"
 }
