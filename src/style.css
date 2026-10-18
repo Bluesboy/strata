@@ -3460,7 +3460,8 @@ entry.preview-command-entry selection {
   background: @strata_surface;
   color: @strata_text;
   border-top: 1px solid @strata_border;
-  padding: 3px 4px;
+  /* The right inset matches the F1 button's text: footer, border and button padding. */
+  padding: 3px 11px 3px 4px;
   min-height: 24px;
   font-size: 0.85em;
 }
@@ -4013,17 +4014,12 @@ dropdown.form-control popover row:selected check {
 }
 
 .segmented-control-option:hover {
-  background: alpha(@strata_highlight, 0.65);
   color: @strata_text;
 }
 
 .segmented-control-option:checked {
   background: alpha(@strata_accent, 0.22);
   color: @strata_accent;
-}
-
-.segmented-control-option:checked:hover {
-  background: alpha(@strata_accent, 0.28);
 }
 
 .segmented-control-option:active {
