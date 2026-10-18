@@ -431,6 +431,7 @@ impl Controller {
                 pick,
                 expr,
                 until,
+                until_names,
             } => {
                 let shape = Shape {
                     from: from.as_deref(),
@@ -495,6 +496,25 @@ impl Controller {
                         &shape,
                         unless_first.as_deref(),
                     ),
+                };
+                // A list that does not match yet is no answer yet.
+                let read = || {
+                    read().map(|value| match &until_names {
+                        Some(names) => {
+                            let listed: Vec<String> = value
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .filter_map(|name| name.as_str().map(str::to_owned))
+                                .collect();
+                            if value.is_array() && names.matches(&listed) {
+                                value
+                            } else {
+                                Value::Null
+                            }
+                        }
+                        None => value,
+                    })
                 };
                 let Some(timeout) = wait else {
                     return read().map_or_else(Outcome::error, |result| Outcome {
@@ -644,26 +664,30 @@ impl Controller {
             Command::KeyDown(key) => Outcome::from(input.raw_key(&key, true).await),
             Command::KeyUp(key) => Outcome::from(input.raw_key(&key, false).await),
             Command::During {
-                predicate,
+                checks,
                 duration,
                 every,
-                message,
             } => {
                 let deadline = Instant::now() + duration;
                 loop {
-                    match self.check(&input, &predicate) {
-                        Err(error) => return Outcome::error(error),
-                        Ok(Err(mut failure)) => {
-                            failure.message = message;
-                            return Outcome {
-                                failures: vec![failure],
-                                error: Some("the predicate stopped holding".to_owned()),
-                                ..Outcome::default()
-                            };
+                    for (predicate, message) in &checks {
+                        match self.check(&input, predicate) {
+                            Err(error) => return Outcome::error(error),
+                            Ok(Err(mut failure)) => {
+                                failure.message.clone_from(message);
+                                return Outcome {
+                                    failures: vec![failure],
+                                    error: Some("the predicate stopped holding".to_owned()),
+                                    ..Outcome::default()
+                                };
+                            }
+                            Ok(Ok(())) => {}
                         }
-                        Ok(Ok(())) if Instant::now() >= deadline => return Outcome::default(),
-                        Ok(Ok(())) => glib::timeout_future(every).await,
                     }
+                    if Instant::now() >= deadline {
+                        return Outcome::default();
+                    }
+                    glib::timeout_future(every).await;
                 }
             }
             Command::Capture {
@@ -792,9 +816,11 @@ impl Controller {
                 message,
                 samples,
                 settle,
+                never,
             } => {
                 let deadline = Instant::now() + timeout;
                 let mut steady = 0;
+                let mut seen: Option<Failure> = None;
                 loop {
                     if let Some(target) = &settle {
                         let settled = self
@@ -804,12 +830,36 @@ impl Controller {
                             return settled;
                         }
                     }
+                    if let Some((forbidden, forbidden_message)) = never.as_deref()
+                        && seen.is_none()
+                    {
+                        match self.check(&input, forbidden) {
+                            Err(error) => return Outcome::error(error),
+                            Ok(Ok(())) => {
+                                seen = Some(Failure {
+                                    predicate: json!({ "never": forbidden }),
+                                    actual: json!("held at a poll"),
+                                    message: forbidden_message.clone(),
+                                });
+                            }
+                            Ok(Err(_)) => {}
+                        }
+                    }
                     match self.check(&input, &predicate) {
                         Err(error) => return Outcome::error(error),
                         Ok(Ok(())) => {
                             steady += 1;
                             if steady >= samples {
-                                return Outcome::default();
+                                return match seen {
+                                    None => Outcome::default(),
+                                    Some(failure) => Outcome {
+                                        failures: vec![failure],
+                                        error: Some(
+                                            "the forbidden predicate held while waiting".to_owned(),
+                                        ),
+                                        ..Outcome::default()
+                                    },
+                                };
                             }
                             if Instant::now() >= deadline {
                                 let failure = Failure {
@@ -1233,14 +1283,15 @@ impl Controller {
                     .get(&check.key)
                     .cloned()
                     .unwrap_or(Value::Null);
-                let holds = match (&check.value, &check.contains) {
-                    (Some(value), _) => actual == *value,
-                    (None, Some(part)) => match &actual {
+                let holds = match (&check.value, &check.contains, &check.one_of) {
+                    (Some(value), _, _) => actual == *value,
+                    (None, Some(part), _) => match &actual {
                         Value::Array(items) => items.iter().any(|item| item.as_str() == Some(part)),
                         Value::String(text) => text.contains(part.as_str()),
                         _ => false,
                     },
-                    (None, None) => false,
+                    (None, None, Some(values)) => values.contains(&actual),
+                    (None, None, None) => false,
                 };
                 verdict(holds, actual)
             }
@@ -1278,6 +1329,8 @@ impl Controller {
                         (check.checked, states.checked),
                         (check.pressed, states.pressed),
                         (check.sensitive, states.sensitive),
+                        (check.selectable, states.selectable),
+                        (check.editable, states.editable),
                     ];
                     verdict(
                         wanted
@@ -1289,6 +1342,8 @@ impl Controller {
                             "checked": states.checked,
                             "pressed": states.pressed,
                             "sensitive": states.sensitive,
+                            "selectable": states.selectable,
+                            "editable": states.editable,
                         }),
                     )
                 }
@@ -1531,7 +1586,7 @@ impl Controller {
                 None => Err(mismatch(json!("not on screen"))),
                 Some(located) => {
                     let description = targets::accessible_description(&located.widget);
-                    verdict(description == check.text, json!(description))
+                    verdict(check.text.matches(&description), json!(description))
                 }
             },
             Check::Mentions(mention) => match locate(&mention.target)? {
@@ -1545,6 +1600,16 @@ impl Controller {
                         });
                     }
                     let found = match (&mention.text, &mention.words) {
+                        _ if mention.equals.is_some() => {
+                            let equals = mention.equals.as_deref().unwrap_or_default();
+                            widgets
+                                .iter()
+                                .filter(|widget| state::rendered_bounds(widget).is_some())
+                                .any(|widget| {
+                                    state::collapse_whitespace(&targets::accessible_name(widget))
+                                        == equals
+                                })
+                        }
                         (Some(text), _) => widgets.iter().any(|widget| {
                             targets::accessible_name(widget).contains(text.as_str())
                                 || targets::accessible_description(widget).contains(text.as_str())
@@ -1733,6 +1798,7 @@ impl Controller {
             Check::PanesWith(panes) => {
                 let Target::Role {
                     role,
+                    other_roles,
                     name,
                     description,
                     name_ends_with,
@@ -1746,6 +1812,7 @@ impl Controller {
                 };
                 let wanted = targets::Wanted {
                     role,
+                    other_roles,
                     name: name.as_deref(),
                     description: description.as_deref(),
                     name_ends_with,
@@ -1768,11 +1835,84 @@ impl Controller {
                 }
                 verdict(panes.names.matches(&owners), json!(owners))
             }
-            Check::Name(check) => match locate(&check.target)? {
+            Check::Name(check) | Check::Text(check) => {
+                let found = if check.rendered {
+                    locate(&check.target)?.map(|located| located.widget)
+                } else {
+                    targets::presented_target(
+                        input.window,
+                        input.injector,
+                        Kept {
+                            memory: &input.memory.borrow(),
+                            widgets: &input.widgets.borrow(),
+                            boxes: &input.boxes.borrow(),
+                        },
+                        &check.target,
+                    )
+                    .map_err(|error| error.message().to_owned())?
+                };
+                match found {
+                    None => Err(mismatch(json!("not found"))),
+                    Some(widget) => {
+                        let shown = if matches!(predicate.check, Check::Text(_)) {
+                            targets::text_content(&widget).unwrap_or_default()
+                        } else {
+                            targets::accessible_name(&widget)
+                        };
+                        verdict(check.text.matches(&shown), json!(shown))
+                    }
+                }
+            }
+            Check::LargestImage(largest) => match locate(&largest.within)? {
                 None => Err(mismatch(json!("not on screen"))),
                 Some(located) => {
-                    let name = targets::accessible_name(&located.widget);
-                    verdict(check.text.matches(&name), json!(name))
+                    let mut boxes = Vec::new();
+                    for widget in targets::presented(&located.widget) {
+                        if targets::role_name(&widget) != "image"
+                            || state::rendered_bounds(&widget).is_none()
+                        {
+                            continue;
+                        }
+                        let [_, _, width, height] = targets::screen_rect(&widget, input.injector)
+                            .map_err(|error| error.message().to_owned())?
+                            .pixels();
+                        if width > largest.wider_than {
+                            boxes.push([width, height]);
+                        }
+                    }
+                    // `max(images, key=area)` keeps the first of equal areas.
+                    let biggest = boxes.iter().copied().reduce(|best, next| {
+                        if next[0] * next[1] > best[0] * best[1] {
+                            next
+                        } else {
+                            best
+                        }
+                    });
+                    let holds = match (biggest, largest.size, largest.exceeds) {
+                        (None, _, _) => false,
+                        (Some(found), Some(size), _) => found == size,
+                        (Some([width, height]), None, Some([most_width, most_height])) => {
+                            width > most_width || height > most_height
+                        }
+                        (Some(_), None, None) => true,
+                    };
+                    verdict(holds, json!(boxes))
+                }
+            },
+            Check::Children(children) => {
+                let found = child_processes(&children.comm_prefix)?;
+                verdict(found.len() == children.count, json!(found))
+            }
+            Check::ListSections(sections) => match locate(&sections.within)? {
+                None => Err(mismatch(json!("not on screen"))),
+                Some(located) => {
+                    let grouped = list_sections(&located.widget);
+                    let rows = grouped
+                        .iter()
+                        .find(|(heading, _)| *heading == sections.section)
+                        .map(|(_, rows)| rows.clone())
+                        .unwrap_or_default();
+                    verdict(sections.names.matches(&rows), json!(grouped))
                 }
             },
             Check::EditableText(text) => {
@@ -1786,6 +1926,80 @@ impl Controller {
             _ => state::scan(input.window).observation.evaluate(predicate),
         })
     }
+}
+
+/// `(pid, state)` of each process whose parent is this one and whose command
+/// name starts with `prefix`, as `test_terminal._launcher_children` reads
+/// `/proc/<pid>/stat`; a process gone between listing and reading is skipped.
+fn child_processes(prefix: &str) -> Result<Vec<(u32, String)>, String> {
+    let parent = std::process::id();
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir("/proc").map_err(|error| format!("/proc: {error}"))? {
+        let Ok(entry) = entry else { continue };
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else {
+            continue;
+        };
+        // The command name sits in parentheses and may hold spaces.
+        let (Some(open), Some(close)) = (stat.find(" ("), stat.rfind(") ")) else {
+            continue;
+        };
+        let comm = &stat[open + 2..close];
+        let mut rest = stat[close + 2..].split_whitespace();
+        let (Some(state), Some(ppid)) = (rest.next(), rest.next()) else {
+            continue;
+        };
+        if ppid.parse::<u32>().ok() == Some(parent) && comm.starts_with(prefix) {
+            found.push((pid, state.to_owned()));
+        }
+    }
+    Ok(found)
+}
+
+/// The rendered list items below `root` in DFS order, grouped under each
+/// unselectable heading row by the first named child of that row, as
+/// `test_open_with_names_rows_and_tabs_out_of_the_list` groups them.
+fn list_sections(root: &gtk::Widget) -> Vec<(String, Vec<String>)> {
+    let mut sections: Vec<(String, Vec<String>)> = Vec::new();
+    for row in targets::presented(root) {
+        if targets::role_name(&row) != "list item" || state::rendered_bounds(&row).is_none() {
+            continue;
+        }
+        if !targets::states(&row).selectable {
+            let mut child = row.first_child();
+            let mut heading = String::new();
+            while let Some(current) = child {
+                child = current.next_sibling();
+                if !current.is_visible() {
+                    continue;
+                }
+                let name = targets::accessible_name(&current);
+                if !name.is_empty() {
+                    heading = name;
+                    break;
+                }
+            }
+            if !sections.iter().any(|(existing, _)| *existing == heading) {
+                sections.push((heading.clone(), Vec::new()));
+            }
+            // A heading seen again keeps its rows; later rows land under it.
+            let index = sections
+                .iter()
+                .position(|(existing, _)| *existing == heading)
+                .unwrap_or_default();
+            let section = sections.remove(index);
+            sections.push(section);
+        } else if let Some((_, rows)) = sections.last_mut() {
+            rows.push(targets::accessible_name(&row));
+        }
+    }
+    sections
 }
 
 /// A second connection to the application's display, as
@@ -1911,6 +2125,10 @@ fn evaluate(input: &Input<'_>, expr: &Expr) -> Result<Result<f64, String>, Strin
                             targets::accessible_description(widget) == description
                         })
                         && (!spec.rendered || state::rendered_bounds(widget).is_some())
+                        && spec
+                            .states
+                            .iter()
+                            .all(|wanted| targets::has_state(widget, *wanted))
                 })
                 .count() as f64;
             Ok(count)
@@ -2680,6 +2898,7 @@ impl Input<'_> {
     async fn activate(&self, target: &Target, message: Option<&str>) -> Result<(), String> {
         let widget = if let Target::Role {
             role,
+            other_roles,
             name: Some(name),
             description: None,
             within: None,
@@ -2690,6 +2909,7 @@ impl Input<'_> {
         } = target
             && name_ends_with.is_empty()
             && states.is_empty()
+            && other_roles.is_empty()
         {
             let deadline = Instant::now() + LOCATE_TIMEOUT;
             loop {

@@ -111,6 +111,10 @@ pub(crate) enum Command {
         /// within, so the value kept is the one the satisfying poll read, as
         /// `strata.wait(lambda: (width := saved()) > 300 and width)` keeps it.
         until: Vec<Bound>,
+        /// For a list with `until_found`: the list must match these names,
+        /// so the value kept is the one the satisfying poll read, as
+        /// `strata.wait(lambda: names if len(names := ...) > 16 else None)`.
+        until_names: Option<Names>,
     },
     Move {
         target: Target,
@@ -151,10 +155,11 @@ pub(crate) enum Command {
     /// Checks a predicate every `every` for `duration` and fails as soon as
     /// it does not hold, as a twin asserts through a sustained hover.
     During {
-        predicate: Predicate,
+        /// Checked in order each time, each failing with its own message,
+        /// as a twin's loop body asserts one thing after another.
+        checks: Vec<(Predicate, Option<String>)>,
         duration: Duration,
         every: Duration,
-        message: Option<String>,
     },
     /// Keeps the screen's pixels in a target's box, inset on every side, as a
     /// twin crops a screenshot to compare with a later one.
@@ -226,6 +231,10 @@ pub(crate) enum Command {
         /// Settled before each poll, as a twin's condition calls
         /// `strata.settle(node)` before it reads the screen.
         settle: Option<Target>,
+        /// Must not hold at any poll, the last included, as a twin records
+        /// what each poll saw and asserts on the record afterwards; failing
+        /// with `never_message`.
+        never: Option<Box<(Predicate, Option<String>)>>,
     },
     /// `message` names the twin's assertion, as a wait's names its `strata.wait`.
     /// With a timeout it polls until every predicate holds, as a twin's
@@ -344,7 +353,8 @@ struct KeyUpFields {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DuringFields {
-    during: Predicate,
+    /// A predicate, or a list of `{"check":PREDICATE,"message":"..."}`.
+    during: Value,
     ms: u64,
     #[serde(default = "poll_ms")]
     every_ms: u64,
@@ -457,6 +467,7 @@ struct NoteFields {
     expr: Option<Expr>,
     #[serde(default)]
     until: Vec<Bound>,
+    until_names: Option<Names>,
 }
 
 #[derive(Deserialize)]
@@ -636,6 +647,15 @@ struct WaitFields {
     #[serde(default = "one_sample")]
     samples: usize,
     settling: Option<Target>,
+    never: Option<Predicate>,
+    never_message: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DuringCheck {
+    check: Predicate,
+    message: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -786,11 +806,31 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
             if fields.ms == 0 || fields.every_ms == 0 {
                 return Err("during needs a positive ms and every_ms".to_owned());
             }
+            let checks = match fields.during {
+                Value::Array(items) => {
+                    if items.is_empty() || fields.message.is_some() {
+                        return Err(
+                            "a during list needs checks, each with its own message".to_owned()
+                        );
+                    }
+                    items
+                        .into_iter()
+                        .map(|item| {
+                            serde_json::from_value::<DuringCheck>(item)
+                                .map(|check| (check.check, check.message))
+                                .map_err(invalid)
+                        })
+                        .collect::<Result<_, _>>()?
+                }
+                one => vec![(
+                    serde_json::from_value(one).map_err(invalid)?,
+                    fields.message,
+                )],
+            };
             Ok(Command::During {
-                predicate: fields.during,
+                checks,
                 duration: Duration::from_millis(fields.ms),
                 every: Duration::from_millis(fields.every_ms),
-                message: fields.message,
             })
         }
         "capture" => {
@@ -932,6 +972,9 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
             {
                 return Err("until bounds a number noted with until_found".to_owned());
             }
+            if fields.until_names.is_some() && !(fields.note.is_list() && fields.until_found) {
+                return Err("until_names bounds a list noted with until_found".to_owned());
+            }
             Ok(Command::Note {
                 value: fields.note,
                 dir: fields.dir,
@@ -951,6 +994,7 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
                 pick: fields.pick,
                 expr: fields.expr,
                 until: fields.until,
+                until_names: fields.until_names,
             })
         }
         "click" => {
@@ -1105,6 +1149,9 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
             if fields.samples == 0 {
                 return Err("a wait needs at least one sample".to_owned());
             }
+            if fields.never.is_none() && fields.never_message.is_some() {
+                return Err("never_message belongs to never".to_owned());
+            }
             Ok(Command::Wait {
                 predicate: fields.wait,
                 timeout: fields
@@ -1113,6 +1160,9 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
                 message: fields.message,
                 samples: fields.samples,
                 settle: fields.settling,
+                never: fields
+                    .never
+                    .map(|predicate| Box::new((predicate, fields.never_message))),
             })
         }
         "expect" => {
@@ -1344,7 +1394,7 @@ impl<'de> Deserialize<'de> for At {
 }
 
 /// The target kinds, each named by the one key that selects it.
-pub(crate) const TARGET_KINDS: [&str; 25] = [
+pub(crate) const TARGET_KINDS: [&str; 26] = [
     "entry",
     "result",
     "result_row",
@@ -1370,6 +1420,7 @@ pub(crate) const TARGET_KINDS: [&str; 25] = [
     "kept",
     "point",
     "toplevel",
+    "other_window",
 ];
 
 /// Names a widget the way a person sees it, never by screen position. Each
@@ -1383,6 +1434,9 @@ pub(crate) enum Target {
     /// given, as `strata.preview().find(...)`.
     Role {
         role: String,
+        /// Other roles a match may have instead, as `node.role in {"check
+        /// box", "toggle button", "switch"}`; a role list in JSON.
+        other_roles: Vec<String>,
         name: Option<String>,
         description: Option<String>,
         within: Option<Box<Target>>,
@@ -1413,6 +1467,10 @@ pub(crate) enum Target {
     /// An application window by its title, as `application.find(name=title)`
     /// finds a floating chooser.
     Toplevel(String),
+    /// Another showing application window with this title than the one the
+    /// run started with, as `next(window for window in
+    /// application.find_all(role="frame", name=title) if window != first_window)`.
+    OtherWindow(String),
     /// A filter result by its path below the filtered directory, as
     /// `test_filter_results.result` finds it.
     Result(String),
@@ -1612,7 +1670,7 @@ impl Target {
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct RoleFields {
-            role: String,
+            role: Value,
             name: Option<String>,
             description: Option<String>,
             within: Option<Target>,
@@ -1685,13 +1743,26 @@ impl Target {
                 .map_err(invalid),
             "role" => {
                 let fields: RoleFields = serde_json::from_value(value).map_err(invalid)?;
+                let roles: Vec<String> = match &fields.role {
+                    Value::String(role) => vec![role.clone()],
+                    Value::Array(_) => {
+                        serde_json::from_value(fields.role.clone()).map_err(invalid)?
+                    }
+                    _ => Vec::new(),
+                };
+                let Some((role, other_roles)) = roles.split_first() else {
+                    return Err(
+                        "invalid role target: role is a role name or a list of them".to_owned()
+                    );
+                };
                 if let Some(pattern) = &fields.name_matches {
                     regex::Regex::new(pattern).map_err(|error| {
                         format!("invalid role target: name_matches {pattern:?}: {error}")
                     })?;
                 }
                 Ok(Self::Role {
-                    role: fields.role,
+                    role: role.clone(),
+                    other_roles: other_roles.to_vec(),
                     name: fields.name,
                     description: fields.description,
                     within: fields.within.map(Box::new),
@@ -1728,6 +1799,7 @@ impl Target {
                 }
             }
             "toplevel" => label(value).map(Self::Toplevel),
+            "other_window" => label(value).map(Self::OtherWindow),
             "result" => label(value).map(Self::Result),
             "result_row" => {
                 let fields: ResultRowFields = serde_json::from_value(value).map_err(invalid)?;
@@ -1830,6 +1902,7 @@ impl Target {
             Self::Entry(entry) => json!(entry),
             Self::Role {
                 role,
+                other_roles,
                 name,
                 description,
                 within,
@@ -1839,7 +1912,13 @@ impl Target {
                 name_matches,
             } => {
                 let mut object = Map::new();
-                object.insert("role".to_owned(), json!(role));
+                if other_roles.is_empty() {
+                    object.insert("role".to_owned(), json!(role));
+                } else {
+                    let mut roles = vec![role.clone()];
+                    roles.extend(other_roles.iter().cloned());
+                    object.insert("role".to_owned(), json!(roles));
+                }
                 if !states.is_empty() {
                     object.insert("states".to_owned(), json!(states));
                 }
@@ -1871,6 +1950,7 @@ impl Target {
             Self::Field(Some(name)) => json!({ "field": name }),
             Self::FieldWithin(within) => json!({ "field": true, "within": within.to_json() }),
             Self::Toplevel(title) => json!({ "toplevel": title }),
+            Self::OtherWindow(title) => json!({ "other_window": title }),
             Self::Result(path) => json!({ "result": path }),
             Self::ResultRow {
                 index,
@@ -1937,6 +2017,10 @@ pub(crate) enum StateName {
     Checked,
     Pressed,
     Sensitive,
+    /// A selectable row, as a list box row that takes the selection.
+    Selectable,
+    /// Text the user may edit.
+    Editable,
     /// A horizontal scroll bar, slider, or other oriented widget.
     Horizontal,
     Vertical,
@@ -2196,6 +2280,47 @@ pub(crate) enum Check {
     /// The deepest pane's entries whose top edge lies inside its scroll
     /// viewport, as `test_monitor_selection.visible_entries`.
     VisibleTop(Names),
+    /// The largest rendered image inside a target wider than `wider_than`
+    /// pixels, by area: any at all, exactly `size`, or larger than `exceeds`
+    /// on either axis, as the preview scenarios measure `find_all(role="image")`.
+    LargestImage(LargestImage),
+    /// How many of the application's own child processes have a command
+    /// name starting with `comm_prefix`, as `test_terminal._launcher_children`
+    /// reads `/proc`.
+    Children(ChildrenCheck),
+    /// The selectable list items under each unselectable heading row inside
+    /// a target, as `test_open_with` groups `find_all(role="list item")`: the
+    /// rows of `section` must match `names`.
+    ListSections(SectionsCheck),
+    /// A target's text, as AT-SPI's text interface reads `node.text`.
+    Text(NameCheck),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LargestImage {
+    pub(crate) within: Target,
+    #[serde(default)]
+    pub(crate) wider_than: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) size: Option<[i64; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) exceeds: Option<[i64; 2]>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ChildrenCheck {
+    pub(crate) comm_prefix: String,
+    pub(crate) count: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SectionsCheck {
+    pub(crate) within: Target,
+    pub(crate) section: String,
+    pub(crate) names: Names,
 }
 
 /// A bound on a noted number: `number <op> than`.
@@ -2301,6 +2426,9 @@ pub(crate) struct CountSpec {
     pub(crate) within: Option<Target>,
     #[serde(default = "yes")]
     pub(crate) rendered: bool,
+    /// States each counted widget must have, as `find_all(..., states={...})`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) states: Vec<StateName>,
 }
 
 impl Expr {
@@ -2424,6 +2552,18 @@ pub(crate) struct PanesWith {
 pub(crate) struct NameCheck {
     pub(crate) target: Target,
     pub(crate) text: TextMatch,
+    /// False looks the target up presented, perhaps scrolled away, as
+    /// `find(..., rendered=False)` does.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub(crate) rendered: bool,
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if passes a reference"
+)]
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -2464,7 +2604,7 @@ pub(crate) struct Replaced {
 #[serde(deny_unknown_fields)]
 pub(crate) struct DescriptionCheck {
     pub(crate) target: Target,
-    pub(crate) text: String,
+    pub(crate) text: TextMatch,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -2478,6 +2618,10 @@ pub(crate) struct MentionCheck {
     pub(crate) text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) words: Option<String>,
+    /// Some rendered widget's name with its whitespace collapsed is exactly
+    /// this, as `" ".join(node.name.split()) == text`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) equals: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -2652,7 +2796,11 @@ impl Check {
             | Self::PanesWith(_)
             | Self::Name(_)
             | Self::EditableText(_)
-            | Self::VisibleTop(_) => true,
+            | Self::VisibleTop(_)
+            | Self::LargestImage(_)
+            | Self::Children(_)
+            | Self::ListSections(_)
+            | Self::Text(_) => true,
             Self::Any(predicates) | Self::All(predicates) => {
                 predicates.iter().any(|predicate| predicate.check.is_live())
             }
@@ -2858,6 +3006,9 @@ pub(crate) struct PrefCheck {
     /// string containing it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) contains: Option<String>,
+    /// Any of these values, as `read_preferences().get(key) in {"1", "2"}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) one_of: Option<Vec<Value>>,
 }
 
 /// Each given state must match; the names are AT-SPI's.
@@ -2875,6 +3026,10 @@ pub(crate) struct StateCheck {
     pub(crate) pressed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) sensitive: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) selectable: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) editable: Option<bool>,
 }
 
 /// Where the target is against the box a `settle` kept for it, or the one
@@ -2963,6 +3118,10 @@ pub(crate) struct NameFilter {
     /// How often each name is listed, as `names.count("a") == 2`.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub(crate) occurrences: std::collections::BTreeMap<String, usize>,
+    /// The names from this index on are sorted ignoring case, as
+    /// `names[1:] == sorted(names[1:], key=str.lower)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) sorted_casefold_from: Option<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -3007,6 +3166,12 @@ impl Names {
                     })
                     && filter.occurrences.iter().all(|(name, count)| {
                         actual.iter().filter(|listed| *listed == name).count() == *count
+                    })
+                    && filter.sorted_casefold_from.is_none_or(|from| {
+                        let rest = actual.get(from..).unwrap_or_default();
+                        let mut sorted = rest.to_vec();
+                        sorted.sort_by_key(|name| name.to_lowercase());
+                        sorted == rest
                     })
             }
         }
@@ -3053,10 +3218,18 @@ impl<'de> Deserialize<'de> for Predicate {
             return Err(serde::de::Error::custom("all takes at least one predicate"));
         }
         if let Check::Pref(pref) = &check
-            && pref.value.is_some() == pref.contains.is_some()
+            && [
+                pref.value.is_some(),
+                pref.contains.is_some(),
+                pref.one_of.is_some(),
+            ]
+            .into_iter()
+            .filter(|given| *given)
+            .count()
+                != 1
         {
             return Err(serde::de::Error::custom(
-                "pref takes exactly one of value and contains",
+                "pref takes exactly one of value, contains, and one_of",
             ));
         }
         if let Check::PanesWith(panes) = &check
@@ -3067,10 +3240,26 @@ impl<'de> Deserialize<'de> for Predicate {
             ));
         }
         if let Check::Mentions(mention) = &check
-            && mention.text.is_some() == mention.words.is_some()
+            && [
+                mention.text.is_some(),
+                mention.words.is_some(),
+                mention.equals.is_some(),
+            ]
+            .into_iter()
+            .filter(|given| *given)
+            .count()
+                != 1
         {
             return Err(serde::de::Error::custom(
-                "mentions takes exactly one of text and words",
+                "mentions takes exactly one of text, words, and equals",
+            ));
+        }
+        if let Check::LargestImage(largest) = &check
+            && largest.size.is_some()
+            && largest.exceeds.is_some()
+        {
+            return Err(serde::de::Error::custom(
+                "largest_image takes size or exceeds, not both",
             ));
         }
         if let Check::File(file) = &check

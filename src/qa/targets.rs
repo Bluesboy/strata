@@ -166,6 +166,7 @@ pub(crate) fn locate(
         }
         Target::Role {
             role,
+            other_roles,
             name,
             description,
             within,
@@ -176,6 +177,7 @@ pub(crate) fn locate(
         } => {
             let wanted = Wanted {
                 role,
+                other_roles,
                 name: name.as_deref(),
                 description: description.as_deref(),
                 name_ends_with,
@@ -198,6 +200,8 @@ pub(crate) fn locate(
         }
         Target::Toplevel(title) => toplevel(title)
             .ok_or_else(|| missing(format!("no window titled {title:?} on screen")))?,
+        Target::OtherWindow(title) => other_window(window, title)
+            .ok_or_else(|| missing(format!("no other window titled {title:?} on screen")))?,
         Target::Named { name, within } => {
             let scope = locate(window, injector, kept, within, None, Aim::Point)?.widget;
             first_rendered(&scope, |widget| accessible_name(widget) == *name)
@@ -475,6 +479,7 @@ fn background(
 /// pattern in it, the description, and states when given, and which match.
 pub(crate) struct Wanted<'a> {
     pub(crate) role: &'a str,
+    pub(crate) other_roles: &'a [String],
     pub(crate) name: Option<&'a str>,
     pub(crate) description: Option<&'a str>,
     pub(crate) name_ends_with: &'a [String],
@@ -503,6 +508,8 @@ pub(crate) fn has_state(widget: &gtk::Widget, state: StateName) -> bool {
         StateName::Checked => now.checked,
         StateName::Pressed => now.pressed,
         StateName::Sensitive => now.sensitive,
+        StateName::Selectable => now.selectable,
+        StateName::Editable => now.editable,
         StateName::Horizontal => orientation == Some(gtk::Orientation::Horizontal),
         StateName::Vertical => orientation == Some(gtk::Orientation::Vertical),
     }
@@ -510,7 +517,8 @@ pub(crate) fn has_state(widget: &gtk::Widget, state: StateName) -> bool {
 
 impl Wanted<'_> {
     pub(crate) fn matches(&self, widget: &gtk::Widget) -> bool {
-        role_name(widget) == self.role
+        let role = role_name(widget);
+        (role == self.role || self.other_roles.iter().any(|other| other == role))
             && self.name.is_none_or(|name| accessible_name(widget) == name)
             && self
                 .name_matches
@@ -598,6 +606,20 @@ fn toplevel(title: &str) -> Option<gtk::Widget> {
         .map(Cast::upcast)
 }
 
+/// A showing application window with this title other than `main`, the
+/// browser window the run started with.
+fn other_window(main: &gtk::Window, title: &str) -> Option<gtk::Widget> {
+    gtk::Window::list_toplevels()
+        .into_iter()
+        .filter_map(|window| window.downcast::<gtk::Window>().ok())
+        .find(|window| {
+            window != main
+                && window.title().as_deref() == Some(title)
+                && state::rendered_bounds(window.upcast_ref()).is_some()
+        })
+        .map(Cast::upcast)
+}
+
 /// A target presented anywhere, rendered or not, for `presented`: role
 /// targets as `find(role=..., name=..., rendered=False)`, any other target as
 /// it resolves on screen.
@@ -610,6 +632,7 @@ pub(crate) fn presented_target(
     match target {
         Target::Role {
             role,
+            other_roles,
             name,
             description,
             within,
@@ -620,6 +643,7 @@ pub(crate) fn presented_target(
         } => {
             let wanted = Wanted {
                 role,
+                other_roles,
                 name: name.as_deref(),
                 description: description.as_deref(),
                 name_ends_with,
@@ -822,6 +846,11 @@ pub(crate) struct States {
     pub(crate) checked: bool,
     pub(crate) pressed: bool,
     pub(crate) sensitive: bool,
+    /// A row that takes the selection; GTK's bridge reports it for list box
+    /// rows whose selection state is defined, and for recorded selections.
+    pub(crate) selectable: bool,
+    /// Text the user may edit, as an editable entry or text view.
+    pub(crate) editable: bool,
 }
 
 pub(crate) fn states(widget: &gtk::Widget) -> States {
@@ -849,12 +878,14 @@ pub(crate) fn states(widget: &gtk::Widget) -> States {
             .unwrap_or(false)
     };
     States {
-        // A list box row reports its own selection, as GTK's AT-SPI bridge does.
+        // A list box row reports its own selection, as GTK's AT-SPI bridge
+        // does, and so does a notebook's tab.
         selected: widget.downcast_ref::<gtk::ListBoxRow>().map_or_else(
             || {
                 recorded
                     .as_ref()
                     .and_then(|naming| naming.selected)
+                    .or_else(|| notebook_tab_selected(widget))
                     .unwrap_or_else(|| state::row_selected(widget))
             },
             gtk::ListBoxRow::is_selected,
@@ -867,7 +898,42 @@ pub(crate) fn states(widget: &gtk::Widget) -> States {
         checked,
         pressed,
         sensitive: widget.is_sensitive(),
+        selectable: widget.downcast_ref::<gtk::ListBoxRow>().map_or_else(
+            || {
+                recorded
+                    .as_ref()
+                    .is_some_and(|naming| naming.selected.is_some())
+            },
+            gtk::ListBoxRow::is_selectable,
+        ),
+        editable: widget
+            .dynamic_cast_ref::<gtk::Editable>()
+            .map(EditableExt::is_editable)
+            .or_else(|| {
+                widget
+                    .downcast_ref::<gtk::TextView>()
+                    .map(gtk::TextView::is_editable)
+            })
+            .unwrap_or(false),
     }
+}
+
+/// Whether a `GtkNotebook` tab is the current page's, which GTK records as
+/// the tab's selected state; none for any other widget.
+fn notebook_tab_selected(widget: &gtk::Widget) -> Option<bool> {
+    if widget.accessible_role() != gtk::AccessibleRole::Tab {
+        return None;
+    }
+    let label = widget.first_child()?;
+    let notebook = std::iter::successors(widget.parent(), WidgetExt::parent)
+        .find_map(|ancestor| ancestor.downcast::<gtk::Notebook>().ok())?;
+    let page = (0..notebook.n_pages()).find(|page| {
+        notebook
+            .nth_page(Some(*page))
+            .and_then(|child| notebook.tab_label(&child))
+            .is_some_and(|tab| tab == label)
+    })?;
+    Some(notebook.current_page() == Some(page))
 }
 
 /// Text a widget shows, as AT-SPI's text interface reads it.
@@ -1040,9 +1106,24 @@ pub(crate) fn accessible_name(widget: &gtk::Widget) -> String {
 /// `naming` holds the widgets whose labelled-by relation is being followed,
 /// so a relation that leads back to one of them cannot recurse forever.
 fn own_name(widget: &gtk::Widget, naming: &mut Vec<gtk::Widget>) -> Option<String> {
-    if let Some(label) = names::naming(widget)
-        .and_then(|naming| naming.label)
-        .filter(|label| !label.is_empty())
+    let recorded = |widget: &gtk::Widget| {
+        names::naming(widget)
+            .and_then(|naming| naming.label)
+            .filter(|label| !label.is_empty())
+    };
+    // GTK's AT-SPI bridge reports a scrolled window's label on the text view
+    // it scrolls, and the scrolled window itself unnamed.
+    if widget.is::<gtk::ScrolledWindow>() && recorded(widget).is_some() {
+        return Some(String::new());
+    }
+    if let Some(label) = recorded(widget) {
+        return Some(label);
+    }
+    if widget.is::<gtk::TextView>()
+        && let Some(label) = widget
+            .parent()
+            .filter(|parent| parent.is::<gtk::ScrolledWindow>())
+            .and_then(|parent| recorded(&parent))
     {
         return Some(label);
     }

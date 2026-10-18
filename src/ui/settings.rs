@@ -3143,10 +3143,8 @@ fn settings_option(title: &str, description: &str, active: bool) -> (gtk::Box, g
         .halign(gtk::Align::End)
         .valign(gtk::Align::Center)
         .build();
-    toggle.update_property(&[
-        gtk::accessible::Property::Label(&translated(title)),
-        gtk::accessible::Property::Description(&translated(description)),
-    ]);
+    super::accessibility::set_own_label(&toggle, &translated(title));
+    super::accessibility::set_description(&toggle, Some(&translated(description)));
     row.append(&copy);
     row.append(&toggle);
     (row, toggle)

@@ -3766,9 +3766,7 @@ fn metadata_value(description: &str) -> gtk::Label {
     let value = gtk::Label::new(Some("—"));
     value.set_ellipsize(gtk::pango::EllipsizeMode::End);
     value.set_xalign(0.0);
-    value.update_property(&[gtk::accessible::Property::Description(&crate::i18n::tr(
-        description,
-    ))]);
+    super::accessibility::set_description(&value, Some(&crate::i18n::tr(description)));
     value
 }
 

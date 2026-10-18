@@ -643,8 +643,11 @@ run the file again with their own `prefs`, `layout`, `modes`, `vars`, and
 `twin`, and their own `tree` and extra `setup` actions, as an indirect
 `fixture_tree` parametrization gives each case its own files. In a step, `$name` is replaced by a variable (`$$` is a literal `$`); the built-ins are `$root`
 (the fixture directory's name, which is also its pane's), `$fixture` (its
-absolute path), `$home`, `$data`, and `$config` (the run's HOME and XDG data
-and config directories), `$environment` (the directory holding them, a twin's
+absolute path), `$fixture_quoted` (that path as `pathlib.Path.as_uri` escapes
+it, without `file://`, for a trash file's `Path=` or a URI a twin builds with
+`quote_from_bytes`), `$home`, `$data`, `$config`, and `$cache` (the run's HOME and
+XDG data, config, and cache directories), `$python` (the interpreter a twin's
+`sys.executable` names in the pinned image, `$STRATA_E2E_VENV/bin/python`), `$environment` (the directory holding them, a twin's
 `test_environment.root`), `$view` (`Columns`, `Icons`, `List`), and `$mode`.
 An optional `teardown` lists `fs` actions taken once setup has begun, however
 the run ends, as a twin's `finally:` restores a mode it changed. An optional
@@ -661,6 +664,14 @@ fixture joins a comprehension;
 then adds solid-colour PNGs, as a fixture saves a PIL image, and `gtk_settings`
 (`{"gtk-enable-animations":"true"}`) rewrites those lines of the manifest's
 GTK `settings.ini`, as a twin's `test_environment` override does.
+`env` (`{"PATH":"$environment/launcher-path"}`) adds or replaces variables
+in the application's environment, with `$variables` replaced, as a twin's
+`test_environment.variables` override does (never one the runner owns: the
+display, buses, runtime, HOME and XDG directories, input log, and parity
+and state-dump variables), and `"session_bus":true` gives
+the run a private session bus with the Python harness's configuration (no
+service directories), which the application and `dbus_send` steps share;
+without it the application gets a bus address that cannot connect.
 `state_parity_ignore` (`["focused","panes.focused"]`) leaves compared keys,
 or a compared key of each pane, out of the scenario's final-state parity; it
 is only for a scenario whose app state ends nondeterministically under both
@@ -728,6 +739,14 @@ fails the scenario before it runs.
 | `{"click_result_rows":{"selected":true},"mods":["ctrl"]}` | process | each of `result_rows` (the `Search results` rows, or else every list item) whose states match when its turn comes, clicked in DFS order, as `for row in rows: if row.has_state("selected"): pointer.click(row, modifiers=("ctrl",))` |
 | `{"expect":[PREDICATE,...],"message":"..."}` | process | reports mismatches and continues; `message` names the twin's assertion message; with `timeout_ms` it polls until all hold first, as a twin's `try: strata.wait(..., timeout=4) except TreeTimeout: failures.append(...)`, and with `hold_ms` too they must hold that long in a row, else hold at the last look, as `_settles(condition, timeout, hold)`; `"as":"name"` keeps whether it held for a later step's `if` or `unless` |
 | `{"query":"state"}`, `"tree"`, `"prefs"` | process | snapshot, widget tree, or `settings.toml` as JSON in `result` |
+| `{"wait":PREDICATE,"never":PREDICATE,"never_message":"..."}` | process | as a twin records what each poll saw and asserts on the record once its wait returns: the wait still fails if `never` held at any poll, the last included |
+| `{"during":[{"check":PREDICATE,"message":"..."},...],"ms":7000,"every_ms":40}` | process | `during` over several assertions in order, each failing with its own message, as a twin's loop body asserts one after another |
+| `{"note":"entries","until_found":true,"until_names":NAMES,"as":"names"}` | process | polls until the list matches and keeps the list that poll read, as `strata.wait(lambda: names if len(names := strata.entry_names()) > 16 else None)` |
+| `{"each":"names","as":"name","derive":{"caption":{"number_plus":320,"suffix":"×180"}},"step":STEP}` | runner | the process step once per item of a noted list, `$name` the item and each `derive` variable the last number in the item's stem plus `number_plus` between an optional `prefix` and `suffix`, as `for name in names: strata.wait(..., f"... {name}")` |
+| `{"restart":true}` | runner | `application.stop()` then `start()`: SIGTERM to the application's process group, 5 s, then SIGKILL, as `harness.process.terminate` does; it starts again with the same environment, fixture, display, and input log, under the US layout, and a fresh log, as `ManagedProcess.spawn` opens it |
+| `{"dbus_send":["--print-reply","--dest=...","/path","iface.Method","array:string:file://..."]}` | runner | `dbus-send --session ...` on the run's private bus (`session_bus`), with the environment a twin's helper gets, failing as `subprocess.run(..., check=True, timeout=30)` |
+| `{"log":{"count":"browser sandbox started"},"as":"initial"}`, `{"log":{"count":"...","at_most":2},"timeout_ms":0}` | runner | reads the application's log with its colour codes stripped, as `strata.application.log()`: `count` occurrences of a text, `matches` (the numbers a pattern's first group finds, `re.findall`; `pick` keeps one), or `contains` (kept as a flag); with `as` it keeps the value as a note, without it waits until the count (or how many numbers) is `equals`, `at_least`, or `at_most` a number or a noted list's length, plus `plus` |
+| `{"proc":{"gone":"$original"}}`, `{"proc":{"parent_is_app":"$pid"},"timeout_ms":0}`, `{"proc":{"kill":"$pid"}}` | runner | waits until none of the noted pids runs (`/proc/<pid>` is gone); checks `PPid:` in a pid's `/proc/<pid>/status` is the application's; sends it SIGKILL at once, refusing any pid that is not the application's child |
 | `{"layout":"ru"}` | runner | `setxkbmap` and a group lock on the run's Xvfb |
 | `{"flag":PREDICATE,"as":"enabled"}` | runner | keeps whether the predicate holds now, never a failure, for later steps' `if` and `unless`, as a twin reads `enabled = "pressed" in node.states` and branches on it |
 | `{"fs":{"path":"archive/todo.txt","exists":true},"timeout_ms":15000,"message":"..."}` | runner | waits for `exists`, `text`, `names`, `is` (`file`, `dir`, `symlink`), `empty`, or `unchanged` (equal to a remembered listing); `timeout_ms` 0 is a plain assertion |
@@ -744,7 +763,21 @@ fails the scenario before it runs.
 | `{"fs":{"path":"$environment/launches","lines":{"at_least":1}}}`, `{"fs":{"path":"a.png","keep_bytes":"original"}}`, `"bytes_of":"original"` | runner | waits until the file has that many lines, exactly or at least (a missing file has none; an unreadable or non-UTF-8 one fails the step at once, as `read_text()` raises), as `len(path.read_text().splitlines())`; keeps `path.read_bytes()` under a name; waits until the bytes are those kept, failing at once on a read error |
 | `{"screenshot":"hover.png"}` | runner | captures the Xvfb root, as a twin's artifact screenshot; saved with the run's artifacts when it keeps them |
 | `{"fs":{"path":"photo.png","image":{"width":1600,"height":900,"rgb":[0,128,0]}}}`, `{"fs":{"path":"sound.wav","ffmpeg":["-f","lavfi",...]}}` | runner | a solid-colour PNG, written in place in one write as PIL's buffered save writes it (written in pieces, the listing would see it grow and replace its row), or `ffmpeg -v error -y <ffmpeg...> <path>` |
-| `{"fs":{"path":"a.3mf","zip":[["3D/3dmodel.model","text"],["thumb.png",{"image":{...}}]]}}`, `{"fs":{"path":"big.stl","truncate":134217729}}`, `{"fs":{"path":"page.pdf","from_repository":"tests/fixtures/documents/text.pdf"}}` | runner | a stored zip of the entries in order, as `zipfile.ZipFile(path, "w").writestr`; `path.open("wb").truncate(size)`; the repository file's bytes in one write, as `write_bytes(... .read_bytes())` |
+| `{"fs":{"path":"small.png","thumbnail":{"cache":"$cache/thumbnails/large","width":256,"height":128,"rgb":[0,0,255],"mode":"700"}}}`, `{"fs":{"path":"photos-a/model.3mf","cached_in":"$cache/thumbnails/large","pixel":{"at":[0,0],"rgb":[220,40,80]}}}`, `{"fs":{"path":"photos-a","all_cached_in":"$cache/thumbnails/large","except_suffix":".stl"}}` | runner | writes a freedesktop cached thumbnail for the file (a solid-colour PNG named after the MD5 of its URI, with `Thumb::URI` and `Thumb::MTime` text chunks, in one write, `mode` setting the cache directory's); `cached_in` reads the path's cached thumbnail instead for `exists`, `is`, `pixel`, `keep_mtime`, and `mtime_of`; waits until every entry but those ending in `except_suffix` has one, as `_folder_cached` |
+| `{"fs":{"path":"a.png","pixel":{"at":[0,0],"rgb":[...]}}}`, `"keep_mtime":"stored"`, `"mtime_of":"stored"`, `"executable":true`, `"mtime":1000000000` or `{"local":[2001,9,9,1,46,40]}` | runner | `Image.open(path).convert("RGB").getpixel(at)`; keeps `st_mtime_ns` and waits until it is that again; `st_mode & 0o111 == 0o111`; `int(st_mtime)`, a local time read in the runner's zone as `datetime(...).timestamp()` |
+| `{"fs":{"path":"unknown.bin","hex":"0001..."}}`, `"base64":"..."`, `"append":"text"`, `"raw_photo":true`, `"pdf_image":{"width":400,"height":200,"rgb":[...]}`, `"magick":["-limit","thread","1","$fixture/small.png"]` | runner | bytes in one write; `open("a").write`; `harness.raw_photo.write_raw_photo`; a one-page PDF of a solid image at 72 dpi, as PIL saves to `.pdf`; ImageMagick (`magick`, else `convert`) with the path last |
+| `{"fs":{"path":"a.tar.gz","tar_gz":{"mode":"755","mtime":1000000000,"members":[["a.txt","text"]]}}}`, `"zip_members":[["todo.txt","todo.txt"]]`, `"tar_members":[...]`, `"is_zip":true` | runner | a gzipped tar as `tarfile.open(path, "w:gz")` with `TarInfo` modes and times; the archive's member names are exactly these in order, each holding the bytes of the named fixture file; `zipfile.is_zipfile` |
+| `{"fs":{"path":"$config/mimeapps.list","default_app":{"for":"todo.txt","is":"x.desktop"}}}`, `{"fs":{"path":"$environment/opened-files","opened":["$fixture/todo.txt"]}}` | runner | the first desktop file `[Default Applications]` lists for the content type GIO gives the file; the file's lines, read with `Gio.File.new_for_commandline_arg`, are as many as the paths and include each |
+| `{"fs":{"path":"action.toml","toml":{"run.args":["a"]}}}`, `"toml_like":"saved"`, `{"fs":{"path":"record","json":{"action":"keep"}}}`, `"json_set":{"paths":[...]}` | runner | values at dotted keys of the parsed TOML; the parsed TOML equals that of bytes `keep_bytes` kept; values at top-level JSON keys, or each list compared as a set |
+| `{"fs":{"path":"$environment/terminal-launches.log","launches":{"count":3,"within":"$fixture"}}}`, `{"launches":{"first_dir":"$fixture/documents"}}`, `{"fs":{"path":"$data/Trash/info","replace_lines":{"suffix":".trashinfo","prefix":"DeletionDate=","with":"..."}}}` | runner | the stub terminal launcher's `cwd<TAB>--dir=...` lines as `test_terminal` asserts on them; rewrites matching lines of every file with the suffix |
+| `{"fs":{"path":"documents/bad%E8name.txt","write":"x","percent_path":true}}` | runner | the path's `%XX` escapes stand for raw bytes, for names that are not UTF-8 |
+| `{"fs":{"path":"a.3mf","zip":[["3D/3dmodel.model","text"],["thumb.png",{"image":{...}}]]}}`, `{"fs":{"path":"big.stl","truncate":134217729}}`, `{"fs":{"path":"page.pdf","from_repository":"tests/fixtures/documents/text.pdf"}}` | runner | a stored zip of the entries in order, as `zipfile.ZipFile(path, "w").writestr` (an entry may be `{"text":...,"date_time":[2001,9,9,1,46,40],"mode":"100755"}`, a `ZipInfo` with that time and `external_attr`); an `image` with a range in its name (`photo-{0..5}.png`) writes one file per number, `width_step` wider each, each followed by its `thumbnail` when given; `path.open("wb").truncate(size)`; the repository file's bytes in one write, as `write_bytes(... .read_bytes())` |
+
+The thumbnail, archive, byte, append, line-rewriting, generated-file, and
+record `fs` kinds, like `remove` and `rename`, refuse a path outside the
+fixture, the run's `$environment`, and its scratch directory. A cached
+thumbnail's name and `Thumb::URI` use the path escaped as
+`pathlib.Path.as_uri` escapes it.
 
 `fs` paths are relative to the fixture directory unless absolute, so
 `$data/Trash/files` is the run's isolated trash. Every timeout defaults to 15
@@ -774,6 +807,8 @@ that long after a press that started a navigation.
 | `{"focused_widget":true}`, `{"remembered":"focused"}` | `strata.focused_node()`; the widget `remember` kept under the name, as a twin keeps `focused = strata.wait(strata.focused_node)` |
 | `{"role":"check menu item","name":"Folders first"}` | `window.find(role=..., name=...)` |
 | `{"role":"button","name":"Next video","within":{"preview":true}}` | `strata.preview().find(role=..., name=...)`: the search starts at another target; without `name` any name matches, as `entry.find(role="panel")`, and `description` must match too when given; `"states":["selected"]` (also `focused`, `checked`, `pressed`, `sensitive`, `horizontal`, `vertical`) as `find(..., states={...})`, and `"name_matches":"^\\d+:\\d\\d$"` as `find_all(name_matches=...)`, a regular expression searched in the name |
+| `{"role":["check box","toggle button","switch"],"name":"Confirm"}` | `next(node for node in find_all(name=...) if node.role in {...})`: a role list matches any of them |
+| `{"other_window":"Strata"}` | a showing application window with this title other than the one the run started with, as a reveal opens a second browser window |
 | `{"toplevel":"Copy to"}`, `{"field":true,"within":{"toplevel":"Copy to"}}` | `destination_chooser(title)`: an application window by its title, outside the browser window; `chooser.find(role="text", states={"editable", "focused"})`, which `remember` keeps as a field |
 | `{"sidebar":"Home"}`, `{"header":"Choose sort field"}` | `sidebar_button`, `header_button` |
 | `{"menu_item":"New File"}` | `menu_item`: in the open menu if there is one |
@@ -826,8 +861,8 @@ Predicates mirror the page object's accessors:
 | `{"matches":NAMES,"dir":...}` | `matches(dir)`: the search results, or else the pane's entries |
 | `{"field":{"of":"rename","name":"Rename","text":"a","caret":4,"selection":[0,4],"focused":true}}` | a field node's `text`, caret offset, selection (null for none), and `focused` state |
 | `{"editor_within_viewport":{"of":"rename"}}` | `assert_editor_constrained` in the caret scenario |
-| `{"pref":{"key":"browser_mode","value":"icons"}}` | `read_preferences()[key]`, parsed from TOML; null when absent; `"contains":"size"` instead holds for a list holding the string or a string containing it, as `'"size"' in read_preferences().get(key, "")` |
-| `{"state":{"target":TARGET,"selected":true,"focused":false,"checked":false,"pressed":true,"sensitive":true}}` | `node.has_state(...)` for each state given; an active switch is `pressed` as well as `checked`, and `selected` is what `accessibility::set_selected` recorded, as for a tab, as GTK's bridge reports them; a description is the recorded one or a picture's alternative text |
+| `{"pref":{"key":"browser_mode","value":"icons"}}` | `read_preferences()[key]`, parsed from TOML; null when absent; `"contains":"size"` instead holds for a list holding the string or a string containing it, as `'"size"' in read_preferences().get(key, "")`, and `"one_of":[1,2,3,4]` holds for any of the values |
+| `{"state":{"target":TARGET,"selected":true,"focused":false,"checked":false,"pressed":true,"sensitive":true}}` | `node.has_state(...)` for each state given; an active switch is `pressed` as well as `checked`, and `selected` is what `accessibility::set_selected` recorded, as for a tab, as GTK's bridge reports them (a list box row and a notebook tab report their own selection); `selectable` (a list box row that takes the selection) and `editable` (an editable entry or text view) too; a description is the recorded one or a picture's alternative text |
 | `{"view_mode":"Icons"}`, `{"window_width":420}` | `view_mode()`, `window_bounds().width` |
 | `{"present":TARGET}`, `{"absent":TARGET}` | `window.find(...)` is or is not `None` |
 | `{"moved":{"target":TARGET,"direction":"up"}}` | bounds against the last `settle`; also `down`, `left`, `right`, or `none`; `none` with `"within":1` allows that much drift on both axes and keeps the size, as `assert_layout` |
@@ -851,8 +886,8 @@ Predicates mirror the page object's accessors:
 | `{"diagnostics_mention":["could not","permission denied"]}` | any of them in `strata.diagnostics().lower()`: the accessible names and descriptions of every application window |
 | `{"all":[PREDICATE,...]}` | `a and b` |
 | `{"editable_fields":1}` | `len(window.find_all(role="text", states={"editable"}))` |
-| `{"description":{"target":{"menu_item":"Copy"},"text":"Ctrl+C"}}` | `node.description == "Ctrl+C"` |
-| `{"mentions":{"target":{"dialog":true},"text":"Customize Folder"}}`, `"words":"doesn't support Trash"` | `"Customize Folder" in dialog.dump()`: some name or description in the subtree contains it; with `"role":"label"`, the name of some rendered widget with that role does, as `any("x" in node.name for node in dialog.find_all(role="label"))`; with `words`, some rendered widget's `f"{name} {text}"` has them with any whitespace between, as `re.search(r"doesn't\s+support\s+Trash", ...)` |
+| `{"description":{"target":{"menu_item":"Copy"},"text":"Ctrl+C"}}` | `node.description == "Ctrl+C"`, or a pattern such as `{"contains":...}` |
+| `{"mentions":{"target":{"dialog":true},"text":"Customize Folder"}}`, `"words":"doesn't support Trash"` | `"Customize Folder" in dialog.dump()`: some name or description in the subtree contains it; with `"role":"label"`, the name of some rendered widget with that role does, as `any("x" in node.name for node in dialog.find_all(role="label"))`; with `words`, some rendered widget's `f"{name} {text}"` has them with any whitespace between, as `re.search(r"doesn't\s+support\s+Trash", ...)`; with `equals`, some rendered widget's name with its whitespace collapsed is exactly that, as `" ".join(node.name.split()) == text` |
 | `{"presented":{"role":"label","name":"Ctrl+Alt+M"}}` | `window.find(..., rendered=False) is not None` |
 | `{"file":{"path":"$fixture/documents/notes.txt","exists":false}}` | whether the path exists without following a final symlink, as the runner's `fs` `exists` checks it; read by the process so `any` and `all` can join it with window state |
 | `{"focused_widget":"Custom color…"}` | `strata.focused_node().name`, exactly or as `{"contains":"Shortcuts"}`; null when nothing has focus |
@@ -863,9 +898,13 @@ Predicates mirror the page object's accessors:
 | `{"accent_pixels":{"target":{"field":"filter"},"inset":2,"more_than":100}}` | more than that many pixels in the target's box, inset on every side, are exactly the accent of the theme `settings.toml` names in `data/themes/catalog.toml` |
 | `{"any_result_row":{"focused":true}}` | `any(row.has_state("focused") for row in result_rows(strata))`; `selected` too |
 | `{"hit_path":{"mark":"search: txt","hits":{"todo.txt":"todo.txt"},"name":"todo.txt"}}` | `footer_hit`: of the panels beside the footer mark, the first whose rendered labels, joined, are one of the hits' paths shows `hits[name]`; a `name` the hits do not list is an error, as the twin's `KeyError` |
-| `{"compare":{"left":NUMBER,"op":"<=","right":NUMBER}}` | `heading.x + heading.width <= button.x`: `op` is `<`, `<=`, `==`, `!=`, `>=`, or `>`; a `NUMBER` is a literal, `{"of":TARGET,"get":"width"}` (`x`, `y`, `width`, `height`, `right`, `bottom`, `center_x`, `center_y` in whole pixels, or `value`, a slider's `numeric_value`), `{"pref":"text_size","default":0}`, `{"count":{"role":"image","description":"LaTeX equation","within":TARGET,"rendered":true}}` (`len(find_all(...))`), or `sum`, `minus`, `times`, `divide`, `floor_divide` (Python's `/` and `//`), `ceil`, and `abs` over them; a target not on screen is a mismatch, so a wait keeps polling |
+| `{"compare":{"left":NUMBER,"op":"<=","right":NUMBER}}` | `heading.x + heading.width <= button.x`: `op` is `<`, `<=`, `==`, `!=`, `>=`, or `>`; a `NUMBER` is a literal, `{"of":TARGET,"get":"width"}` (`x`, `y`, `width`, `height`, `right`, `bottom`, `center_x`, `center_y` in whole pixels, or `value`, a slider's `numeric_value`), `{"pref":"text_size","default":0}`, `{"count":{"role":"image","description":"LaTeX equation","within":TARGET,"rendered":true,"states":["selected"]}}` (`len(find_all(...))`), or `sum`, `minus`, `times`, `divide`, `floor_divide` (Python's `/` and `//`), `ceil`, and `abs` over them; a target not on screen is a mismatch, so a wait keeps polling |
 | `{"panes_with":{"target":{"role":"button","name":"Refresh (F5)"},"names":["documents"]}}` | `[name for name in pane_names() if pane(name).find(...)]`: the panes, left to right, in which the role target is on screen |
-| `{"name":{"target":TARGET,"text":"0:05"}}`, `{"editable_text":"todo"}`, `{"visible_top":NAMES}` | `node.name == "0:05"` (or a pattern); `any(node.text == "todo" for node in window.find_all(role="text", states={"editable"}))`; the rows `note visible_top` lists |
+| `{"largest_image":{"within":{"preview":true},"wider_than":40,"size":[160,80]}}`, `"exceeds":[160,80]` | of the rendered images inside the target wider than `wider_than`, the largest by area (the first of equals) exists, is exactly `size`, or is larger than `exceeds` on either axis |
+| `{"children":{"comm_prefix":"xdg-terminal-ex","count":0}}` | `test_terminal._launcher_children`: how many of the application's child processes have a command name with the prefix |
+| `{"list_sections":{"within":{"dialog":true},"section":"Recommended Applications","names":NAMES}}` | the selectable list items under each unselectable heading row, named by the row's first named child, as `test_open_with` groups them |
+| `{"text":{"target":TARGET,"text":"batch-rename"}}` | `node.text`, the text interface: a label's or entry's text, a text view's buffer |
+| `{"name":{"target":TARGET,"text":"0:05"}}`, `{"editable_text":"todo"}`, `{"visible_top":NAMES}` | `node.name == "0:05"` (or a pattern; with `"rendered":false` the target is looked up presented, as `find(..., rendered=False).name`); `any(node.text == "todo" for node in window.find_all(role="text", states={"editable"}))`; the rows `note visible_top` lists |
 
 `NAMES` is an exact list in visual order or
 `{"contains":[...],"excludes":[...],"count":4,"at_least":2,"ends_with":[...]}`,
@@ -874,8 +913,9 @@ with `"first"` (`names[0] == ...`), `"first_above"` (`names[0] > "010.txt"`),
 `"toggled":{"names":[...],"against":[...]}` (each listed exactly when
 `against` does not list it), `"in_order":[...]` (each listed, first
 occurrences in that order, as `assert_menu_order`), `"set":[...]`
-(`set(names) == {...}`), and `"occurrences":{"a.txt":2}`
-(`names.count("a.txt") == 2`), comparing names as Python compares strings;
+(`set(names) == {...}`), `"occurrences":{"a.txt":2}`
+(`names.count("a.txt") == 2`), and `"sorted_casefold_from":1`
+(`names[1:] == sorted(names[1:], key=str.lower)`), comparing names as Python compares strings;
 `panes` takes one too. `moved` takes `"since":"entered"` to compare with a box
 `settle` or `remember` kept under that name, and with direction `none`,
 `"y_within":2` allows that much vertical drift and ignores the rest, as

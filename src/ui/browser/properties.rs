@@ -381,7 +381,7 @@ fn measurement_warning_text(summary: &DirectorySummary) -> Option<String> {
 }
 
 fn set_measurement_warning(warning: &gtk::Image, message: Option<&str>) {
-    warning.update_property(&[gtk::accessible::Property::Label(message.unwrap_or(""))]);
+    super::super::accessibility::set_own_label(warning, message.unwrap_or(""));
     warning.set_visible(message.is_some());
 }
 

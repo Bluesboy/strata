@@ -248,9 +248,7 @@ impl ThumbnailSlot {
             self.imp()
                 .decoration_description
                 .replace(description.map(str::to_owned));
-            self.update_property(&[gtk::accessible::Property::Description(
-                description.unwrap_or(""),
-            )]);
+            crate::ui::accessibility::set_description(self, description);
         }
         if same_texture(self.imp().decoration.borrow().as_ref(), texture) {
             return;

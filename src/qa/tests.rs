@@ -60,6 +60,7 @@ fn commands_parse_from_the_scenario_spelling_with_their_defaults() {
             message: None,
             samples: 1,
             settle: None,
+            never: None,
         })
     );
     assert_eq!(
@@ -109,6 +110,7 @@ fn commands_parse_from_the_scenario_spelling_with_their_defaults() {
         Ok(Command::Activate {
             target: Target::Role {
                 role: "toggle button".to_owned(),
+                other_roles: Vec::new(),
                 name: Some("Single".to_owned()),
                 description: None,
                 within: None,
@@ -454,6 +456,7 @@ fn every_target_kind_parses_from_its_key() {
         target(r#"{"role":"button","name":"Keep Both"}"#),
         Target::Role {
             role: "button".to_owned(),
+            other_roles: Vec::new(),
             name: Some("Keep Both".to_owned()),
             description: None,
             within: None,
@@ -497,6 +500,7 @@ fn every_target_kind_parses_from_its_key() {
         target(r#"{"role":"list item","name_ends_with":["/a"],"nth":-1}"#),
         Target::Role {
             role: "list item".to_owned(),
+            other_roles: Vec::new(),
             name: None,
             description: None,
             within: None,
@@ -1050,10 +1054,9 @@ fn new_commands_parse_and_reject_what_they_cannot_mean() {
     assert_eq!(
         parse_command(r#"{"during":{"peek":false},"ms":200,"every_ms":20,"message":"m"}"#),
         Ok(Command::During {
-            predicate: predicate(json!({ "peek": false })),
+            checks: vec![(predicate(json!({ "peek": false })), Some("m".to_owned()))],
             duration: Duration::from_millis(200),
             every: Duration::from_millis(20),
-            message: Some("m".to_owned()),
         })
     );
     let Ok(Command::KeysUntil { keys, times, .. }) = parse_command(
@@ -1469,5 +1472,96 @@ fn role_targets_carry_states_and_name_patterns() {
     assert_eq!(
         target.to_json(),
         json!({"role": "page tab", "name": "docs", "states": ["selected"], "name_matches": "^d"})
+    );
+}
+
+#[test]
+fn batch_six_commands_parse_only_in_their_valid_shapes() {
+    let target: Target =
+        serde_json::from_value(json!({"role": ["check box", "toggle button"], "name": "Confirm"}))
+            .expect("a role list should parse");
+    assert_eq!(
+        target.to_json(),
+        json!({"role": ["check box", "toggle button"], "name": "Confirm"})
+    );
+    assert_eq!(
+        serde_json::from_value::<Target>(json!({"other_window": "Strata"})).ok(),
+        Some(Target::OtherWindow("Strata".to_owned()))
+    );
+    assert!(serde_json::from_value::<Target>(json!({"role": [], "name": "x"})).is_err());
+    let Ok(Command::Wait {
+        never: Some(never), ..
+    }) = parse_command(r#"{"wait":{"preview":true},"never":{"preview":null},"never_message":"m"}"#)
+    else {
+        panic!("a wait with never should parse");
+    };
+    assert_eq!(never.1.as_deref(), Some("m"));
+    let Ok(Command::During { checks, .. }) = parse_command(
+        r#"{"during":[{"check":{"preview":true},"message":"a"},{"check":{"peek":false}}],"ms":100}"#,
+    ) else {
+        panic!("a during list should parse");
+    };
+    assert_eq!(checks.len(), 2);
+    for invalid in [
+        r#"{"wait":{"preview":true},"never_message":"m"}"#,
+        r#"{"during":[],"ms":100}"#,
+        r#"{"during":[{"check":{"peek":false}}],"ms":100,"message":"m"}"#,
+        r#"{"wait":{"largest_image":{"within":{"preview":true},"size":[1,1],"exceeds":[1,1]}}}"#,
+        r#"{"note":"entries","as":"n","until_names":{"at_least":2}}"#,
+        r#"{"wait":{"pref":{"key":"k","value":1,"one_of":[1]}}}"#,
+        r#"{"wait":{"mentions":{"target":{"dialog":true},"text":"a","equals":"a"}}}"#,
+    ] {
+        assert!(
+            parse_command(invalid).is_err(),
+            "{invalid} should be rejected"
+        );
+    }
+}
+
+#[test]
+fn notebook_tabs_and_scrolled_text_report_what_the_bridge_does() {
+    crate::test_support::gtk_test(
+        "qa::tests::notebook_tabs_and_scrolled_text_report_what_the_bridge_does",
+        || {
+            use gtk::prelude::*;
+            let notebook = gtk::Notebook::new();
+            for title in ["General", "Script"] {
+                notebook.append_page(
+                    &gtk::Box::new(gtk::Orientation::Vertical, 0),
+                    Some(&gtk::Label::new(Some(title))),
+                );
+            }
+            notebook.set_current_page(Some(1));
+            let selected: Vec<(String, bool)> = super::targets::presented(notebook.upcast_ref())
+                .iter()
+                .filter(|widget| super::targets::role_name(widget) == "page tab")
+                .map(|tab| {
+                    (
+                        super::targets::accessible_name(tab),
+                        super::targets::states(tab).selected,
+                    )
+                })
+                .collect();
+            assert_eq!(
+                selected,
+                [("General".to_owned(), false), ("Script".to_owned(), true)]
+            );
+
+            let view = gtk::TextView::new();
+            let scroll = gtk::ScrolledWindow::builder().child(&view).build();
+            crate::ui::accessibility_qa::record(&scroll, |naming| {
+                naming.label = Some("Arguments".to_owned())
+            });
+            assert_eq!(
+                super::targets::accessible_name(view.upcast_ref()),
+                "Arguments"
+            );
+            assert_eq!(super::targets::accessible_name(scroll.upcast_ref()), "");
+            assert!(super::targets::states(view.upcast_ref()).editable);
+            // An unlabelled scrolled window names nothing, as the preview's text shows.
+            let plain = gtk::TextView::new();
+            let _unlabelled = gtk::ScrolledWindow::builder().child(&plain).build();
+            assert_eq!(super::targets::accessible_name(plain.upcast_ref()), "");
+        },
     );
 }

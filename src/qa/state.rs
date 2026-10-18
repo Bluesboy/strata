@@ -375,7 +375,11 @@ impl Observation {
             | Check::PanesWith(_)
             | Check::Name(_)
             | Check::EditableText(_)
-            | Check::VisibleTop(_) => (false, json!("needs the live window")),
+            | Check::VisibleTop(_)
+            | Check::LargestImage(_)
+            | Check::Children(_)
+            | Check::ListSections(_)
+            | Check::Text(_) => (false, json!("needs the live window")),
             Check::Not(inner) => match self.evaluate(inner) {
                 Ok(()) => (false, json!("the negated predicate holds")),
                 Err(failure) => (true, failure.actual),
