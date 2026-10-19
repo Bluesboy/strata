@@ -61,6 +61,10 @@ WHOLE_STATE = "*"
 PARITY_FIXTURES = {"STRATA_PARITY_FIXTURES": "1"}
 # Same file naming as `node_file_name` in tests/e2e/harness/parity.py.
 UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+# pytest-xdist's `loadgroup` appends `@<group>` to the node id of a test with an
+# `xdist_group` marker, as conftest gives the visual baselines; the Python side
+# reports and names its logs under that id, and the QA twin names the bare one.
+XDIST_GROUP = re.compile(r"@[^@\[\]/]+$")
 
 RUN = r"(?P<scenario>[^/\s]+)/(?P<run>\S+) \(twin (?P<twin>.+?)\)"
 QA_PLANNED = re.compile(rf"^RUN {RUN}$")
@@ -291,6 +295,9 @@ class Result:
     status: str
     signature: str = ""
     detail: str = ""
+    # The node id the Python side ran under, where it differs from the twin's
+    # (an xdist group suffix); its input log and state dump are named after it.
+    node: str = ""
 
 
 @dataclass
@@ -375,18 +382,22 @@ def parse_junit(report: Path) -> dict[str, Result]:
     results: dict[str, Result] = {}
     for case in root.iter("testcase"):
         classname = case.get("classname", "")
-        node = classname.replace(".", "/") + ".py::" + case.get("name", "")
+        ran = classname.replace(".", "/") + ".py::" + case.get("name", "")
+        node = XDIST_GROUP.sub("", ran)
         failure = case.find("failure")
         error = case.find("error")
         if error is not None:
-            results[node] = Result("error", detail=first_line(error.get("message", "")))
+            result = Result("error", detail=first_line(error.get("message", "")))
         elif failure is not None:
             message = failure.get("message", "")
-            results[node] = Result("fail", python_signature(message), first_line(message))
+            result = Result("fail", python_signature(message), first_line(message))
         elif case.find("skipped") is not None:
-            results[node] = Result("error", detail="skipped")
+            result = Result("error", detail="skipped")
         else:
-            results[node] = Result("pass")
+            result = Result("pass")
+        if ran != node:
+            result.node = ran
+        results[node] = result
     return results
 
 
@@ -814,7 +825,7 @@ def compare_baseline(report: PairReport, destination: Path) -> None:
         if pair.label == "(no QA run)":
             continue
         scenario, run = pair.label.split("/", 1)
-        stem = node_file_name(pair.twin)
+        stem = node_file_name(pair.python.node or pair.twin)
         python_input = python / "input" / f"{stem}.log"
         qa_input = artifacts / scenario / run / "input.log"
         report.inputs[pair.label] = (

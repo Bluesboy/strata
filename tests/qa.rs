@@ -106,6 +106,7 @@ scenarios! {
     columns_keyboard_respects_disabled_previews,
     columns_keyboard_stays_without_mirror,
     columns_never_hover_peek,
+    columns_overflow_baseline,
     columns_preview_reopens_after_closing,
     columns_reclick_open_folder_renames,
     columns_return_selects_source_folder,
@@ -113,9 +114,11 @@ scenarios! {
     columns_reveal_in_deep_column,
     columns_reveal_in_parent_column,
     columns_terminal_parent_pane_folder,
+    columns_view_baseline,
     committed_rename_stays_visible,
     compress_then_chooser_extracts,
     compressed_archive_revealed,
+    context_menu_baseline,
     context_menu_copy_and_paste,
     context_menu_cut_and_paste,
     context_menu_keeps_column_target,
@@ -135,6 +138,7 @@ scenarios! {
     customize_takes_focus_single_escape,
     cut_moves_only_after_paste,
     delete_animation_keeps_survivors,
+    delete_confirmation_baseline,
     delete_to_trash,
     delete_trashes_filtered_result,
     delete_without_trash_focuses_cancel,
@@ -211,8 +215,11 @@ scenarios! {
     global_search_reveal_visited_list,
     hidden_files_toggle,
     hovered_tab_takes_drop,
+    icons_airy_view_baseline,
+    icons_hover_baseline,
     icons_keep_layout_until_toggled,
     icons_rename_reuses_thumbnail_details,
+    icons_view_baseline,
     idle_workers_exit_and_restart,
     invalid_archive_name_keeps_dialog,
     invalid_archive_reports_damage,
@@ -233,6 +240,7 @@ scenarios! {
     list_preview_keeps_horizontal_scroll,
     list_transfer_reveal_selects_copy,
     list_typed_file_path,
+    list_view_baseline,
     listing_names_descriptions_selection,
     local_filtered_result_opens_once,
     long_rename_keeps_caret,
@@ -356,6 +364,7 @@ scenarios! {
     secondary_click_retargets_menu,
     select_all_selects_every_entry,
     selected_blank_space_starts_file_drag,
+    selection_and_focus_baseline,
     selection_properties_aggregate_warnings,
     settings_choice_buttons_expose_value,
     settings_choice_options_expose_chosen,
@@ -471,12 +480,13 @@ const DEFAULT_LAYOUT: &str = "us";
 const ALL_MODIFIERS: u16 = 0xff;
 /// The error `strata --qa` replies with before it exits on a harness bug.
 const CONTROLLER_PANIC: &str = "the QA controller panicked";
-const RUNNER_COMMANDS: [&str; 23] = [
+const RUNNER_COMMANDS: [&str; 24] = [
     "layout",
     "fs",
     "increment",
     "slice",
     "screenshot",
+    "baseline",
     "stem",
     "parent",
     "flag",
@@ -522,6 +532,8 @@ const NOTED_PLACEHOLDER: &str = "noted";
 /// `ffmpeg` writing a generated media file, as a twin's `subprocess.run(..., timeout=30)`;
 /// also ImageMagick's conversion and `dbus-send`.
 const FFMPEG_TIMEOUT: Duration = Duration::from_secs(30);
+/// `screenshots.capture`'s `subprocess.run(..., timeout=15)` around `import`.
+const CAPTURE_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long the private session bus may take to listen, as `HeadlessDisplay`
 /// waits `startup_timeout` for it.
 const BUS_START_TIMEOUT: Duration = Duration::from_secs(30);
@@ -854,6 +866,11 @@ struct Header {
     /// `strata --portal`; its window comes with a `portal_open` request.
     #[serde(default)]
     portal: bool,
+    /// A fixed fixture directory, `/tmp/<name>`, in place of a fresh one, as
+    /// `FixtureTree.create_at` builds a golden screenshot's tree where its path
+    /// renders the same every time; it must not exist yet, and runs that
+    /// claim one take turns.
+    fixture_root: Option<String>,
     /// Why the scenario stays out of the default `./scripts/qa.sh` run and out
     /// of parity, such as an app race that makes it pass or fail by chance;
     /// it still runs when named on the command line (`STRATA_QA_NAMED=1`).
@@ -1179,6 +1196,13 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
     }
     if header.portal && !header.session_bus {
         return Err("a portal run needs the header's session_bus".to_owned());
+    }
+    if let Some(root) = &header.fixture_root
+        && fixed_fixture_name(root).is_none()
+    {
+        return Err(format!(
+            "fixture_root is /tmp/<name>, a directory directly in /tmp, not {root:?}"
+        ));
     }
     if let Some(name) = header.env.keys().find(|name| {
         RUNNER_OWNED_ENVIRONMENT.contains(&name.as_str())
@@ -1759,6 +1783,23 @@ fn check_step(step: &Value) -> Result<(), String> {
         } else {
             Err(
                 "screenshot names a .png file in the run's artifacts and takes nothing else"
+                    .to_owned(),
+            )
+        };
+    }
+    if let Some(name) = step.get("baseline") {
+        let valid = step.as_object().is_some_and(|object| {
+            object
+                .keys()
+                .all(|key| key == "baseline" || (key == "message" && object[key].is_string()))
+        }) && name
+            .as_str()
+            .is_some_and(|name| !name.is_empty() && !name.contains('/') && !name.contains('.'));
+        return if valid {
+            Ok(())
+        } else {
+            Err(
+                "baseline names a committed image in tests/e2e/baselines without its .png, and takes only a message"
                     .to_owned(),
             )
         };
@@ -2344,6 +2385,16 @@ fn unescape(value: &Value) -> Value {
 
 // --------------------------------------------------------------- display
 
+/// Held by a run whose header names a `fixture_root`, from before the
+/// directory is made until it is removed.
+static FIXED_FIXTURES: Mutex<()> = Mutex::new(());
+
+/// A header `fixture_root`'s name: `/tmp/<name>` and nothing deeper.
+fn fixed_fixture_name(root: &str) -> Option<&str> {
+    let name = root.strip_prefix("/tmp/")?;
+    (!name.is_empty() && !name.contains('/') && name != "." && name != "..").then_some(name)
+}
+
 static DISPLAYS: Mutex<()> = Mutex::new(());
 /// Held around every spawn, so only Xvfb ever inherits its `-displayfd` pipe.
 static SPAWN: Mutex<()> = Mutex::new(());
@@ -2551,7 +2602,7 @@ impl Display {
     }
 
     fn screenshot(&self, destination: &Path) -> Result<(), String> {
-        let status = spawn(
+        let mut child = spawn(
             Command::new("import")
                 .args(["-display", &self.name, "-window", "root"])
                 .arg(destination)
@@ -2560,13 +2611,184 @@ impl Display {
                 .stdout(Stdio::null())
                 .stderr(Stdio::null()),
         )
-        .and_then(|mut child| child.wait().map_err(|error| error.to_string()))
         .map_err(|error| format!("cannot run import: {error}"))?;
-        status
-            .success()
-            .then_some(())
-            .ok_or_else(|| format!("import exited with {status}"))
+        let deadline = Instant::now() + CAPTURE_TIMEOUT;
+        loop {
+            match child.try_wait().map_err(|error| error.to_string())? {
+                Some(status) if status.success() => return Ok(()),
+                Some(status) => return Err(format!("import exited with {status}")),
+                None if Instant::now() >= deadline => {
+                    terminate(&mut child);
+                    return Err(format!("import ran past {} s", CAPTURE_TIMEOUT.as_secs()));
+                }
+                None => std::thread::sleep(POLL_INTERVAL),
+            }
+        }
     }
+}
+
+// ------------------------------------------------------------- baselines
+
+/// `CHANNEL_TOLERANCE` in `tests/e2e/harness/screenshots.py`: a pixel differs
+/// when any channel moves by more than this.
+const CHANNEL_TOLERANCE: u8 = 24;
+/// `DIFFERENT_PIXEL_BUDGET`: the share of differing pixels a match allows.
+const DIFFERENT_PIXEL_BUDGET: f64 = 0.005;
+
+/// `screenshots.Comparison`, for a `baseline` step.
+#[derive(Debug, PartialEq)]
+struct Comparison {
+    name: String,
+    matched: bool,
+    different_fraction: f64,
+    detail: String,
+}
+
+impl Comparison {
+    /// The twin's assertion message: `Comparison.summary`, then where the
+    /// images are (the run's artifact directory, which a failed run always
+    /// writes) and how the Python suite regenerates them.
+    fn failure(&self, artifacts: &Path) -> String {
+        format!(
+            "{}: {} ({:.3}% of pixels differ, budget {:.3}%)\n\
+             Expected, actual, and diff images are in {}\n\
+             Regenerate deliberately with STRATA_E2E_UPDATE_BASELINES=1 ./scripts/e2e.sh -k baseline.",
+            self.name,
+            self.detail,
+            self.different_fraction * 100.0,
+            DIFFERENT_PIXEL_BUDGET * 100.0,
+            artifacts.display()
+        )
+    }
+}
+
+/// `BASELINE_DIRECTORY`: the committed images for the GTK the application
+/// links, as the twin names its `RENDERING_PROFILE` after PyGObject's GTK.
+fn baseline_directory() -> PathBuf {
+    Path::new(REPOSITORY)
+        .join("tests/e2e/baselines")
+        .join(format!(
+            "gtk-{}.{}",
+            gtk::major_version(),
+            gtk::minor_version()
+        ))
+}
+
+/// `compare_to_baseline` without its update mode: a QA run never writes a
+/// baseline. The capture is kept beside the artifacts as `<name>.actual.png`,
+/// and a mismatch adds `<name>.expected.png` and `<name>.diff.png`.
+fn compare_to_baseline(name: &str, actual: &Path, artifacts: &Path) -> Result<Comparison, String> {
+    compare_in(&baseline_directory(), name, actual, artifacts)
+}
+
+/// [`compare_to_baseline`] against the images in `directory`.
+fn compare_in(
+    directory: &Path,
+    name: &str,
+    actual: &Path,
+    artifacts: &Path,
+) -> Result<Comparison, String> {
+    let expected = directory.join(format!("{name}.png"));
+    fs::copy(actual, artifacts.join(format!("{name}.actual.png")))
+        .map_err(|error| format!("cannot keep the capture: {error}"))?;
+    let comparison = |matched, different_fraction, detail| Comparison {
+        name: name.to_owned(),
+        matched,
+        different_fraction,
+        detail,
+    };
+    if !expected.exists() {
+        let profile = directory.file_name().unwrap_or_default().to_string_lossy();
+        return Ok(comparison(
+            false,
+            1.0,
+            format!("no baseline at {profile}/{name}.png"),
+        ));
+    }
+    let open = |path: &Path| {
+        image::open(path)
+            .map(|image| image.to_rgb8())
+            .map_err(|error| format!("cannot read {}: {error}", path.display()))
+    };
+    let (baseline, candidate) = (open(&expected)?, open(actual)?);
+    if baseline.dimensions() != candidate.dimensions() {
+        return Ok(comparison(
+            false,
+            1.0,
+            format!(
+                "size changed from {:?} to {:?}",
+                baseline.dimensions(),
+                candidate.dimensions()
+            ),
+        ));
+    }
+    let mask = differing_pixels(&baseline, &candidate);
+    let fraction = different_fraction(&mask);
+    let matched = fraction <= DIFFERENT_PIXEL_BUDGET;
+    if !matched {
+        diff_image(&baseline, &candidate, &mask)
+            .save_with_format(
+                artifacts.join(format!("{name}.diff.png")),
+                image::ImageFormat::Png,
+            )
+            .map_err(|error| format!("cannot write the diff: {error}"))?;
+        fs::copy(&expected, artifacts.join(format!("{name}.expected.png")))
+            .map_err(|error| format!("cannot keep the baseline: {error}"))?;
+    }
+    let detail = if matched {
+        "matched"
+    } else {
+        "differs from the committed baseline"
+    };
+    Ok(comparison(matched, fraction, detail.to_owned()))
+}
+
+/// Per pixel, whether any channel of `ImageChops.difference` exceeds
+/// `CHANNEL_TOLERANCE`, as the twin's `lighter` of the three bands thresholds it.
+fn differing_pixels(baseline: &image::RgbImage, candidate: &image::RgbImage) -> Vec<bool> {
+    baseline
+        .pixels()
+        .zip(candidate.pixels())
+        .map(|(before, after)| {
+            before
+                .0
+                .iter()
+                .zip(after.0)
+                .any(|(left, right)| left.abs_diff(right) > CHANNEL_TOLERANCE)
+        })
+        .collect()
+}
+
+/// `different / (mask.width * mask.height)`.
+fn different_fraction(mask: &[bool]) -> f64 {
+    let different = mask.iter().filter(|differs| **differs).count();
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "pixel counts stay far below 2^52, as Python's float division assumes"
+    )]
+    let fraction = different as f64 / mask.len() as f64;
+    fraction
+}
+
+/// `_write_diff`: the two images blended half and half, with every differing
+/// pixel painted (255, 0, 128).
+fn diff_image(
+    baseline: &image::RgbImage,
+    candidate: &image::RgbImage,
+    mask: &[bool],
+) -> image::RgbImage {
+    let mut blended = baseline.clone();
+    for ((pixel, after), differs) in blended.pixels_mut().zip(candidate.pixels()).zip(mask) {
+        pixel.0 = if *differs {
+            [255, 0, 128]
+        } else {
+            std::array::from_fn(|channel| {
+                let (left, right) = (pixel.0[channel], after.0[channel]);
+                left / 2 + right / 2 + (left & right & 1)
+            })
+        };
+    }
+    blended
 }
 
 impl Drop for Display {
@@ -4953,13 +5175,35 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
     let parity = std::env::var_os(PARITY_FIXTURES).is_some_and(|value| value == "1");
     let parity_name =
         |prefix: &str| parity.then(|| parity_name(prefix, &twin(&scenario.header, run)));
+    let fixed_name = scenario
+        .header
+        .fixture_root
+        .as_deref()
+        .and_then(fixed_fixture_name);
+    // Held until the run's fixture is gone, as the twins share one worker.
+    let _fixed_claim = fixed_name.map(|_| {
+        FIXED_FIXTURES
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    });
     let mut fixture = tempfile::Builder::new();
-    let fixture = match &parity_name("strata-fixture-") {
-        Some(name) => fixture.prefix(name).rand_bytes(0),
-        None => fixture.prefix("strata-qa-fixture-"),
+    let fixture = match (fixed_name, parity_name("strata-fixture-").as_deref()) {
+        (Some(name), _) | (None, Some(name)) => fixture.prefix(name).rand_bytes(0),
+        (None, None) => fixture.prefix("strata-qa-fixture-"),
     }
-    .tempdir_in("/tmp")
-    .expect("the fixture directory should be created");
+    .tempdir_in("/tmp");
+    // Another run's directory, or anything else already there, is never reused.
+    let fixture = match fixture {
+        Ok(fixture) => fixture,
+        Err(error) => {
+            return Outcome {
+                errors: vec![format!(
+                    "setup: cannot create the fixture directory: {error}"
+                )],
+                ..Outcome::default()
+            };
+        }
+    };
     // The twin's `TestEnvironment` root, which holds HOME and the XDG
     // directories, is named alike, so a typed home path is the same too.
     let parity_home = parity_name("strata-home-").map(|name| {
@@ -5093,6 +5337,7 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
             fixture: fixture.path(),
             fixture_time: fixture_time(manifest),
             screens: &scratch.path().join("screenshots"),
+            artifacts: &artifacts,
             launch: &launch,
         },
         &mut layout,
@@ -5444,6 +5689,8 @@ struct Context<'a> {
     fixture_time: SystemTime,
     /// Where `screenshot` steps save, copied into the artifacts when a run keeps them.
     screens: &'a Path,
+    /// The run's artifact directory, which a baseline failure names.
+    artifacts: &'a Path,
     /// How the application started, for `restart`, `dbus_send`, `log`, and `proc`.
     launch: &'a Launch<'a>,
 }
@@ -5575,6 +5822,27 @@ fn drive(
             if let Err(error) = taken {
                 outcome.errors.push(format!("{label}: {error}"));
                 return outcome;
+            }
+            continue;
+        }
+        if let Some(name) = object.get("baseline") {
+            let name = name.as_str().unwrap_or_default();
+            let capture = context.screens.join(format!("{name}.capture.png"));
+            let compared = fs::create_dir_all(context.screens)
+                .map_err(|error| error.to_string())
+                .and_then(|()| context.display.screenshot(&capture))
+                .and_then(|()| compare_to_baseline(name, &capture, context.screens));
+            match compared {
+                Ok(comparison) if comparison.matched => {}
+                Ok(comparison) => {
+                    let failure = comparison.failure(context.artifacts);
+                    file_failure(&mut outcome, *line, &label, &failure);
+                    return outcome;
+                }
+                Err(error) => {
+                    outcome.errors.push(format!("{label}: {error}"));
+                    return outcome;
+                }
             }
             continue;
         }
@@ -7504,6 +7772,81 @@ fn glob_and_zipcrypto_helpers_mirror_the_twins() {
         assert!(collision.parse::<u32>().is_ok_and(|number| number < 4096));
         let archive = zip::ZipArchive::new(File::open(&path).expect("the archive")).expect("a zip");
         assert_eq!(archive.file_names().collect::<Vec<_>>(), ["some.txt"]);
+    }
+}
+
+#[test]
+fn baseline_comparison_thresholds_pixels_and_budget_as_the_twin_does() {
+    let grey = image::Rgb([100, 100, 100]);
+    let baseline = image::RgbImage::from_pixel(200, 1, grey);
+    for (channel, shift, differs) in [(0, 24, false), (1, 25, true), (2, -25, true)] {
+        let mut candidate = baseline.clone();
+        let mut moved = grey;
+        moved.0[channel] = moved.0[channel].saturating_add_signed(shift);
+        candidate.put_pixel(7, 0, moved);
+        let mask = differing_pixels(&baseline, &candidate);
+        assert_eq!(
+            mask.iter().filter(|value| **value).count(),
+            usize::from(differs)
+        );
+    }
+    for (different, matched) in [(1, true), (2, false)] {
+        let mask: Vec<bool> = (0..200).map(|index| index < different).collect();
+        assert_eq!(different_fraction(&mask) <= DIFFERENT_PIXEL_BUDGET, matched);
+    }
+}
+
+#[test]
+fn baseline_mismatches_fail_without_writing_the_baseline() {
+    let scratch = tempfile::tempdir().expect("a scratch directory");
+    let (images, artifacts) = (
+        scratch.path().join("gtk-4.22"),
+        scratch.path().join("artifacts"),
+    );
+    fs::create_dir_all(&images).expect("the baseline directory");
+    fs::create_dir_all(&artifacts).expect("the artifact directory");
+    let save = |path: &Path, width| {
+        image::RgbImage::from_pixel(width, 2, image::Rgb([9, 9, 9]))
+            .save_with_format(path, image::ImageFormat::Png)
+            .expect("an image");
+    };
+    let (expected, actual) = (images.join("view.png"), scratch.path().join("capture.png"));
+    save(&expected, 2);
+    save(&actual, 3);
+    let committed = fs::read(&expected).expect("the baseline");
+
+    let resized = compare_in(&images, "view", &actual, &artifacts).expect("a comparison");
+    assert!(!resized.matched);
+    assert_eq!(resized.detail, "size changed from (2, 2) to (3, 2)");
+    let missing = compare_in(&images, "absent", &actual, &artifacts).expect("a comparison");
+    assert!(!missing.matched);
+    assert_eq!(missing.detail, "no baseline at gtk-4.22/absent.png");
+    assert_eq!(missing.different_fraction, 1.0);
+
+    assert_eq!(fs::read(&expected).expect("the baseline"), committed);
+    assert!(!images.join("absent.png").exists());
+    assert!(artifacts.join("view.actual.png").is_file());
+}
+
+#[test]
+fn fixture_roots_and_baseline_steps_check_their_shape_before_the_run() {
+    let names = [
+        ("/tmp/strata-e2e-baseline", Some("strata-e2e-baseline")),
+        ("/tmp/a/b", None),
+        ("/tmp/", None),
+        ("/tmp/..", None),
+        ("/var/tmp/x", None),
+    ];
+    for (root, name) in names {
+        assert_eq!(fixed_fixture_name(root), name, "{root}");
+    }
+    assert!(check_step(&json!({ "baseline": "columns-view" })).is_ok());
+    for step in [
+        json!({ "baseline": "columns-view.png" }),
+        json!({ "baseline": "" }),
+        json!({ "baseline": "a", "timeout_ms": 5 }),
+    ] {
+        assert!(check_step(&step).is_err(), "{step}");
     }
 }
 

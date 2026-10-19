@@ -526,7 +526,8 @@ These scenarios exclusively claim `/tmp/strata-e2e-baseline`, because the
 breadcrumb and context menu render the full path. An existing directory or
 symlink is a setup error, never deleted or reused. Within a run, baseline
 scenarios stay on one worker; independent concurrent runs must use separate
-containers.
+containers. A native host run interrupted before its cleanup can leave
+`/tmp/strata-e2e-baseline` behind; remove it by hand before running them again.
 
 A capture matches when no more than 0.5% of pixels differ by more than 24 in
 any channel, which absorbs the subpixel antialiasing that software rendering
@@ -539,7 +540,10 @@ STRATA_E2E_UPDATE_BASELINES=1 ./scripts/e2e.sh -k baseline
 ```
 
 Then review the new images and commit them with the change, so the difference
-is visible in the pull request. On a mismatch the suite writes the expected,
+is visible in the pull request. The QA twins in
+`tests/qa/scenarios/test_visual_baselines/` compare their captures with the
+same images and tolerances through a `baseline` step and never write them, so
+regenerated images serve both suites. On a mismatch the suite writes the expected,
 actual, and diff images into the artifact directory.
 
 ## Proving the suite would catch a regression
@@ -685,6 +689,11 @@ cannot connect. `"portal":true` (with `session_bus`) starts
 browser, as `open_file_request` starts `strata --portal`: it has no window
 until a `portal_open` request opens a chooser, which `adopt` then drives, and
 while no chooser is open its state snapshot is the empty one AT-SPI reads.
+`"fixture_root":"/tmp/strata-e2e-baseline"` builds the tree at that fixed
+path, directly in `/tmp`, instead of a fresh or parity-named one, as a
+golden-screenshot twin's `FixtureTree.create_at` does because the breadcrumb
+and context menu render the path; a directory already there is a setup error,
+never reused, and runs that claim a fixed root take turns.
 `state_parity_ignore` (`["focused","panes.focused"]`) leaves compared keys,
 or a compared key of each pane, out of the scenario's final-state parity; it
 is only for a scenario whose app state ends nondeterministically under both
@@ -796,6 +805,7 @@ fails the scenario before it runs.
 | `{"fs":{"path":"todo.txt","remove":true}}`, `{"fs":{"path":"documents","rename":"archive/documents"}}` | runner | `Path.unlink()`, or `shutil.rmtree` for a directory; `Path.rename(root / ...)`; both refuse a path whose parent, with links resolved, lies outside the fixture, the run's `$environment`, and its scratch directory |
 | `{"fs":{"path":"$environment/launches","lines":{"at_least":1}}}`, `{"fs":{"path":"a.png","keep_bytes":"original"}}`, `"bytes_of":"original"` | runner | waits until the file has that many lines, exactly or at least (a missing file has none; an unreadable or non-UTF-8 one fails the step at once, as `read_text()` raises), as `len(path.read_text().splitlines())`; keeps `path.read_bytes()` under a name; waits until the bytes are those kept, failing at once on a read error |
 | `{"screenshot":"hover.png"}` | runner | captures the Xvfb root, as a twin's artifact screenshot; saved with the run's artifacts when it keeps them |
+| `{"baseline":"columns-view"}` | runner | the `baseline` fixture: captures the Xvfb root with ImageMagick's `import`, as `strata.screenshot` does, and compares it with `tests/e2e/baselines/gtk-<major>.<minor>/columns-view.png` for the GTK the runner links, as `screenshots.compare_to_baseline` does: a pixel differs when a channel moves by more than 24, and more than 0.5% of differing pixels, a size change, or a missing image fails with the twin's summary; the run's artifacts keep `<name>.actual.png`, and on a mismatch `<name>.expected.png` and `<name>.diff.png`. It never writes a baseline. Its failure starts with that summary, as the twin's assertion does, so the step carries no `message`; the percentage in it differs from run to run, and as the baseline scenarios have no `mutation`, their failure signatures are never compared |
 | `{"fs":{"path":"photo.png","image":{"width":1600,"height":900,"rgb":[0,128,0]}}}`, `{"fs":{"path":"sound.wav","ffmpeg":["-f","lavfi",...]}}` | runner | a solid-colour PNG, written in place in one write as PIL's buffered save writes it (written in pieces, the listing would see it grow and replace its row), or `ffmpeg -v error -y <ffmpeg...> <path>` |
 | `{"fs":{"path":"small.png","thumbnail":{"cache":"$cache/thumbnails/large","width":256,"height":128,"rgb":[0,0,255],"mode":"700"}}}`, `{"fs":{"path":"photos-a/model.3mf","cached_in":"$cache/thumbnails/large","pixel":{"at":[0,0],"rgb":[220,40,80]}}}`, `{"fs":{"path":"photos-a","all_cached_in":"$cache/thumbnails/large","except_suffix":".stl"}}` | runner | writes a freedesktop cached thumbnail for the file (a solid-colour PNG named after the MD5 of its URI, with `Thumb::URI` and `Thumb::MTime` text chunks, in one write, `mode` setting the cache directory's); `cached_in` reads the path's cached thumbnail instead for `exists`, `is`, `pixel`, `keep_mtime`, and `mtime_of`; waits until every entry but those ending in `except_suffix` has one, as `_folder_cached` |
 | `{"fs":{"path":"a.png","pixel":{"at":[0,0],"rgb":[...]}}}`, `"keep_mtime":"stored"`, `"mtime_of":"stored"`, `"executable":true`, `"mtime":1000000000` or `{"local":[2001,9,9,1,46,40]}` | runner | `Image.open(path).convert("RGB").getpixel(at)`; keeps `st_mtime_ns` and waits until it is that again; `st_mode & 0o111 == 0o111`; `int(st_mtime)`, a local time read in the runner's zone as `datetime(...).timestamp()` |
@@ -1105,7 +1115,10 @@ Both runners get `STRATA_PARITY_FIXTURES=1`, the QA runs keep their artifacts,
 and the Python runs write input logs and state dumps. Before any run starts,
 `tests/qa.rs` prints `RUN <scenario>/<run> (twin <node id>)` for each planned run,
 outside libtest's output capture. The runs map to pytest node ids through those
-lines and the `(twin ...)` on the `PASS` and failed lines; a planned run with no
+lines and the `(twin ...)` on the `PASS` and failed lines (a Python node id that
+pytest-xdist's `loadgroup` suffixed with `@<group>`, as the visual baselines'
+`@visual-baselines`, pairs by the bare id, and its input log and state dump are
+read under the suffixed one); a planned run with no
 result line, a `KNOWN BUG` result, a missing `result.json`, or a `qa.sh` exit
 status its results do not account for is a disagreement. A scenario with a
 `mutation` is held to all five checks; one without, or any scenario under
@@ -1140,9 +1153,10 @@ twin; see "QA in CI".
 
 ### Python-only tests
 
-The Python scenarios are being given QA twins side by side, file by file. A
-test stays Python-only only for a concrete technical reason, such as checking
-the AT-SPI surface itself, and is listed here with that reason.
+Every collected Python scenario has a QA twin, is listed here, or is the twin
+of a skipped scenario (see "Skipped scenarios"). A test stays Python-only only
+for a concrete technical reason, such as checking the AT-SPI surface itself,
+and is listed here with that reason.
 
 - `test_quick_preview.py::test_large_table_header_sort_reaches_rows_beyond_old_limits`
   (all four tables), unverified and pending an owner decision: every step

@@ -102,12 +102,20 @@ class SignatureTests(unittest.TestCase):
                 '<testcase classname="tests.e2e.scenarios.test_clipboard" name="test_copy_leaves_the_source_in_place[list]">'
                 '<error message="display did not start"/>'
                 "</testcase>"
+                '<testcase classname="tests.e2e.scenarios.test_clipboard" name="test_copy_leaves_the_source_in_place[a@b]@visual-baselines"/>'
+                '<testcase classname="tests.e2e.scenarios.test_clipboard" name="test_copy_leaves_the_source_in_place[c@d]"/>'
                 "</testsuite></testsuites>"
             )
             results = parse_junit(report)
         self.assertEqual(results[f"{TWIN}[columns]"].signature, "the copy to land in archive")
         self.assertEqual(results[f"{TWIN}[icons]"].signature, "cut must not touch the filesystem")
         self.assertEqual(results[f"{TWIN}[list]"].status, "error")
+        self.assertEqual(results[f"{TWIN}[columns]"].node, "")
+        # An xdist group's suffix leaves the twin's id; the logs keep the one it ran under.
+        grouped = results[f"{TWIN}[a@b]"]
+        self.assertEqual((grouped.status, grouped.node), ("pass", f"{TWIN}[a@b]@visual-baselines"))
+        bare = results[f"{TWIN}[c@d]"]
+        self.assertEqual((bare.status, bare.node), ("pass", ""))
 
         signature, where = qa_signature({
             "failures": [{
