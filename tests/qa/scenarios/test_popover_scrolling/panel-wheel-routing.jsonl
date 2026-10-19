@@ -1,4 +1,4 @@
-{"scenario":"panel-wheel-routing","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_popover_scrolling.py::test_panel_wheel_routing[listing-sort-columns]","mutation":"popover-scrolling","known_bug":null,"tree":{"nested":{"{000..199}.txt":"{}\n"},"{000..199}.txt":"{}\n"}}
+{"scenario":"panel-wheel-routing","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_popover_scrolling.py::test_panel_wheel_routing[listing-sort-columns]","mutation":"popover-scrolling","known_bug":null,"tree":{"nested":{"{000..199}.txt":"{}\n"},"{000..199}.txt":"{}\n"},"cost":{"columns":0.7}}
 {"wait":{"entry":"005.txt"},"message":"the entry '005.txt' to appear"}
 {"settle":{"entry":"005.txt"}}
 {"click":{"header":"Choose sort field"}}

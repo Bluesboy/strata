@@ -1,4 +1,4 @@
-{"scenario":"zero-selects-tenth-tab","modes":["columns"],"prefs":{"tenxer_mode":true},"layout":"us","twin":"tests/e2e/scenarios/test_tabs.py::test_zero_selects_the_tenth_tab_with_chords_and_numbered_shortcuts","mutation":null,"known_bug":null}
+{"scenario":"zero-selects-tenth-tab","modes":["columns"],"prefs":{"tenxer_mode":true},"layout":"us","twin":"tests/e2e/scenarios/test_tabs.py::test_zero_selects_the_tenth_tab_with_chords_and_numbered_shortcuts","mutation":null,"known_bug":null,"cost":{"columns":5.2}}
 {"wait":{"entry":"todo.txt"},"message":"the entry 'todo.txt' to appear"}
 {"fs":{"path":"tab-{2..10}","mkdir":true}}
 {"key":"F5"}

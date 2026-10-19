@@ -1,4 +1,4 @@
-{"scenario":"click-mode-preference-live","modes":["list"],"prefs":{"list_folder_clicks":2,"list_file_clicks":2,"grid_folder_clicks":2,"grid_file_clicks":2,"explorer_folder_clicks":2,"explorer_file_clicks":2},"layout":"us","twin":"tests/e2e/scenarios/test_click_modes.py::test_changing_the_preference_takes_effect_without_restarting","mutation":"click-mode-preference","known_bug":null}
+{"scenario":"click-mode-preference-live","modes":["list"],"prefs":{"list_folder_clicks":2,"list_file_clicks":2,"grid_folder_clicks":2,"grid_file_clicks":2,"explorer_folder_clicks":2,"explorer_file_clicks":2},"layout":"us","twin":"tests/e2e/scenarios/test_click_modes.py::test_changing_the_preference_takes_effect_without_restarting","mutation":"click-mode-preference","known_bug":null,"cost":{"list":1.1}}
 {"click":{"entry":"documents"}}
 {"wait":{"selected":["documents"]},"message":"double-click mode to only select"}
 {"expect":{"pane":"$root"}}

@@ -1,4 +1,4 @@
-{"scenario":"folder-named-like-archive-no-extract","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_archive_errors.py::test_folder_named_like_an_archive_offers_no_extract_actions","mutation":null,"known_bug":null}
+{"scenario":"folder-named-like-archive-no-extract","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_archive_errors.py::test_folder_named_like_an_archive_offers_no_extract_actions","mutation":null,"known_bug":null,"cost":{"columns":0.5}}
 {"fs":{"path":"photos.zip","mkdir":true}}
 {"key":"ctrl+r"}
 {"click":{"entry":"photos.zip"},"button":3}

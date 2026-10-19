@@ -1,4 +1,4 @@
-{"scenario":"background-customize-presented-folder","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_dialogs_and_menus.py::test_folder_background_customize_targets_the_presented_directory","mutation":null,"known_bug":null}
+{"scenario":"background-customize-presented-folder","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_dialogs_and_menus.py::test_folder_background_customize_targets_the_presented_directory","mutation":null,"known_bug":null,"cost":{"columns":0.9}}
 {"click":{"background":true,"dir":"$root"},"button":3}
 {"wait":{"menu_items":{}},"message":"the pane context menu"}
 {"wait":{"present":{"menu_item":"Customize…"}},"message":"the menu item 'Customize…'"}

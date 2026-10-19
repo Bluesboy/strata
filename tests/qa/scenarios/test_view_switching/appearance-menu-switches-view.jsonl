@@ -1,4 +1,4 @@
-{"scenario":"appearance-menu-switches-view","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_view_switching.py::test_appearance_menu_switches_presentation[Icons]","mutation":"view-switching","known_bug":null}
+{"scenario":"appearance-menu-switches-view","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_view_switching.py::test_appearance_menu_switches_presentation[Icons]","mutation":"view-switching","known_bug":null,"cost":{"columns":0.7}}
 {"expect":{"view_mode":"Columns"}}
 {"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open"}
 {"wait":{"present":{"role":"radio menu item","name":"Icons"}},"message":"the Icons option"}

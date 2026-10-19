@@ -1,4 +1,4 @@
-{"scenario":"filled-preview-outlines-minimum","modes":["columns"],"prefs":{"single_click_previews":false},"layout":"us","twin":"tests/e2e/scenarios/test_quick_preview.py::test_dragging_a_filled_column_preview_narrower_outlines_the_new_minimum","mutation":null,"known_bug":null,"tree":{"notes.txt":"the quick brown fox\n","page.md":"# Heading\n\nBody text.\n","third.txt":"third preview fixture\n","data.csv":"name,value\nalpha,1\n","folder":{"inner.txt":"inner\n","nested-notes.txt":"nested preview fixture\n"}}}
+{"scenario":"filled-preview-outlines-minimum","modes":["columns"],"prefs":{"single_click_previews":false},"layout":"us","twin":"tests/e2e/scenarios/test_quick_preview.py::test_dragging_a_filled_column_preview_narrower_outlines_the_new_minimum","mutation":null,"known_bug":null,"tree":{"notes.txt":"the quick brown fox\n","page.md":"# Heading\n\nBody text.\n","third.txt":"third preview fixture\n","data.csv":"name,value\nalpha,1\n","folder":{"inner.txt":"inner\n","nested-notes.txt":"nested preview fixture\n"}},"cost":{"columns":1.0}}
 {"select_with_keyboard":"notes.txt"}
 {"key":"space"}
 {"wait":{"preview":"the quick brown fox"},"message":"the first preview"}

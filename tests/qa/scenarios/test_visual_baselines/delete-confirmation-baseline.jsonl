@@ -1,4 +1,4 @@
-{"scenario":"delete-confirmation-baseline","modes":["list"],"prefs":{"browser_mode":"list"},"layout":"us","twin":"tests/e2e/scenarios/test_visual_baselines.py::test_delete_confirmation_baseline","mutation":null,"known_bug":null,"fixture_root":"/tmp/strata-e2e-baseline","tree":{"documents":{"notes.txt":"notes\n","projects":{"release":{"summary.md":"# Release\n"}},"report.md":"# Report\n"},"pictures":{},"readme.md":"# Fixture\n","todo.txt":"todo\n"}}
+{"scenario":"delete-confirmation-baseline","modes":["list"],"prefs":{"browser_mode":"list"},"layout":"us","twin":"tests/e2e/scenarios/test_visual_baselines.py::test_delete_confirmation_baseline","mutation":null,"known_bug":null,"fixture_root":"/tmp/strata-e2e-baseline","tree":{"documents":{"notes.txt":"notes\n","projects":{"release":{"summary.md":"# Release\n"}},"report.md":"# Report\n"},"pictures":{},"readme.md":"# Fixture\n","todo.txt":"todo\n"},"cost":{"list":0.7}}
 {"select_with_keyboard":"todo.txt"}
 {"key":"shift+Delete"}
 {"wait":{"dialog":true},"message":"a dialog to appear"}

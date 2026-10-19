@@ -1,4 +1,4 @@
-{"scenario":"shift-click-range","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_selection.py::test_shift_click_ranges_from_the_listing_selected_entry[startup-content-$mode]","mutation":"shift-click-range","known_bug":null}
+{"scenario":"shift-click-range","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_selection.py::test_shift_click_ranges_from_the_listing_selected_entry[startup-content-$mode]","mutation":"shift-click-range","known_bug":null,"cost":{"columns":0.4,"icons":0.4,"list":0.5}}
 {"wait":{"entry":"pictures","dir":"$root"},"message":"the entry 'pictures' in '$root' to appear"}
 {"click":{"entry":"pictures","dir":"$root"},"mods":["shift"]}
 {"wait":{"selected":["archive","documents","pictures"],"dir":"$root"},"message":"the selection to become ['archive', 'documents', 'pictures']"}

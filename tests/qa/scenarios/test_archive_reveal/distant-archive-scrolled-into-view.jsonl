@@ -1,4 +1,4 @@
-{"scenario":"distant-archive-scrolled-into-view","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_archive_reveal.py::test_archive_far_from_viewport_is_scrolled_into_view[$mode]","mutation":null,"known_bug":null,"tree":{"nested":{"{000..199}.txt":"{}\n"},"a":{"b":{"c":{"d":{"{000..199}.txt":"{}\n"}}}},"{000..199}.txt":"{}\n"}}
+{"scenario":"distant-archive-scrolled-into-view","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_archive_reveal.py::test_archive_far_from_viewport_is_scrolled_into_view[$mode]","mutation":null,"known_bug":null,"tree":{"nested":{"{000..199}.txt":"{}\n"},"a":{"b":{"c":{"d":{"{000..199}.txt":"{}\n"}}}},"{000..199}.txt":"{}\n"},"cost":{"columns":0.9,"icons":1.0,"list":1.0}}
 {"wait":{"view_mode":"Columns"},"message":"the browser to switch to the Columns view","modes":["columns"]}
 {"click":{"entry":"005.txt"},"button":3,"modes":["columns"]}
 {"wait":{"menu_items":{}},"message":"the context menu for '005.txt'","modes":["columns"]}

@@ -1,4 +1,4 @@
-{"scenario":"refresh-reconciles-external-changes","modes":["columns","list"],"layout":"us","twin":"tests/e2e/scenarios/test_locations.py::test_refresh_reconciles_external_file_creation_and_removal[$mode]","mutation":null,"known_bug":null}
+{"scenario":"refresh-reconciles-external-changes","modes":["columns","list"],"layout":"us","twin":"tests/e2e/scenarios/test_locations.py::test_refresh_reconciles_external_file_creation_and_removal[$mode]","mutation":null,"known_bug":null,"cost":{"columns":0.3,"list":0.3}}
 {"wait":{"entry":"todo.txt"},"message":"the entry 'todo.txt' to appear"}
 {"fs":{"path":"appeared-later.txt","write":"new\n"}}
 {"fs":{"path":"todo.txt","remove":true}}

@@ -84,6 +84,8 @@ rustls = { version = "0.23.46", default-features = false, features = ["std", "ri
 name = "qa"
 path = "tests/qa.rs"
 required-features = ["qa"]
+# Its own harness starts the costliest scenario runs first (tests/qa/harness.rs).
+harness = false
 
 [build-dependencies]
 glib-build-tools = "0.22.8"

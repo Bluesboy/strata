@@ -1,4 +1,4 @@
-{"scenario":"paste-into-explicit-selection","modes":["icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_clipboard.py::test_paste_into_explicit_selection_after_returning_to_parent[$selection-$mode]","mutation":null,"known_bug":null,"variants":[{"id":"click","vars":{"selection":"click","destination":"documents/notes (1).txt"}},{"id":"home","vars":{"selection":"Home","destination":"archive/notes.txt"}}]}
+{"scenario":"paste-into-explicit-selection","modes":["icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_clipboard.py::test_paste_into_explicit_selection_after_returning_to_parent[$selection-$mode]","mutation":null,"known_bug":null,"variants":[{"id":"click","vars":{"selection":"click","destination":"documents/notes (1).txt"}},{"id":"home","vars":{"selection":"Home","destination":"archive/notes.txt"}}],"cost":{"icons-click":1.1,"list-click":1.1,"icons-home":1.0,"list-home":1.0}}
 {"click":{"entry":"documents"},"count":2}
 {"wait":{"directory":"documents"},"message":"the browser to be working in 'documents'"}
 {"settle":{"pane":"documents"}}

@@ -1,4 +1,4 @@
-{"scenario":"drop-on-partially-visible-column","modes":["columns"],"prefs":{"single_click_previews":false},"layout":"us","twin":"tests/e2e/scenarios/test_drag_and_drop.py::test_dropping_on_partially_visible_column_moves_file_without_jumping","mutation":null,"known_bug":null}
+{"scenario":"drop-on-partially-visible-column","modes":["columns"],"prefs":{"single_click_previews":false},"layout":"us","twin":"tests/e2e/scenarios/test_drag_and_drop.py::test_dropping_on_partially_visible_column_moves_file_without_jumping","mutation":null,"known_bug":null,"cost":{"columns":1.1}}
 {"fs":{"path":"documents/deep","mkdir":true,"parents":true}}
 {"fs":{"path":"documents/deep/cargo.txt","write":"cargo\n"}}
 {"resize":{"width":640,"height":360}}

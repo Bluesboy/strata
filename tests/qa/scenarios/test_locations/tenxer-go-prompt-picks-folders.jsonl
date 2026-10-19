@@ -1,4 +1,4 @@
-{"scenario":"tenxer-go-prompt-picks-folders","modes":["columns"],"prefs":{"tenxer_mode":true,"type_to_search":false},"layout":"us","twin":"tests/e2e/scenarios/test_locations.py::test_tenxer_go_prompt_picks_folders_and_navigates","mutation":null,"known_bug":null}
+{"scenario":"tenxer-go-prompt-picks-folders","modes":["columns"],"prefs":{"tenxer_mode":true,"type_to_search":false},"layout":"us","twin":"tests/e2e/scenarios/test_locations.py::test_tenxer_go_prompt_picks_folders_and_navigates","mutation":null,"known_bug":null,"cost":{"columns":1.6}}
 {"fs":{"path":"documents/drafts","mkdir":true}}
 {"key":"g"}
 {"key":"space"}

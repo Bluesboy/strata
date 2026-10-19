@@ -1,4 +1,4 @@
-{"scenario":"click-away-rename-respects-navigation","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_rename_visibility.py::test_click_away_rename_respects_navigation[$view]","mutation":null,"known_bug":null,"variants":[{"id":"Columns","vars":{"view":"Columns"}},{"id":"List","vars":{"view":"List"}}]}
+{"scenario":"click-away-rename-respects-navigation","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_rename_visibility.py::test_click_away_rename_respects_navigation[$view]","mutation":null,"known_bug":null,"variants":[{"id":"Columns","vars":{"view":"Columns"}},{"id":"List","vars":{"view":"List"}}],"cost":{"columns-Columns":1.8,"columns-List":1.9}}
 {"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open"}
 {"wait":{"present":{"role":"toggle button","name":"Preview panel"}},"message":"the preview panel toggle"}
 {"key":"Escape","when":{"state":{"target":{"role":"toggle button","name":"Preview panel"},"pressed":false}}}

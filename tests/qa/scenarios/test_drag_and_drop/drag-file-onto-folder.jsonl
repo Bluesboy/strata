@@ -1,4 +1,4 @@
-{"scenario":"drag-file-onto-folder","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_drag_and_drop.py::test_dragging_a_file_onto_a_folder_moves_it[$mode]","mutation":"drag-and-drop","known_bug":null}
+{"scenario":"drag-file-onto-folder","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_drag_and_drop.py::test_dragging_a_file_onto_a_folder_moves_it[$mode]","mutation":"drag-and-drop","known_bug":null,"cost":{"columns":1.1,"icons":0.9,"list":1.0}}
 {"select":{"entry":"todo.txt"}}
 {"drag":{"from":{"entry":"todo.txt"},"to":{"entry":"archive"}}}
 {"fs":{"path":"archive/todo.txt","exists":true},"message":"the dragged file to arrive in archive"}

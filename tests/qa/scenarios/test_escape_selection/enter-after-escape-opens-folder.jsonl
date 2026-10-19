@@ -1,4 +1,4 @@
-{"scenario":"enter-after-escape-opens-folder","modes":["columns","icons","list"],"prefs":{"single_click_previews":false},"layout":"us","twin":"tests/e2e/scenarios/test_escape_selection.py::test_enter_after_escape_opens_the_focused_folder[$mode]","mutation":null,"known_bug":null}
+{"scenario":"enter-after-escape-opens-folder","modes":["columns","icons","list"],"prefs":{"single_click_previews":false},"layout":"us","twin":"tests/e2e/scenarios/test_escape_selection.py::test_enter_after_escape_opens_the_focused_folder[$mode]","mutation":null,"known_bug":null,"cost":{"columns":0.5,"icons":0.5,"list":0.5}}
 {"select_with_keyboard":"documents"}
 {"wait":{"focused":"documents"},"message":"keyboard focus to reach 'documents'"}
 {"key":"Escape"}

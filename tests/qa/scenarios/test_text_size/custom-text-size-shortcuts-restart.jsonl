@@ -1,4 +1,4 @@
-{"scenario":"custom-text-size-shortcuts-restart","modes":["columns"],"prefs":{"text_size":24},"layout":"us","twin":"tests/e2e/scenarios/test_text_size.py::test_custom_text_size_shortcuts_numeric_control_and_restart","mutation":null,"known_bug":null}
+{"scenario":"custom-text-size-shortcuts-restart","modes":["columns"],"prefs":{"text_size":24},"layout":"us","twin":"tests/e2e/scenarios/test_text_size.py::test_custom_text_size_shortcuts_numeric_control_and_restart","mutation":null,"known_bug":null,"cost":{"columns":3.4}}
 {"select":{"entry":"todo.txt"}}
 {"key":"ctrl+="}
 {"wait":{"pref":{"key":"text_size","value":25}},"message":"zoom in to persist a numeric size"}

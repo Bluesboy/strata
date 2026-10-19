@@ -1,4 +1,4 @@
-{"scenario":"tabs-keep-locations-numbered","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_tabs.py::test_tabs_keep_locations_and_support_numbered_shortcuts[$tenxer]","mutation":null,"known_bug":null,"variants":[{"id":"False","prefs":{"tenxer_mode":false},"vars":{"tenxer":"False"}},{"id":"True","prefs":{"tenxer_mode":true},"vars":{"tenxer":"True"}}]}
+{"scenario":"tabs-keep-locations-numbered","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_tabs.py::test_tabs_keep_locations_and_support_numbered_shortcuts[$tenxer]","mutation":null,"known_bug":null,"variants":[{"id":"False","prefs":{"tenxer_mode":false},"vars":{"tenxer":"False"}},{"id":"True","prefs":{"tenxer_mode":true},"vars":{"tenxer":"True"}}],"cost":{"columns-False":5.4,"columns-True":5.2}}
 {"select":{"entry":"todo.txt"}}
 {"key":"ctrl+t"}
 {"select":{"entry":"archive"}}

@@ -1,4 +1,4 @@
-{"scenario":"global-search-activation-in-open-folder","modes":["columns"],"prefs":{"search_open_files_directly":false},"layout":"us","twin":"tests/e2e/scenarios/test_search_filter_sort.py::test_global_search_activation_in_the_open_folder_moves_the_selection","mutation":null,"known_bug":null}
+{"scenario":"global-search-activation-in-open-folder","modes":["columns"],"prefs":{"search_open_files_directly":false},"layout":"us","twin":"tests/e2e/scenarios/test_search_filter_sort.py::test_global_search_activation_in_the_open_folder_moves_the_selection","mutation":null,"known_bug":null,"cost":{"columns":2.1}}
 {"fs":{"path":"$home/activation-same-folder","mkdir":true}}
 {"fs":{"path":"$home/activation-same-folder/alpha.txt","write":"alpha.txt\n"}}
 {"fs":{"path":"$home/activation-same-folder/zeta.txt","write":"zeta.txt\n"}}

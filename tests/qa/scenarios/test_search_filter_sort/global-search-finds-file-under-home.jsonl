@@ -1,4 +1,4 @@
-{"scenario":"global-search-finds-file-under-home","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_search_filter_sort.py::test_global_search_finds_a_file_under_home[$layout]","mutation":null,"known_bug":null,"variants":[{"id":"us","vars":{"layout":"us"}},{"id":"ru-only","vars":{"layout":"ru-only"}}]}
+{"scenario":"global-search-finds-file-under-home","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_search_filter_sort.py::test_global_search_finds_a_file_under_home[$layout]","mutation":null,"known_bug":null,"variants":[{"id":"us","vars":{"layout":"us"}},{"id":"ru-only","vars":{"layout":"ru-only"}}],"cost":{"columns-us":0.8,"columns-ru-only":0.8}}
 {"fs":{"path":"$home/reports","mkdir":true,"parents":true}}
 {"fs":{"path":"$home/reports/quarterly-summary.txt","write":"summary\n"}}
 {"layout":"$layout"}

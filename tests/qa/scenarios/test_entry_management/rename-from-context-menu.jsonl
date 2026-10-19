@@ -1,4 +1,4 @@
-{"scenario":"rename-from-context-menu","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_entry_management.py::test_rename_from_the_context_menu","mutation":null,"known_bug":null}
+{"scenario":"rename-from-context-menu","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_entry_management.py::test_rename_from_the_context_menu","mutation":null,"known_bug":null,"cost":{"columns":0.8}}
 {"click":{"entry":"readme.md"},"button":3}
 {"wait":{"menu_items":{}},"message":"the context menu for 'readme.md'"}
 {"wait":{"present":{"menu_item":"Rename"}},"message":"the menu item 'Rename'"}

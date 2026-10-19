@@ -1,4 +1,4 @@
-{"scenario":"delete-to-trash","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_entry_management.py::test_delete_moves_the_entry_to_trash","mutation":"trash","known_bug":null}
+{"scenario":"delete-to-trash","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_entry_management.py::test_delete_moves_the_entry_to_trash","mutation":"trash","known_bug":null,"cost":{"columns":0.4}}
 {"select":{"entry":"todo.txt"}}
 {"key":"Delete"}
 {"fs":{"path":"todo.txt","exists":false},"message":"the file to leave the fixture tree"}

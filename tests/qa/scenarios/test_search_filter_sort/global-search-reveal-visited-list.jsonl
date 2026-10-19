@@ -1,4 +1,4 @@
-{"scenario":"global-search-reveal-visited-list","modes":["list"],"layout":"us","twin":"tests/e2e/scenarios/test_search_filter_sort.py::test_global_search_reveal_into_a_visited_list_folder_keeps_the_target","mutation":null,"known_bug":null}
+{"scenario":"global-search-reveal-visited-list","modes":["list"],"layout":"us","twin":"tests/e2e/scenarios/test_search_filter_sort.py::test_global_search_reveal_into_a_visited_list_folder_keeps_the_target","mutation":null,"known_bug":null,"cost":{"list":2.5}}
 {"fs":{"path":"$home/reveal-visited-parent","mkdir":true}}
 {"fs":{"path":"$home/reveal-visited-parent/alpha.txt","write":"alpha.txt\n"}}
 {"fs":{"path":"$home/reveal-visited-parent/zeta.txt","write":"zeta.txt\n"}}

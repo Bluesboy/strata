@@ -1,4 +1,4 @@
-{"scenario":"copying-directory-copies-contents","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_clipboard.py::test_copying_a_directory_copies_its_contents","mutation":null,"known_bug":null}
+{"scenario":"copying-directory-copies-contents","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_clipboard.py::test_copying_a_directory_copies_its_contents","mutation":null,"known_bug":null,"cost":{"columns":0.9}}
 {"click":{"entry":"documents"},"button":3}
 {"wait":{"menu_items":{}},"message":"the context menu for 'documents'"}
 {"wait":{"present":{"menu_item":"Copy"}},"message":"the menu item 'Copy'"}

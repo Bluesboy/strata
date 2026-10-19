@@ -1,4 +1,4 @@
-{"scenario":"drop-on-parent-breadcrumb","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_drag_and_drop.py::test_dropping_on_a_parent_breadcrumb_moves_the_file[$mode]","mutation":null,"known_bug":null}
+{"scenario":"drop-on-parent-breadcrumb","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_drag_and_drop.py::test_dropping_on_a_parent_breadcrumb_moves_the_file[$mode]","mutation":null,"known_bug":null,"cost":{"columns":0.9,"icons":1.0,"list":1.0}}
 {"select":{"entry":"documents"},"modes":["columns"]}
 {"click":{"entry":"documents"},"count":2,"modes":["icons","list"]}
 {"wait":{"directory":"documents"},"message":"the browser to be working in 'documents'"}

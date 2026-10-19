@@ -1,4 +1,4 @@
-{"scenario":"floating-chooser-transfers-files","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_dialogs_and_menus.py::test_floating_destination_chooser_transfers_files[$case]","mutation":null,"known_bug":null,"variants":[{"id":"copy","vars":{"case":"Copy to\\u2026-Copy here"}},{"id":"move","vars":{"case":"Move to\\u2026-Move here"}}]}
+{"scenario":"floating-chooser-transfers-files","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_dialogs_and_menus.py::test_floating_destination_chooser_transfers_files[$case]","mutation":null,"known_bug":null,"variants":[{"id":"copy","vars":{"case":"Copy to\\u2026-Copy here"}},{"id":"move","vars":{"case":"Move to\\u2026-Move here"}}],"cost":{"columns-copy":1.7,"columns-move":1.8}}
 {"click":{"entry":"todo.txt"},"button":3}
 {"wait":{"menu_items":{}},"message":"the context menu for 'todo.txt'"}
 {"wait":{"present":{"menu_item":"Copy to…"}},"message":"the menu item 'Copy to…'","variants":["copy"]}

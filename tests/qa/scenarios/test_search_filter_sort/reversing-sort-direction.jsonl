@@ -1,4 +1,4 @@
-{"scenario":"reversing-sort-direction","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_search_filter_sort.py::test_reversing_the_sort_direction","mutation":null,"known_bug":null}
+{"scenario":"reversing-sort-direction","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_search_filter_sort.py::test_reversing_the_sort_direction","mutation":null,"known_bug":null,"cost":{"columns":0.5}}
 {"expect":{"entries":["archive","documents","pictures","readme.md","todo.txt"],"dir":"$root"}}
 {"click":{"header":"Ascending — click to reverse"}}
 {"wait":{"entries":["pictures","documents","archive","todo.txt","readme.md"],"dir":"$root"},"message":"the pane to sort descending with folders still grouped first"}

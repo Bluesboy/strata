@@ -1,4 +1,4 @@
-{"scenario":"list-typed-file-path","modes":["list"],"layout":"us","twin":"tests/e2e/scenarios/test_keyboard_navigation.py::test_list_typed_file_path_beats_the_restored_position","mutation":null,"known_bug":null}
+{"scenario":"list-typed-file-path","modes":["list"],"layout":"us","twin":"tests/e2e/scenarios/test_keyboard_navigation.py::test_list_typed_file_path_beats_the_restored_position","mutation":null,"known_bug":null,"cost":{"list":2.2}}
 {"fs":{"path":"documents/zz-typed-target.txt","write":"typed target\n"}}
 {"click":{"entry":"documents"},"count":2}
 {"wait":{"directory":"documents"},"message":"the browser to be working in 'documents'"}

@@ -1,4 +1,4 @@
-{"scenario":"current-breadcrumb-opens-hierarchy","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_locations.py::test_current_breadcrumb_opens_hierarchy_instead_of_window_menu","mutation":null,"known_bug":null}
+{"scenario":"current-breadcrumb-opens-hierarchy","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_locations.py::test_current_breadcrumb_opens_hierarchy_instead_of_window_menu","mutation":null,"known_bug":null,"cost":{"columns":4.9}}
 {"fs":{"path":"deep-breadcrumb-component-0/deep-breadcrumb-component-1/deep-breadcrumb-component-2/deep-breadcrumb-component-3/deep-breadcrumb-component-4/deep-breadcrumb-component-5","mkdir":true,"parents":true}}
 {"wait":{"entry":"deep-breadcrumb-component-0"},"message":"the entry 'deep-breadcrumb-component-0' to appear"}
 {"key":"ctrl+l"}

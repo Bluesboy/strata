@@ -1,4 +1,4 @@
-{"scenario":"folder-click-keeps-tab-name","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_tabs.py::test_folder_click_keeps_tab_name_until_release_and_keyboard_focus_still_renames","mutation":null,"known_bug":null}
+{"scenario":"folder-click-keeps-tab-name","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_tabs.py::test_folder_click_keeps_tab_name_until_release_and_keyboard_focus_still_renames","mutation":null,"known_bug":null,"cost":{"columns":2.2}}
 {"fs":{"path":"documents/alpha","mkdir":true}}
 {"fs":{"path":"documents/beta","mkdir":true}}
 {"key":"ctrl+t"}

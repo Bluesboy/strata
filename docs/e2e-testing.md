@@ -228,6 +228,10 @@ before writing a success receipt; nonzero exits, empty runnable shards, or chang
 inventories fail. Existing `#[ignore]` entries stay explicitly accounted for;
 sharding neither enables them nor silently ignores additional tests. Unsupported
 non-libtest harness inventories fail closed rather than disappearing from coverage.
+The QA runner, `tests/qa.rs`, has its own harness (`harness = false`, see
+"Scheduling and run costs") that keeps libtest's `--list`, `--ignored`,
+`--exact`, and `test result:` formats, so its scenario runs are inventoried as
+explicitly ignored tests and its unit tests run in the shards like any other.
 
 Published environments are pulled by the build job's exact manifest digest and
 verified again by `quality.sh`. Deliberate unpublished recipe updates transfer
@@ -597,7 +601,8 @@ or Python is involved.
 
 ```bash
 ./scripts/qa.sh                              # every scenario, every mode
-./scripts/qa.sh arrow-keys-move-focus        # one scenario
+./scripts/qa.sh arrow-keys-move-focus        # one scenario, all of its runs
+./scripts/qa.sh arrow-keys-move-focus/columns-ru   # one run of it
 STRATA_QA_KEEP_ARTIFACTS=1 ./scripts/qa.sh   # artifacts for passing runs too
 ```
 
@@ -622,10 +627,11 @@ harness materialises from it.
 
 A scenario is a `.jsonl` file that ports one Python test function. It lives in
 `tests/qa/scenarios/<test file>/`, the folder named after its twin's file (for
-example `tests/qa/scenarios/test_clipboard/copy-leaves-source.jsonl`), and is
-registered in the `scenarios!` list in `tests/qa.rs`. Scenario names are unique
-across folders, and the registration test checks that each file sits in its
-twin's folder. Its first line is a header:
+example `tests/qa/scenarios/test_clipboard/copy-leaves-source.jsonl`); the
+runner finds every file there itself. Scenario names are unique across
+folders, and the runner's `every_scenario_file_is_planned_and_well_formed`
+test checks that, that each file sits in its twin's folder and loads, and that
+every run of every file is planned as a test. Its first line is a header:
 
 ```json
 {"scenario":"arrow-keys-move-focus","modes":["columns"],"prefs":{"type_to_search":false},"layout":"us","twin":"tests/e2e/scenarios/test_keyboard_navigation.py::test_arrow_keys_move_focus_and_selection[arrows-$mode]","mutation":"keyboard-navigation","known_bug":null,"variants":[...]}
@@ -694,6 +700,9 @@ path, directly in `/tmp`, instead of a fresh or parity-named one, as a
 golden-screenshot twin's `FixtureTree.create_at` does because the breadcrumb
 and context menu render the path; a directory already there is a setup error,
 never reused, and runs that claim a fixed root take turns.
+`"cost":{"columns":2.4,"list":0.3}` gives each run, by its label, its measured
+relative cost, which decides when it starts; `scripts/qa_cost.py` writes it
+(see "Scheduling and run costs").
 `state_parity_ignore` (`["focused","panes.focused"]`) leaves compared keys,
 or a compared key of each pane, out of the scenario's final-state parity; it
 is only for a scenario whose app state ends nondeterministically under both
@@ -988,6 +997,61 @@ field remembered as `of`, else the first on screen with that accessible `name`
 `GtkEntry` such as the inline rename editor delegates to its `GtkText`, so they
 are the offsets AT-SPI's text interface reports.
 
+### Scheduling and run costs
+
+`tests/qa.rs` makes every run of every scenario a test of its own, named
+`<scenario>/<run>` as in its `RUN` line (`copy-leaves-source/columns-ru`), so
+the runs of one scenario spread over the threads, each with its own Xvfb and
+process. Its harness, `tests/qa/harness.rs` (`harness = false`), takes
+libtest's command line and output but starts the tests in cost order, not
+alphabetically: costliest first, a run without a `cost` before all of them
+(it may be costly), and equal costs by name. It runs `--test-threads` tests at
+once, one per CPU by default. A run with a `fixture_root` never starts while
+another such run is going; the next run free to start takes the thread
+instead of waiting. With `--exact`, which `./scripts/qa.sh` adds when it names
+anything, a scenario name selects all of its runs and never another scenario
+it prefixes, and `<scenario>/<run>` selects one run; without it a filter is a
+substring, as in libtest. `./scripts/qa.sh --skip <scenario>` (or
+`<scenario>/<run>`, in either spelling) passes the harness's own
+`--skip-exact`, which leaves out that scenario or run and never another
+scenario it prefixes; any other `--skip` is libtest's substring, or a whole
+name once a scenario is named. Nothing is captured: as each test finishes, the
+harness prints its result line with the time it took,
+`test <name> ... ok <12.345s>` (or `FAILED <12.345s>`), and the run's `PASS`
+or `KNOWN BUG` line, each line whole, and at the end the failure details and
+libtest's `test result:` summary. `--list` prints the selected tests in cost
+order, which is the order they are offered in; a run with a `fixture_root`
+may start later while another such run is going. `--help` lists the options;
+libtest's `--report-time`, `--shuffle`, and `--shuffle-seed` are accepted and
+change nothing, as cost order wins.
+
+The runner's own unit tests live in `tests/qa.rs` too, and each must be
+listed in its `unit_tests!` macro: with the harness replaced, `#[test]` and
+`#[cfg(test)]` there are stripped without a warning and never run, so the
+`no_test_attribute_hides_a_runner_test` test rejects them in `tests/qa.rs` and
+`tests/qa/*.rs`.
+
+A header's optional `cost` maps every run label of the scenario, and nothing
+else, to a positive number: the run's median wall-clock time over several full
+runs divided by the median of all runs' medians, so 1.0 is a typical run,
+rounded to one decimal place and at least 0.1. The runner rejects a `cost`
+that misses a run or names another. Refresh the costs after adding scenarios
+or runs, or when the order no longer fits:
+
+```bash
+python3 scripts/qa_cost.py run                               # three full runs, then every header's cost
+python3 scripts/qa_cost.py run --repeat 5
+python3 scripts/qa_cost.py write target/qa-cost/run-*.log    # again from saved qa.sh logs
+```
+
+`run` times full `./scripts/qa.sh` runs at the default thread count, naming
+every scenario so a skipped one is timed too, and keeps their logs in
+`target/qa-cost/`. A failed run's time counts like a passing one's, and
+nothing is written unless every planned run has a time. Only the `cost` value
+of each header line changes, added last where there is none; every other byte
+of the files stays. The order matters more than the numbers: a new run without
+a cost starts early until the next refresh.
+
 ### Replies and the state snapshot
 
 A reply is `{"ok","app","changed","criticals","result","failures","error"}`.
@@ -1113,8 +1177,8 @@ python3 scripts/qa_parity.py report          # compare the saved runs again, no 
 
 Both runners get `STRATA_PARITY_FIXTURES=1`, the QA runs keep their artifacts,
 and the Python runs write input logs and state dumps. Before any run starts,
-`tests/qa.rs` prints `RUN <scenario>/<run> (twin <node id>)` for each planned run,
-outside libtest's output capture. The runs map to pytest node ids through those
+`tests/qa.rs` prints `RUN <scenario>/<run> (twin <node id>)` for each planned run
+(its harness captures no output). The runs map to pytest node ids through those
 lines and the `(twin ...)` on the `PASS` and failed lines (a Python node id that
 pytest-xdist's `loadgroup` suffixed with `@<group>`, as the visual baselines'
 `@visual-baselines`, pairs by the bare id, and its input log and state dump are
@@ -1175,7 +1239,7 @@ and is listed here with that reason.
 
 A scenario whose pass or fail the app leaves to chance under both harnesses,
 so neither `known_bug` nor a pass can be relied on, carries a `skip` reason
-until the app is fixed; it stays registered and runs when named.
+until the app is fixed; it stays in the suite and runs when named.
 
 - `settings-text-size-keeps-switches` (twin
   `test_text_size.py::test_settings_text_size_keeps_switches_inside_the_page`):

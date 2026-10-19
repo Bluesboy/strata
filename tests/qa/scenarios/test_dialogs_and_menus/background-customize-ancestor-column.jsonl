@@ -1,4 +1,4 @@
-{"scenario":"background-customize-ancestor-column","modes":["columns"],"prefs":{"browser_mode":"columns"},"layout":"us","twin":"tests/e2e/scenarios/test_dialogs_and_menus.py::test_folder_background_customize_targets_a_non_active_ancestor_column","mutation":null,"known_bug":null}
+{"scenario":"background-customize-ancestor-column","modes":["columns"],"prefs":{"browser_mode":"columns"},"layout":"us","twin":"tests/e2e/scenarios/test_dialogs_and_menus.py::test_folder_background_customize_targets_a_non_active_ancestor_column","mutation":null,"known_bug":null,"cost":{"columns":1.8}}
 {"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open"}
 {"wait":{"present":{"role":"toggle button","name":"Preview panel"}},"message":"the preview panel toggle"}
 {"key":"Escape","when":{"state":{"target":{"role":"toggle button","name":"Preview panel"},"pressed":false}}}

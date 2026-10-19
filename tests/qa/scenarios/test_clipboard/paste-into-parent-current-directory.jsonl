@@ -1,4 +1,4 @@
-{"scenario":"paste-into-parent-current-directory","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_clipboard.py::test_paste_into_parent_uses_the_current_directory[$mode]","mutation":null,"known_bug":null}
+{"scenario":"paste-into-parent-current-directory","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_clipboard.py::test_paste_into_parent_uses_the_current_directory[$mode]","mutation":null,"known_bug":null,"cost":{"columns":0.8,"icons":0.9,"list":0.9}}
 {"select":{"entry":"documents"},"modes":["columns"]}
 {"click":{"entry":"documents"},"count":2,"modes":["icons","list"]}
 {"wait":{"directory":"documents"},"message":"the browser to be working in 'documents'"}

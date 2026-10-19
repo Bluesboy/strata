@@ -1,4 +1,4 @@
-{"scenario":"right-click-selects-entry","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_selection.py::test_right_click_selects_the_entry_under_the_pointer[$target-$previous-$mode]","mutation":null,"known_bug":null,"variants":[{"id":"file","vars":{"target":"todo.txt","previous":"readme.md"}},{"id":"folder","vars":{"target":"documents","previous":"archive"}}]}
+{"scenario":"right-click-selects-entry","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_selection.py::test_right_click_selects_the_entry_under_the_pointer[$target-$previous-$mode]","mutation":null,"known_bug":null,"variants":[{"id":"file","vars":{"target":"todo.txt","previous":"readme.md"}},{"id":"folder","vars":{"target":"documents","previous":"archive"}}],"cost":{"columns-file":0.6,"icons-file":0.6,"list-file":0.6,"columns-folder":0.6,"icons-folder":0.6,"list-folder":0.6}}
 {"select":{"entry":"readme.md","dir":"$root"}}
 {"wait":{"focused":"readme.md"},"message":"keyboard focus to reach 'readme.md'"}
 {"click":{"entry":"$target","dir":"$root"},"button":3}

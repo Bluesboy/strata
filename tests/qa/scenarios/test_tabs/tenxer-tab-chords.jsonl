@@ -1,4 +1,4 @@
-{"scenario":"tenxer-tab-chords","modes":["columns","icons","list"],"prefs":{"tenxer_mode":true},"layout":"us","twin":"tests/e2e/scenarios/test_tabs.py::test_tenxer_tab_chords_create_select_close_and_respect_text_input[$mode]","mutation":null,"known_bug":null}
+{"scenario":"tenxer-tab-chords","modes":["columns","icons","list"],"prefs":{"tenxer_mode":true},"layout":"us","twin":"tests/e2e/scenarios/test_tabs.py::test_tenxer_tab_chords_create_select_close_and_respect_text_input[$mode]","mutation":null,"known_bug":null,"cost":{"columns":1.9,"icons":2.1,"list":2.1}}
 {"select":{"entry":"todo.txt"}}
 {"key":"ctrl+l"}
 {"wait":{"present":{"role":"text","name":"Location (Ctrl+L)"}},"message":"location editor"}

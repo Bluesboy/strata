@@ -1,4 +1,4 @@
-{"scenario":"drop-on-tab-moves-files","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_tabs.py::test_drop_on_another_tab_moves_files_into_its_location[$mode]","mutation":null,"known_bug":null}
+{"scenario":"drop-on-tab-moves-files","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_tabs.py::test_drop_on_another_tab_moves_files_into_its_location[$mode]","mutation":null,"known_bug":null,"cost":{"columns":1.3,"icons":1.4,"list":1.4}}
 {"key":"ctrl+t"}
 {"select":{"entry":"archive"},"modes":["columns"]}
 {"click":{"entry":"archive"},"count":2,"modes":["icons","list"]}

@@ -1,4 +1,4 @@
-{"scenario":"clicking-inside-keeps-new-entry","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_entry_management.py::test_clicking_inside_keeps_the_new_entry_and_preserves_its_name[$kind]","mutation":null,"known_bug":null,"variants":[{"id":"file","vars":{"kind":"file"}},{"id":"folder","vars":{"kind":"folder"}}]}
+{"scenario":"clicking-inside-keeps-new-entry","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_entry_management.py::test_clicking_inside_keeps_the_new_entry_and_preserves_its_name[$kind]","mutation":null,"known_bug":null,"variants":[{"id":"file","vars":{"kind":"file"}},{"id":"folder","vars":{"kind":"folder"}}],"cost":{"columns-file":1.1,"columns-folder":0.8}}
 {"select":{"entry":"readme.md"},"variants":["folder"]}
 {"key":"ctrl+shift+n","variants":["folder"]}
 {"wait":{"field":{}},"message":"an editable field to take focus","variants":["folder"]}

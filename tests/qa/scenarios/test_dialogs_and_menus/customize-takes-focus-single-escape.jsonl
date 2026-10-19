@@ -1,4 +1,4 @@
-{"scenario":"customize-takes-focus-single-escape","modes":["columns"],"prefs":{"single_click_previews":false},"layout":"us","twin":"tests/e2e/scenarios/test_dialogs_and_menus.py::test_customize_takes_focus_and_a_single_escape_closes_it[$opener]","mutation":null,"known_bug":null,"variants":[{"id":"item-menu","vars":{"opener":"item-menu"}},{"id":"background-menu","vars":{"opener":"background-menu"}}]}
+{"scenario":"customize-takes-focus-single-escape","modes":["columns"],"prefs":{"single_click_previews":false},"layout":"us","twin":"tests/e2e/scenarios/test_dialogs_and_menus.py::test_customize_takes_focus_and_a_single_escape_closes_it[$opener]","mutation":null,"known_bug":null,"variants":[{"id":"item-menu","vars":{"opener":"item-menu"}},{"id":"background-menu","vars":{"opener":"background-menu"}}],"cost":{"columns-item-menu":1.9,"columns-background-menu":0.9}}
 {"select":{"entry":"todo.txt"}}
 {"wait":{"focused":"todo.txt"},"message":"keyboard focus to reach 'todo.txt'"}
 {"click":{"entry":"todo.txt"},"button":3,"variants":["item-menu"]}

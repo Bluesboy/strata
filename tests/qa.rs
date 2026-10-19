@@ -6,6 +6,8 @@
 //! Each run gets its own Xvfb, HOME, XDG directories, and fixture tree, seeded
 //! from `tests/fixtures/harness.json` exactly as the Python harness seeds
 //! them. App commands stream to the process; `layout` and `fs` steps run here.
+//! Every run is a test of its own, named `<scenario>/<run>`, and the costliest
+//! runs, by their header's `cost`, start first (see `harness`).
 //! Run through `./scripts/qa.sh`; see `docs/e2e-testing.md`.
 
 // The process's own command parser, so a malformed step fails when the
@@ -16,6 +18,9 @@ mod protocol;
 
 #[path = "qa/peers.rs"]
 mod peers;
+
+#[path = "qa/harness.rs"]
+mod harness;
 
 use std::{
     collections::BTreeMap,
@@ -39,425 +44,6 @@ use x11rb::{
     rust_connection::RustConnection,
     wrapper::ConnectionExt as _,
 };
-
-macro_rules! scenarios {
-    ($($name:ident),* $(,)?) => {
-        $(
-            #[test]
-            #[ignore = "QA scenarios run in the pinned container through ./scripts/qa.sh"]
-            fn $name() {
-                run_scenario(stringify!($name));
-            }
-        )*
-        const REGISTERED: &[&str] = &[$(stringify!($name)),*];
-    };
-}
-
-// One test per scenario file, named after it with underscores; names are unique
-// across the folders.
-scenarios! {
-    abandoned_extract_to_no_hijack,
-    action_editor_validates_saves_reopens,
-    activation_without_application_empty_state,
-    activation_without_default_opens_visible_app,
-    airy_committed_rename_visible,
-    alt_up_and_history,
-    appearance_menu_switches_view,
-    appearance_menu_switches_view_list,
-    appearance_options_expose_chosen,
-    archive_activation_extracts_subfolder,
-    archive_conflict_keyboard_choices,
-    archive_password_retry_sandbox,
-    archive_rows_select_on_click,
-    arrow_keys_move_focus,
-    arrow_keys_move_focus_remaining,
-    arrow_scope_toggles_live,
-    background_click_clears_selection,
-    background_customize_ancestor_column,
-    background_customize_presented_folder,
-    background_press_clears_before_drag,
-    background_rename_keeps_scroll,
-    batch_rename_template_confirms,
-    beside_last_column_clears,
-    breadcrumb_returns_to_parent,
-    browser_workers_reuse_processes,
-    builtin_and_pinned_keep_sections,
-    builtin_places_reorder_survive_restart,
-    cached_icons_fill_dimensions_after_jump,
-    camera_formats_preview_sandbox,
-    cancel_compression_allows_another,
-    chooser_pdf_zoom_keeps_text_size,
-    chooser_sidebar_drops_survive_resize,
-    click_after_navigating_reanchors,
-    click_away_rename_respects_navigation,
-    click_mode_preference_live,
-    click_then_double_click_no_rename,
-    clicking_inside_keeps_new_entry,
-    clicking_open_folder_focuses_column,
-    column_autofit_stays_inside,
-    column_background_click_focuses_parent,
-    column_edge_scrolls_listing,
-    column_header_titles_bounded,
-    column_preview_fills_free_space,
-    columns_archive_preview_explicit_entry,
-    columns_dismissed_preview_stays_closed,
-    columns_home_end_mirror,
-    columns_keyboard_opens_preview,
-    columns_keyboard_respects_disabled_previews,
-    columns_keyboard_stays_without_mirror,
-    columns_never_hover_peek,
-    columns_overflow_baseline,
-    columns_preview_reopens_after_closing,
-    columns_reclick_open_folder_renames,
-    columns_return_selects_source_folder,
-    columns_reveal_in_child_column,
-    columns_reveal_in_deep_column,
-    columns_reveal_in_parent_column,
-    columns_terminal_parent_pane_folder,
-    columns_view_baseline,
-    committed_rename_stays_visible,
-    compress_then_chooser_extracts,
-    compressed_archive_revealed,
-    context_menu_baseline,
-    context_menu_copy_and_paste,
-    context_menu_cut_and_paste,
-    context_menu_keeps_column_target,
-    control_click_toggles,
-    copy_leaves_source,
-    copying_directory_copies_contents,
-    created_entry_completion_keeps_focus,
-    created_folder_editor_narrow_window,
-    cross_volume_enter_choice,
-    cross_volume_plain_copy,
-    ctrl_drag_copies_keeps_selection,
-    ctrl_drop_on_tab_copies,
-    current_breadcrumb_opens_hierarchy,
-    custom_text_size_shortcuts_restart,
-    customization_follows_move_and_trash,
-    customization_follows_rename,
-    customize_takes_focus_single_escape,
-    cut_moves_only_after_paste,
-    delete_animation_keeps_survivors,
-    delete_confirmation_baseline,
-    delete_to_trash,
-    delete_trashes_filtered_result,
-    delete_without_trash_focuses_cancel,
-    deleting_open_folder_returns_to_parent,
-    deleting_open_root_closes_children,
-    directory_only_filter_matches,
-    disabled_transport_click,
-    dismissed_overlays_return_focus,
-    dismissing_conflict_preserves_both,
-    dismissing_filter_keeps_hidden,
-    distant_archive_scrolled_into_view,
-    double_click_leaves_folder_open_focused,
-    drag_cancels_folder_peek,
-    drag_completion_keeps_source_label,
-    drag_file_onto_folder,
-    drag_from_clipped_column_narrow_window,
-    drag_onto_pane_background,
-    drop_file_on_itself,
-    drop_folder_into_itself,
-    drop_keeps_selection_at_destination,
-    drop_on_parent_breadcrumb,
-    drop_on_partially_visible_column,
-    drop_on_tab_moves_files,
-    empty_column_clears_other_columns,
-    empty_directory_focus_and_tab_order,
-    empty_name_space_drag_starts_marquee,
-    enabled_tenxer_survives_restart,
-    enter_after_escape_opens_folder,
-    enter_returns_multiple_selection,
-    entry_menu_named_actions,
-    escape_clears_selection_no_navigation,
-    escape_dismisses_transient,
-    escape_only_clears_active_column,
-    escape_preserves_name,
-    escape_preserves_name_remaining,
-    executable_menu_confirmed_run,
-    executable_requires_confirmation,
-    file_drag_does_not_open_preview,
-    file_manager_reveals_requested_name,
-    file_properties_describes_and_closes,
-    files_cannot_pin_through_gap,
-    filled_preview_outlines_minimum,
-    filter_rename_shortcuts_hidden_selection,
-    filter_results_follow_external_changes,
-    filter_right_arrow_moves_caret,
-    filter_selection_uses_theme,
-    filter_updates_retain_state,
-    filtered_clipboard_keeps_status,
-    filtered_control_selection_group,
-    filtered_item_menu_real_location,
-    filtered_properties_rename_inline,
-    filtered_properties_visible_selection,
-    filtered_rename_nested_duplicate,
-    filtered_result_to_sidebar_folder,
-    filtered_result_waits_for_release,
-    filtered_results_group_selection,
-    filtered_thumbnail_stays_rendered,
-    filtering_pane_narrows_listing,
-    floating_chooser_transfers_files,
-    focus_order_reaches_files,
-    focus_usable_after_view_change,
-    folder_click_keeps_tab_name,
-    folder_into_another_folder,
-    folder_named_like_archive_no_extract,
-    folder_pin_drag_survives_resize,
-    folder_pins_order_and_restart,
-    foreign_folder_drags_validate,
-    global_search_activation_in_open_folder,
-    global_search_activation_previews_file,
-    global_search_arrows_keep_typing,
-    global_search_finds_file_under_home,
-    global_search_preview_follows_neighbor,
-    global_search_reveal,
-    global_search_reveal_visited_list,
-    hidden_files_toggle,
-    hovered_tab_takes_drop,
-    icons_airy_view_baseline,
-    icons_hover_baseline,
-    icons_keep_layout_until_toggled,
-    icons_rename_reuses_thumbnail_details,
-    icons_view_baseline,
-    idle_workers_exit_and_restart,
-    invalid_archive_name_keeps_dialog,
-    invalid_archive_reports_damage,
-    invalid_names_retain_original,
-    invalid_new_file_names_corrected,
-    keep_both_applies_to_all_mixed_paste,
-    keep_both_numbered_archives,
-    keep_both_then_undo,
-    keep_both_then_undo_remaining,
-    keyboard_context_menu_owns_keys,
-    keyboard_only_copy_paste,
-    keyboard_open_selects_first_child,
-    keyboard_selection_in_single_click_mode,
-    language_selection_after_relaunch,
-    leftover_click_honors_modifiers,
-    list_column_resize_tracks_pointer,
-    list_icons_fill_duration_cached,
-    list_preview_keeps_horizontal_scroll,
-    list_transfer_reveal_selects_copy,
-    list_typed_file_path,
-    list_view_baseline,
-    listing_names_descriptions_selection,
-    local_filtered_result_opens_once,
-    long_rename_keeps_caret,
-    markdown_equations_keep_prose,
-    markdown_preview_renders_media,
-    marquee_beside_content_full_pane,
-    marquee_keeps_preview_closed,
-    matching_rename_stays_searchable,
-    media_details_properties_only,
-    media_keys_step_timeline_and_volume,
-    merge_combines_folder_contents,
-    missing_directory_restored_and_retried,
-    modal_dialog_blocks_window_shortcuts,
-    model_preview_reports_limits,
-    modifier_click_focuses_target,
-    modifier_clicks_inert_space_select,
-    multi_selection_drag_moves_every_entry,
-    multiple_arguments_non_utf8,
-    named_location_controls,
-    narrow_window_keeps_last_column,
-    navigation_survives_insertion,
-    new_file_collision_dialog,
-    new_folder_collision_dialog,
-    new_folder_with_selection_groups,
-    new_item_backspace_clears_name,
-    new_item_clears_hiding_filter,
-    new_item_first_free_number,
-    new_items_in_empty_directory,
-    one_click_only_selects,
-    open_preview_keeps_focus_on_archives,
-    open_with_always_use_updates_default,
-    open_with_broken_link_disabled,
-    open_with_cancel_keeps_default,
-    open_with_common_handlers_no_default,
-    open_with_incompatible_types_other_apps,
-    open_with_keeps_default,
-    open_with_launch_failure_error,
-    open_with_mixed_types_hidden_default,
-    open_with_names_rows_tabs_out,
-    open_with_search_filters_escape_clears,
-    open_with_unknown_type_other_apps,
-    opening_child_keeps_paste_under_pointer,
-    outside_wheel_moves_pointed_column,
-    overlapping_providers_source_priority,
-    oversized_column_width_fits,
-    pane_corner_marquee_keeps_sidebar,
-    pane_menu_directory_actions,
-    panel_wheel_routing,
-    panel_wheel_routing_remaining,
-    parent_pane_anchors_first_entry,
-    paste_availability_follows_clipboard,
-    paste_into_explicit_selection,
-    paste_into_parent_current_directory,
-    paste_targets_selected_directory,
-    pdf_preview_copies_text,
-    pdf_zoom_keeps_text_size,
-    peek_click_reveals_column,
-    permanent_delete_confirmation,
-    permanent_delete_symlinked_parent,
-    permission_bits_expose_state,
-    pin_insertion_keeps_one_destination,
-    pinned_rows_transfer_and_remote_gaps,
-    png_conversion_consent_reuses_download,
-    png_conversion_errors_keep_chooser,
-    preferences_sync_windows_restart,
-    preselected_entry_hover,
-    preview_blank_click_keeps_selection,
-    preview_boundary_resizes_grabbed_side,
-    preview_find_navigates_content,
-    preview_follows_extended_selection,
-    preview_follows_selection,
-    preview_hides_on_folder,
-    preview_hides_on_shift_range_folder,
-    preview_mode_survives_unsupported,
-    preview_source_text_copies,
-    properties_media_metadata,
-    properties_nested_hidden_sizes,
-    properties_pins_and_unpins_folder,
-    properties_unreadable_folder_explains,
-    properties_zero_empty_folder,
-    provider_background_clicked_folder,
-    provider_continuous_events_progress,
-    provider_disconnect_never_replays,
-    provider_menu_replaces_context,
-    provider_method_error_withdraws,
-    provider_nested_menu_refresh,
-    provider_partial_activation_whole_selection,
-    provider_refresh_keeps_badges_menu,
-    provider_updates_open_menu,
-    raw_details_preview_and_properties,
-    recent_absent_from_sidebar,
-    recent_preference_adds_no_place,
-    recent_uri_spellings_refused,
-    recursive_file_double_click_launches_once,
-    recursive_filtered_result_opens_once,
-    refresh_keeps_cursor_and_viewport,
-    refresh_keeps_filter_focus,
-    refresh_reconciles_external_changes,
-    release_outside_cancels_drag,
-    rename_and_undo_restores,
-    rename_commits_on_click_away,
-    rename_commits_on_enter,
-    rename_from_context_menu,
-    rename_onto_existing_rejected,
-    rename_shortcuts,
-    rename_shortcuts_leave_location,
-    renaming_open_folder_follows_it,
-    rendered_document_word_selection,
-    repeated_renames_select_stem,
-    replace_restores_original_on_undo,
-    replacing_duplicate_name_overwrites,
-    return_restores_nested_scroll,
-    reversing_sort_direction,
-    right_click_keeps_multi_selection,
-    right_click_selects_entry,
-    row_padding_drag_view_policy,
-    same_folder_copy_numbered_duplicate,
-    sandboxed_office_shared_preview,
-    scrolling_extends_marquee,
-    second_selection_replaces_first,
-    secondary_click_retargets_menu,
-    select_all_selects_every_entry,
-    selected_blank_space_starts_file_drag,
-    selection_and_focus_baseline,
-    selection_properties_aggregate_warnings,
-    settings_choice_buttons_expose_value,
-    settings_choice_options_expose_chosen,
-    settings_search_filters_and_clears,
-    settings_text_size_keeps_switches,
-    shift_after_escape_starts_on_focused,
-    shift_arrow_extends_selection,
-    shift_click_range,
-    shift_click_range_keyboard_entry,
-    shift_click_revisits_after_folder,
-    shift_drag_moves_file,
-    shortcut_reference_opens_and_closes,
-    shortcut_round_trip_keeps_selection,
-    show_thumbnails_switch_persists,
-    sidebar_destinations_accept_three_files,
-    sidebar_marquee_keeps_scrolled_list,
-    sidebar_marquee_reaches_leading_pane,
-    sidebar_navigation_range_anchor,
-    sidebar_place_navigates,
-    sidebar_selection_depends_on_activation,
-    simple_click_opens_preview,
-    single_click_clipped_parent_column,
-    single_click_opens_directory,
-    single_click_opens_directory_group,
-    single_root_archive_extracts_verbatim,
-    skipping_one_collision_pastes_rest,
-    slow_click_away_does_not_rename,
-    slow_click_rename_escape_stem,
-    small_image_preview_native_size,
-    sorting_by_size,
-    space_completes_composition,
-    space_enters_folder_without_preview,
-    space_opens_and_closes_preview,
-    space_previews_filtered_result,
-    space_previews_filtered_result_pointer,
-    spring_loaded_rows_keep_pin_intent,
-    spring_navigation_keeps_drag,
-    startup_with_closed_pipes,
-    strip_edge_scrolls_columns_in,
-    submenu_arrows_return_to_parent,
-    switching_keeps_directory_and_sort,
-    switching_keeps_pane_filter,
-    tab_drag_reorders_numbers,
-    tabs_keep_locations_numbered,
-    tenxer_d_without_trash_confirms,
-    tenxer_escape_closes_peek,
-    tenxer_escape_filter_preview_fill,
-    tenxer_escape_visual_preview_search,
-    tenxer_footer_filter_commits,
-    tenxer_footer_find_moves_cursor,
-    tenxer_footer_hit_path_follows_cursor,
-    tenxer_footer_rename_refuses_conflicts,
-    tenxer_footer_search_restores_filter,
-    tenxer_go_chord_places_and_pins,
-    tenxer_go_prompt_picks_folders,
-    tenxer_history_prompts,
-    tenxer_icons_edges_search_peek,
-    tenxer_keeps_location_edit,
-    tenxer_l_enters_preview,
-    tenxer_numbered_action_confirms,
-    tenxer_open_with_fill_launches_on_accept,
-    tenxer_password_archive_keys,
-    tenxer_sidebar_header_round_trips,
-    tenxer_sort_chords_keep_cursor,
-    tenxer_space_toggles_cursor,
-    tenxer_tab_chords,
-    tenxer_visual_ranges,
-    terminal_launchers_reaped,
-    terminal_without_emulator_reports,
-    thumbnail_workers_stepper_persists,
-    tone_mark_escape_before_rename,
-    toolbar_controls_named,
-    trashing_open_folder_opens_next,
-    two_clicks_open,
-    two_slow_clicks_do_not_open,
-    type_to_search_finds_nested,
-    typed_dot_segments_resolve,
-    typed_path_navigates,
-    undo_compression_trashes_archive,
-    undo_created_folder_trashes,
-    undo_restores_completed_move,
-    unreadable_location_reports_error,
-    unsaved_changes_one_notice,
-    valid_name_commits_remaining,
-    video_preview_badges_next_video,
-    visible_created_item_preserves_scroll,
-    visible_rename_preserves_scroll,
-    wildcard_filter_patterns,
-    window_accelerators_leave_rename,
-    wrong_extract_password_reopens,
-    zero_selects_tenth_tab,
-    zipcrypto_collision_reopens,
-}
 
 const REPOSITORY: &str = env!("CARGO_MANIFEST_DIR");
 const BINARY: &str = env!("CARGO_BIN_EXE_strata");
@@ -619,15 +205,33 @@ const QA_ENVIRONMENT: [(&str, &str); 2] = [("GTK_A11Y", "none"), ("NO_AT_BRIDGE"
 
 // --------------------------------------------------------------- policy
 
-fn require_container() {
-    if std::env::var_os("STRATA_QA_CONTAINER").is_some_and(|value| value == "1") {
-        return;
-    }
-    if std::env::var_os("STRATA_QA_HOST").is_some_and(|value| value == "1") {
+fn main() -> std::process::ExitCode {
+    let arguments = match harness::Arguments::parse(std::env::args().skip(1)) {
+        Ok(arguments) => arguments,
+        Err(error) => {
+            eprintln!("error: {error}");
+            return std::process::ExitCode::from(harness::FAILED);
+        }
+    };
+    if host_run() {
         eprintln!(
             "UNSUPPORTED: STRATA_QA_HOST=1 runs QA scenarios on the host toolkit. \
              This run is not validation evidence; use ./scripts/qa.sh."
         );
+    }
+    harness::run(planned_tests(), &arguments)
+}
+
+fn in_container() -> bool {
+    std::env::var_os("STRATA_QA_CONTAINER").is_some_and(|value| value == "1")
+}
+
+fn host_run() -> bool {
+    !in_container() && std::env::var_os("STRATA_QA_HOST").is_some_and(|value| value == "1")
+}
+
+fn require_container() {
+    if in_container() || host_run() {
         return;
     }
     panic!(
@@ -875,6 +479,10 @@ struct Header {
     /// of parity, such as an app race that makes it pass or fail by chance;
     /// it still runs when named on the command line (`STRATA_QA_NAMED=1`).
     skip: Option<String>,
+    /// Each run's wall-clock time relative to a typical run's, by run label,
+    /// which `scripts/qa_cost.py` measures and writes; the costliest runs
+    /// start first, and a run without one starts before them.
+    cost: Option<BTreeMap<String, f64>>,
 }
 
 /// One run's pointer events whose position is not compared, each named by
@@ -1068,12 +676,95 @@ fn scenario_files() -> Vec<PathBuf> {
     files
 }
 
-fn scenario_path(name: &str) -> PathBuf {
-    let file = format!("{}.jsonl", name.replace('_', "-"));
-    scenario_files()
-        .into_iter()
-        .find(|path| path.file_name().is_some_and(|found| *found == *file))
-        .unwrap_or_else(|| panic!("no scenario file {file} in tests/qa/scenarios"))
+fn scenario_name(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or_default()
+        .to_owned()
+}
+
+/// The header alone, which names a scenario's runs and their costs; the
+/// steps are checked when a run loads the whole file.
+fn read_header(path: &Path) -> Result<Header, String> {
+    let text = fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let first = text
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .ok_or("the scenario is empty")?;
+    serde_json::from_str(first).map_err(|error| format!("line 1, the header: {error}"))
+}
+
+const SCENARIO_IGNORED: &str = "QA scenarios run in the pinned container through ./scripts/qa.sh";
+
+/// The unit tests, then one test per run of every scenario file, each named
+/// `<scenario>/<run>`, so the runs of one scenario spread over the threads.
+fn planned_tests() -> Vec<harness::Test> {
+    let mut tests: Vec<harness::Test> = UNIT_TESTS
+        .iter()
+        .map(|&(name, test)| harness::Test {
+            name: name.to_owned(),
+            group: None,
+            ignored: None,
+            skip: None,
+            cost: None,
+            exclusive: false,
+            plan: None,
+            run: Box::new(move || {
+                test();
+                harness::Outcome::Passed(None)
+            }),
+        })
+        .collect();
+    let named = std::env::var_os(NAMED).is_some_and(|named| named == "1");
+    for path in scenario_files() {
+        let scenario = scenario_name(&path);
+        let header = match read_header(&path) {
+            Ok(header) => header,
+            Err(error) => {
+                let error = format!("{}: {error}", path.display());
+                tests.push(harness::Test {
+                    name: scenario.clone(),
+                    group: Some(scenario),
+                    ignored: Some(SCENARIO_IGNORED),
+                    skip: None,
+                    cost: None,
+                    exclusive: false,
+                    plan: None,
+                    run: Box::new(move || harness::Outcome::Failed(error)),
+                });
+                continue;
+            }
+        };
+        for run in runs(&header) {
+            let path = path.clone();
+            let label = run.label.clone();
+            tests.push(harness::Test {
+                name: format!("{scenario}/{label}"),
+                group: Some(scenario.clone()),
+                ignored: Some(SCENARIO_IGNORED),
+                skip: header
+                    .skip
+                    .as_ref()
+                    .filter(|_| !named)
+                    .map(|reason| harness::Skip {
+                        reason: format!("skipped: {reason}"),
+                        notice: format!("SKIPPED {scenario} (run it by name): {reason}"),
+                    }),
+                cost: header
+                    .cost
+                    .as_ref()
+                    .and_then(|cost| cost.get(&label))
+                    .copied(),
+                exclusive: header.fixture_root.is_some(),
+                plan: Some(format!(
+                    "RUN {scenario}/{label} (twin {})",
+                    twin(&header, &run)
+                )),
+                run: Box::new(move || run_scenario(&path, &label)),
+            });
+        }
+    }
+    tests
 }
 
 fn load_scenario(path: &Path) -> Result<Scenario, String> {
@@ -1187,6 +878,7 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
         }
     }
     check_input_parity_ignore(&header)?;
+    check_cost(&header)?;
     if let Some(reason) = &header.skip
         && (reason.trim().is_empty() || header.mutation.is_some() || header.known_bug.is_some())
     {
@@ -1302,6 +994,34 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
         (None, Some(_)) => return Err("known_bug_step needs known_bug".to_owned()),
     }
     Ok(Scenario { header, steps })
+}
+
+/// Run labels are distinct, as each names a test, and a `cost` gives every
+/// run, and nothing else, a positive number.
+fn check_cost(header: &Header) -> Result<(), String> {
+    let mut labels: Vec<String> = runs(header).into_iter().map(|run| run.label).collect();
+    labels.sort();
+    if let Some(pair) = labels.windows(2).find(|pair| pair[0] == pair[1]) {
+        return Err(format!("two runs share the label {:?}", pair[0]));
+    }
+    let Some(cost) = &header.cost else {
+        return Ok(());
+    };
+    let keys: Vec<&String> = cost.keys().collect();
+    if keys != labels.iter().collect::<Vec<_>>() {
+        return Err(format!(
+            "cost names exactly the runs {labels:?}, not {keys:?}; refresh it with scripts/qa_cost.py"
+        ));
+    }
+    if let Some((label, value)) = cost
+        .iter()
+        .find(|(_, value)| !(value.is_finite() && **value > 0.0))
+    {
+        return Err(format!(
+            "cost {value} for {label:?} is not a positive number"
+        ));
+    }
+    Ok(())
 }
 
 /// `input_parity_ignore` names distinct runs of the scenario, each with
@@ -5076,95 +4796,64 @@ impl Outcome {
     }
 }
 
-fn run_scenario(name: &str) {
+/// One run of a scenario: `PASS` or `KNOWN BUG` under its test's line, or
+/// what failed, with the artifacts' path.
+fn run_scenario(path: &Path, label: &str) -> harness::Outcome {
     require_container();
-    let path = scenario_path(name);
     let scenario =
-        load_scenario(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        load_scenario(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
     let manifest = manifest();
-    for run in runs(&scenario.header) {
-        if let Err(error) = run_steps(&scenario, &run, &variables(&run, &placeholders())) {
-            panic!("{}/{}: {error}", scenario.header.scenario, run.label);
+    let run = runs(&scenario.header)
+        .into_iter()
+        .find(|run| run.label == label)
+        .unwrap_or_else(|| panic!("{}: no run {label}", path.display()));
+    if let Err(error) = run_steps(&scenario, &run, &variables(&run, &placeholders())) {
+        panic!("{}/{}: {error}", scenario.header.scenario, run.label);
+    }
+    let outcome = execute(&scenario, &run, &manifest);
+    let header = &scenario.header;
+    let name = format!(
+        "{}/{} (twin {})",
+        header.scenario,
+        run.label,
+        twin(header, &run)
+    );
+    let details = |heading: &str| {
+        let mut lines: Vec<String> = outcome
+            .errors
+            .iter()
+            .chain(outcome.failure_texts())
+            .cloned()
+            .collect();
+        if let Some(artifacts) = &outcome.artifacts {
+            lines.push(format!("artifacts: {}", artifacts.display()));
         }
+        harness::Outcome::Failed(format!("{name} {heading}:\n  {}", lines.join("\n  ")))
+    };
+    if !outcome.errors.is_empty() {
+        return details("could not run");
     }
-    if let Some(reason) = &scenario.header.skip
-        && std::env::var_os(NAMED).is_none_or(|named| named != "1")
-    {
-        // Printed past libtest's capture, as RUN lines are, so it never goes unseen.
-        let mut skipped = std::io::stdout().lock();
-        let _ = writeln!(skipped);
-        let _ = writeln!(
-            skipped,
-            "SKIPPED {} (run it by name): {reason}",
-            scenario.header.scenario
-        );
-        let _ = skipped.flush();
-        return;
-    }
-    // Written past libtest's output capture, so the plan shows even when a run
-    // never reports; `scripts/qa_parity.py` requires a result line for each.
-    {
-        let mut planned = std::io::stdout().lock();
-        // libtest may have left `test <name> ... ` open on the current line.
-        let _ = writeln!(planned);
-        for run in runs(&scenario.header) {
-            let _ = writeln!(
-                planned,
-                "RUN {}/{} (twin {})",
-                scenario.header.scenario,
-                run.label,
-                twin(&scenario.header, &run)
-            );
-        }
-        let _ = planned.flush();
-    }
-    let mut failed = Vec::new();
-    for run in runs(&scenario.header) {
-        let outcome = execute(&scenario, &run, &manifest);
-        let name = format!(
-            "{}/{} (twin {})",
-            scenario.header.scenario,
-            run.label,
-            twin(&scenario.header, &run)
-        );
-        let details = |heading: &str| {
-            let mut lines: Vec<String> = outcome
-                .errors
+    match (&header.known_bug, outcome.failures.is_empty()) {
+        (None, true) => harness::Outcome::Passed(Some(format!("PASS {name}"))),
+        (None, false) => details("failed"),
+        (Some(bug), true) => harness::Outcome::Failed(format!(
+            "{name} passes but is marked known_bug {bug}; remove the marker"
+        )),
+        (Some(bug), false)
+            if outcome
+                .failures
                 .iter()
-                .chain(outcome.failure_texts())
-                .cloned()
-                .collect();
-            if let Some(artifacts) = &outcome.artifacts {
-                lines.push(format!("artifacts: {}", artifacts.display()));
-            }
-            format!("{name} {heading}:\n  {}", lines.join("\n  "))
-        };
-        if !outcome.errors.is_empty() {
-            failed.push(details("could not run"));
-            continue;
+                .all(|(line, _)| *line == header.known_bug_step) =>
+        {
+            harness::Outcome::Passed(Some(format!(
+                "KNOWN BUG {name} still fails as expected ({bug})"
+            )))
         }
-        let header = &scenario.header;
-        match (&header.known_bug, outcome.failures.is_empty()) {
-            (None, true) => println!("PASS {name}"),
-            (None, false) => failed.push(details("failed")),
-            (Some(bug), true) => failed.push(format!(
-                "{name} passes but is marked known_bug {bug}; remove the marker"
-            )),
-            (Some(bug), false)
-                if outcome
-                    .failures
-                    .iter()
-                    .all(|(line, _)| *line == header.known_bug_step) =>
-            {
-                println!("KNOWN BUG {name} still fails as expected ({bug})");
-            }
-            (Some(_), false) => failed.push(details(&format!(
-                "is marked known_bug at line {} but failed elsewhere",
-                header.known_bug_step.unwrap_or_default()
-            ))),
-        }
+        (Some(_), false) => details(&format!(
+            "is marked known_bug at line {} but failed elsewhere",
+            header.known_bug_step.unwrap_or_default()
+        )),
     }
-    assert!(failed.is_empty(), "{}", failed.join("\n\n"));
 }
 
 fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
@@ -6927,37 +6616,90 @@ impl ProcStep {
 
 // ------------------------------------------------------- scenario checks
 
-#[test]
-fn every_scenario_file_is_registered_and_well_formed() {
-    let mut files: Vec<String> = scenario_files()
-        .into_iter()
+/// The runner's own tests, which `cargo test` runs everywhere. This target has
+/// its own harness, so `#[test]` here is stripped without a warning and never
+/// runs: a test runs only when listed here, and
+/// `no_test_attribute_hides_a_runner_test` rejects the attribute, and
+/// `#[cfg(test)]`, which is never set either.
+macro_rules! unit_tests {
+    ($($name:ident),* $(,)?) => {
+        const UNIT_TESTS: &[(&str, fn())] = &[$((stringify!($name), $name)),*];
+    };
+}
+
+unit_tests! {
+    every_scenario_file_is_planned_and_well_formed,
+    a_numbered_tree_expands_like_the_python_comprehension,
+    a_run_keeps_its_own_mode_steps_and_rejects_a_malformed_one,
+    notes_stand_in_for_what_a_run_reads_and_unknown_variables_are_rejected,
+    fs_actions_make_numbered_directories_and_pin_a_populated_tree,
+    a_variable_replaces_only_its_whole_token,
+    a_known_bug_must_name_a_step_line_that_can_fail,
+    a_slice_keeps_the_middle_band_or_one_name_of_a_noted_list,
+    state_parity_may_ignore_only_distinct_compared_keys,
+    an_empty_check_counts_a_missing_directory_as_empty,
+    only_a_controller_panic_is_filed_as_a_harness_error,
+    remove_and_rename_act_only_inside_the_run_directories,
+    file_parts_join_repeats_and_fs_actions_write_archives_and_sparse_files,
+    a_flag_keeps_whether_a_predicate_held_and_always_runs,
+    input_parity_may_ignore_only_named_positions_of_one_run,
+    fs_actions_write_the_twins_archives_thumbnails_and_records,
+    log_proc_and_each_steps_check_their_shape_before_the_run,
+    peer_restart_and_guard_steps_check_their_shape_before_the_run,
+    glob_and_zipcrypto_helpers_mirror_the_twins,
+    baseline_comparison_thresholds_pixels_and_budget_as_the_twin_does,
+    baseline_mismatches_fail_without_writing_the_baseline,
+    fixture_roots_and_baseline_steps_check_their_shape_before_the_run,
+    a_skipped_scenario_names_a_reason_and_no_mutation_or_known_bug,
+    a_cost_gives_each_run_label_a_positive_number,
+    the_harness_starts_costly_runs_first_and_names_select_whole_scenarios,
+    no_test_attribute_hides_a_runner_test,
+}
+
+fn every_scenario_file_is_planned_and_well_formed() {
+    let files = scenario_files();
+    let mut names: Vec<String> = files.iter().map(|path| scenario_name(path)).collect();
+    names.sort();
+    if let Some(pair) = names.windows(2).find(|pair| pair[0] == pair[1]) {
+        panic!("two scenario files are named {}", pair[0]);
+    }
+    // Every run of every file is a test of its own, and nothing else is.
+    let scenarios: Vec<(String, &PathBuf, Scenario)> = files
+        .iter()
         .map(|path| {
-            load_scenario(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
-            let stem = path
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .unwrap_or_default();
-            stem.replace('-', "_")
+            let scenario =
+                load_scenario(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+            (scenario_name(path), path, scenario)
         })
         .collect();
-    files.sort();
-    let mut registered: Vec<String> = REGISTERED.iter().map(|name| (*name).to_owned()).collect();
-    registered.sort();
+    let mut expected: Vec<String> = scenarios
+        .iter()
+        .flat_map(|(name, _, scenario)| {
+            runs(&scenario.header)
+                .into_iter()
+                .map(move |run| format!("{name}/{}", run.label))
+        })
+        .collect();
+    expected.sort();
+    let mut planned: Vec<String> = planned_tests()
+        .into_iter()
+        .filter(|test| test.group.is_some())
+        .map(|test| test.name)
+        .collect();
+    planned.sort();
     assert_eq!(
-        files, registered,
-        "register each scenario file in scenarios! {{}}"
+        planned, expected,
+        "the harness should plan one test per scenario run"
     );
     let manifest = manifest();
     let mut twins = BTreeMap::new();
-    for name in REGISTERED {
-        let path = scenario_path(name);
+    for (name, path, scenario) in &scenarios {
         let folder = path
             .parent()
             .and_then(Path::file_name)
             .and_then(|folder| folder.to_str())
             .unwrap_or_default()
             .to_owned();
-        let scenario = load_scenario(&path).expect("the scenario should load");
         let header = &scenario.header;
         for run in runs(header) {
             let node = twin(header, &run);
@@ -7002,14 +6744,13 @@ fn every_scenario_file_is_registered_and_well_formed() {
                 "{name}/{}: no layout {layout:?}",
                 run.label
             );
-            let steps = run_steps(&scenario, &run, &variables(&run, &placeholders()))
+            let steps = run_steps(scenario, &run, &variables(&run, &placeholders()))
                 .unwrap_or_else(|error| panic!("{name}/{}: {error}", run.label));
             assert!(!steps.is_empty(), "{name}/{}: no steps run", run.label);
         }
     }
 }
 
-#[test]
 fn a_numbered_tree_expands_like_the_python_comprehension() {
     let tree =
         json!({ "nested": { "{000..002}.txt": "{}\n" }, "{8..10}.md": "n{}", "a.txt": "{}" });
@@ -7024,7 +6765,6 @@ fn a_numbered_tree_expands_like_the_python_comprehension() {
     assert!(expand_tree(&json!("missing"), &manifest()).is_err());
 }
 
-#[test]
 fn a_run_keeps_its_own_mode_steps_and_rejects_a_malformed_one() {
     let header = || -> Header {
         serde_json::from_value(json!({
@@ -7081,7 +6821,6 @@ fn a_run_keeps_its_own_mode_steps_and_rejects_a_malformed_one() {
     }
 }
 
-#[test]
 fn notes_stand_in_for_what_a_run_reads_and_unknown_variables_are_rejected() {
     let header = || -> Header {
         serde_json::from_value(json!({
@@ -7170,7 +6909,6 @@ fn notes_stand_in_for_what_a_run_reads_and_unknown_variables_are_rejected() {
     assert!(increment("readme").is_err());
 }
 
-#[test]
 fn fs_actions_make_numbered_directories_and_pin_a_populated_tree() {
     let root = tempfile::tempdir().expect("a scratch directory");
     let act = |step: Value| {
@@ -7220,7 +6958,6 @@ fn fs_actions_make_numbered_directories_and_pin_a_populated_tree() {
     );
 }
 
-#[test]
 fn a_variable_replaces_only_its_whole_token() {
     let variables = [
         ("view".to_owned(), "Icons".to_owned()),
@@ -7236,7 +6973,6 @@ fn a_variable_replaces_only_its_whole_token() {
     assert_eq!(unknown_variable(&json!("Energy $$E=mc^2$$")), None);
 }
 
-#[test]
 fn a_known_bug_must_name_a_step_line_that_can_fail() {
     let directory = tempfile::tempdir().expect("a scratch directory");
     let path = directory.path().join("example.jsonl");
@@ -7272,7 +7008,6 @@ fn a_known_bug_must_name_a_step_line_that_can_fail() {
     }
 }
 
-#[test]
 fn a_slice_keeps_the_middle_band_or_one_name_of_a_noted_list() {
     let rows: Vec<Value> = (0..7).map(|row| json!(format!("{row:03}.txt"))).collect();
     assert_eq!(
@@ -7284,7 +7019,6 @@ fn a_slice_keeps_the_middle_band_or_one_name_of_a_noted_list() {
     assert!(slice(&rows, None, Some(7)).is_err());
 }
 
-#[test]
 fn state_parity_may_ignore_only_distinct_compared_keys() {
     let directory = tempfile::tempdir().expect("a scratch directory");
     let path = directory.path().join("example.jsonl");
@@ -7332,7 +7066,6 @@ fn state_parity_may_ignore_only_distinct_compared_keys() {
     }
 }
 
-#[test]
 fn an_empty_check_counts_a_missing_directory_as_empty() {
     let root = tempfile::tempdir().expect("a scratch directory");
     fs::create_dir(root.path().join("full")).expect("the directory should be created");
@@ -7350,7 +7083,6 @@ fn an_empty_check_counts_a_missing_directory_as_empty() {
     assert!(check("full", true).is_err());
 }
 
-#[test]
 fn only_a_controller_panic_is_filed_as_a_harness_error() {
     let mut outcome = Outcome::default();
     file_failure(&mut outcome, 3, "line 3", "timed out");
@@ -7367,7 +7099,6 @@ fn only_a_controller_panic_is_filed_as_a_harness_error() {
     assert_eq!(outcome.errors.len(), 1);
 }
 
-#[test]
 fn remove_and_rename_act_only_inside_the_run_directories() {
     let scratch = tempfile::tempdir().expect("a scratch directory");
     let fixture = scratch.path().join("fixture");
@@ -7388,7 +7119,6 @@ fn remove_and_rename_act_only_inside_the_run_directories() {
     assert!(contained(Path::new("/etc/passwd"), &roots).is_err());
 }
 
-#[test]
 fn file_parts_join_repeats_and_fs_actions_write_archives_and_sparse_files() {
     let manifest = manifest();
     let tree = expand_tree(
@@ -7454,7 +7184,6 @@ fn file_parts_join_repeats_and_fs_actions_write_archives_and_sparse_files() {
     );
 }
 
-#[test]
 fn a_flag_keeps_whether_a_predicate_held_and_always_runs() {
     assert!(check_step(&json!({ "flag": { "dialog": null }, "as": "enabled" })).is_ok());
     assert!(check_step(&json!({ "flag": { "dialog": null } })).is_err());
@@ -7468,7 +7197,6 @@ fn a_flag_keeps_whether_a_predicate_held_and_always_runs() {
     );
 }
 
-#[test]
 fn input_parity_may_ignore_only_named_positions_of_one_run() {
     let directory = tempfile::tempdir().expect("a scratch directory");
     let path = directory.path().join("example.jsonl");
@@ -7517,7 +7245,6 @@ fn input_parity_may_ignore_only_named_positions_of_one_run() {
     );
 }
 
-#[test]
 fn fs_actions_write_the_twins_archives_thumbnails_and_records() {
     let root = tempfile::tempdir().expect("a scratch directory");
     let mut state = FsState {
@@ -7627,7 +7354,6 @@ fn fs_actions_write_the_twins_archives_thumbnails_and_records() {
     );
 }
 
-#[test]
 fn log_proc_and_each_steps_check_their_shape_before_the_run() {
     for valid in [
         json!({ "log": { "count": "started" }, "as": "initial" }),
@@ -7695,7 +7421,6 @@ fn log_proc_and_each_steps_check_their_shape_before_the_run() {
     );
 }
 
-#[test]
 fn peer_restart_and_guard_steps_check_their_shape_before_the_run() {
     for valid in [
         json!({ "launch": ["$fixture"] }),
@@ -7744,7 +7469,6 @@ fn peer_restart_and_guard_steps_check_their_shape_before_the_run() {
     );
 }
 
-#[test]
 fn glob_and_zipcrypto_helpers_mirror_the_twins() {
     assert!(glob_matches(
         ".strata-compression-*",
@@ -7775,7 +7499,6 @@ fn glob_and_zipcrypto_helpers_mirror_the_twins() {
     }
 }
 
-#[test]
 fn baseline_comparison_thresholds_pixels_and_budget_as_the_twin_does() {
     let grey = image::Rgb([100, 100, 100]);
     let baseline = image::RgbImage::from_pixel(200, 1, grey);
@@ -7796,7 +7519,6 @@ fn baseline_comparison_thresholds_pixels_and_budget_as_the_twin_does() {
     }
 }
 
-#[test]
 fn baseline_mismatches_fail_without_writing_the_baseline() {
     let scratch = tempfile::tempdir().expect("a scratch directory");
     let (images, artifacts) = (
@@ -7828,7 +7550,6 @@ fn baseline_mismatches_fail_without_writing_the_baseline() {
     assert!(artifacts.join("view.actual.png").is_file());
 }
 
-#[test]
 fn fixture_roots_and_baseline_steps_check_their_shape_before_the_run() {
     let names = [
         ("/tmp/strata-e2e-baseline", Some("strata-e2e-baseline")),
@@ -7850,7 +7571,6 @@ fn fixture_roots_and_baseline_steps_check_their_shape_before_the_run() {
     }
 }
 
-#[test]
 fn a_skipped_scenario_names_a_reason_and_no_mutation_or_known_bug() {
     let directory = tempfile::tempdir().expect("a scratch directory");
     let path = directory.path().join("example.jsonl");
@@ -7875,5 +7595,173 @@ fn a_skipped_scenario_names_a_reason_and_no_mutation_or_known_bug() {
         r#""mutation":null,"known_bug":"y","known_bug_step":2,"skip":"x""#,
     ] {
         assert!(load(bad).is_err(), "{bad} should be rejected");
+    }
+}
+
+fn a_cost_gives_each_run_label_a_positive_number() {
+    let directory = tempfile::tempdir().expect("a scratch directory");
+    let path = directory.path().join("example.jsonl");
+    let load = |cost: &str| {
+        fs::write(
+            &path,
+            format!(
+                "{{\"scenario\":\"example\",\"modes\":[\"columns\",\"list\"],\"twin\":\"x[$mode]\",\
+                 \"mutation\":null,\"known_bug\":null{cost}}}\n{{\"key\":\"Escape\"}}\n"
+            ),
+        )
+        .expect("the scenario should be written");
+        load_scenario(&path).map(|scenario| scenario.header.cost)
+    };
+    assert_eq!(load(""), Ok(None));
+    assert_eq!(
+        load(r#","cost":{"list":0.1,"columns":2.5}"#),
+        Ok(Some(BTreeMap::from([
+            ("columns".to_owned(), 2.5),
+            ("list".to_owned(), 0.1)
+        ])))
+    );
+    for bad in [
+        r#","cost":{"columns":1.0}"#,
+        r#","cost":{"columns":1.0,"list":1.0,"icons":1.0}"#,
+        r#","cost":{"columns":1.0,"list":0}"#,
+        r#","cost":{"columns":1.0,"list":-1.5}"#,
+        r#","cost":{"columns":1.0,"list":"1.0"}"#,
+        r#","cost":[1.0,1.0]"#,
+    ] {
+        assert!(load(bad).is_err(), "{bad} should be rejected");
+    }
+}
+
+fn the_harness_starts_costly_runs_first_and_names_select_whole_scenarios() {
+    let test = |name: &str, cost: Option<f64>, exclusive: bool| harness::Test {
+        name: name.to_owned(),
+        group: name.split_once('/').map(|(group, _)| group.to_owned()),
+        ignored: None,
+        skip: None,
+        cost,
+        exclusive,
+        plan: None,
+        run: Box::new(|| harness::Outcome::Passed(None)),
+    };
+    let mut tests = vec![
+        test("ab/list", Some(3.0), false),
+        test("a/columns", Some(1.0), false),
+        test("unit_test", None, false),
+        test("a/list", Some(3.0), true),
+        test("b/columns", None, true),
+    ];
+    tests.sort_by(harness::starts_before);
+    let order: Vec<&str> = tests.iter().map(|test| test.name.as_str()).collect();
+    assert_eq!(
+        order,
+        ["b/columns", "unit_test", "a/list", "ab/list", "a/columns"]
+    );
+    // While one exclusive run is going, the next free run starts instead.
+    assert_eq!(harness::next_to_start(&tests, false), Some(0));
+    assert_eq!(harness::next_to_start(&tests, true), Some(1));
+    assert_eq!(harness::next_to_start(&tests[2..3], true), None);
+
+    let selected = |arguments: &[&str]| -> Vec<&str> {
+        let arguments = harness::Arguments::parse(arguments.iter().map(|&text| text.to_owned()))
+            .expect("the arguments should parse");
+        tests
+            .iter()
+            .filter(|test| arguments.selects(test))
+            .map(|test| test.name.as_str())
+            .collect()
+    };
+    assert_eq!(selected(&["--exact", "a"]), ["a/list", "a/columns"]);
+    assert_eq!(
+        selected(&["--exact", "a/list", "b"]),
+        ["b/columns", "a/list"]
+    );
+    assert_eq!(
+        selected(&["a"]),
+        ["a/list", "ab/list", "a/columns"],
+        "without --exact a filter is a substring, as libtest's"
+    );
+    assert_eq!(
+        selected(&["--exact", "--skip", "a"]),
+        ["b/columns", "unit_test", "ab/list"]
+    );
+    assert_eq!(
+        selected(&["--skip=a/"]),
+        ["b/columns", "unit_test", "ab/list"]
+    );
+    assert!(selected(&["--exact", "unit"]).is_empty());
+    assert_eq!(
+        selected(&["--skip-exact", "a"]),
+        ["b/columns", "unit_test", "ab/list"],
+        "--skip-exact leaves out a whole scenario, never one it prefixes, without --exact"
+    );
+    assert_eq!(
+        selected(&["b", "--skip-exact", "a/list"]),
+        ["b/columns", "ab/list"]
+    );
+
+    assert_eq!(
+        harness::Arguments::parse(
+            [
+                "--test-threads=48",
+                "-Zunstable-options",
+                "--format",
+                "terse",
+                "--include-ignored",
+                "--show-output",
+                "--report-time",
+                "--shuffle",
+                "--shuffle-seed",
+                "7",
+                "name",
+            ]
+            .map(str::to_owned)
+        ),
+        Ok(harness::Arguments {
+            filters: vec!["name".to_owned()],
+            threads: Some(48),
+            terse: true,
+            include_ignored: true,
+            ..harness::Arguments::default()
+        })
+    );
+    for bad in [
+        &["--bogus"][..],
+        &["--test-threads", "0"],
+        &["--format", "json"],
+        &["--skip"],
+        &["--shuffle-seed"],
+    ] {
+        assert!(
+            harness::Arguments::parse(bad.iter().map(|&text| text.to_owned())).is_err(),
+            "{bad:?} should be rejected"
+        );
+    }
+}
+
+fn no_test_attribute_hides_a_runner_test() {
+    // `#[cfg(test)]` is never set here either, so it hides code the same way.
+    let attributes = [concat!("#[", "test"), concat!("#[", "cfg(test)")];
+    let mut sources = vec![Path::new(REPOSITORY).join("tests/qa.rs")];
+    for entry in
+        fs::read_dir(Path::new(REPOSITORY).join("tests/qa")).expect("tests/qa should be listable")
+    {
+        let path = entry.expect("the entry should be readable").path();
+        if path.extension().is_some_and(|extension| extension == "rs") {
+            sources.push(path);
+        }
+    }
+    for path in sources {
+        let text = fs::read_to_string(&path).expect("the runner source should be readable");
+        for (index, line) in text.lines().enumerate() {
+            assert!(
+                !attributes
+                    .iter()
+                    .any(|attribute| line.trim_start().starts_with(attribute)),
+                "{}:{}: this target has its own harness, so #[test] and #[cfg(test)] code \
+                 never runs; list the test in unit_tests! instead",
+                path.display(),
+                index + 1
+            );
+        }
     }
 }

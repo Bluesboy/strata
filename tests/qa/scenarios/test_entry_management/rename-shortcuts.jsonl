@@ -1,4 +1,4 @@
-{"scenario":"rename-shortcuts","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_entry_management.py::test_rename_shortcuts[$shortcut]","mutation":null,"known_bug":null,"variants":[{"id":"F2","vars":{"shortcut":"F2"}},{"id":"ctrl-r","vars":{"shortcut":"ctrl+r"}}]}
+{"scenario":"rename-shortcuts","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_entry_management.py::test_rename_shortcuts[$shortcut]","mutation":null,"known_bug":null,"variants":[{"id":"F2","vars":{"shortcut":"F2"}},{"id":"ctrl-r","vars":{"shortcut":"ctrl+r"}}],"cost":{"columns-F2":0.8,"columns-ctrl-r":0.8}}
 {"select":{"entry":"todo.txt"}}
 {"key":"F2","variants":["F2"]}
 {"key":"ctrl+r","variants":["ctrl-r"]}

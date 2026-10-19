@@ -1,4 +1,4 @@
-{"scenario":"escape-preserves-name","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_inline_renaming.py::test_escape_preserves_the_original_name[existing-file]","mutation":"rename-escape","known_bug":null}
+{"scenario":"escape-preserves-name","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_inline_renaming.py::test_escape_preserves_the_original_name[existing-file]","mutation":"rename-escape","known_bug":null,"cost":{"columns":0.8}}
 {"select":{"entry":"readme.md"}}
 {"select_with_keyboard":"todo.txt"}
 {"key":"F2"}

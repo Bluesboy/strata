@@ -1,4 +1,4 @@
-{"scenario":"columns-reclick-open-folder-renames","modes":["columns"],"prefs":{"browser_mode":"columns"},"layout":"us","twin":"tests/e2e/scenarios/test_inline_renaming.py::test_columns_reclick_open_folder_name_renames_and_empty_space_closes","mutation":null,"known_bug":null}
+{"scenario":"columns-reclick-open-folder-renames","modes":["columns"],"prefs":{"browser_mode":"columns"},"layout":"us","twin":"tests/e2e/scenarios/test_inline_renaming.py::test_columns_reclick_open_folder_name_renames_and_empty_space_closes","mutation":null,"known_bug":null,"cost":{"columns":1.6}}
 {"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open"}
 {"wait":{"present":{"role":"toggle button","name":"Preview panel"}},"message":"the preview panel toggle"}
 {"key":"Escape","when":{"state":{"target":{"role":"toggle button","name":"Preview panel"},"pressed":false}}}

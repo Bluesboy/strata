@@ -1,4 +1,4 @@
-{"scenario":"new-folder-collision-dialog","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_entry_management.py::test_creating_an_existing_name_does_not_overwrite[folder-archive]","mutation":null,"known_bug":null}
+{"scenario":"new-folder-collision-dialog","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_entry_management.py::test_creating_an_existing_name_does_not_overwrite[folder-archive]","mutation":null,"known_bug":null,"cost":{"columns":1.4}}
 {"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open"}
 {"wait":{"present":{"role":"toggle button","name":"Preview panel"}},"message":"the preview panel toggle"}
 {"key":"Escape","when":{"state":{"target":{"role":"toggle button","name":"Preview panel"},"pressed":false}}}

@@ -1,4 +1,4 @@
-{"scenario":"tenxer-icons-edges-search-peek","modes":["icons"],"prefs":{"type_to_search":false},"layout":"us","twin":"tests/e2e/scenarios/test_keyboard_navigation.py::test_tenxer_icons_stay_on_tiles_at_edges_in_search_and_peek","mutation":null,"known_bug":null}
+{"scenario":"tenxer-icons-edges-search-peek","modes":["icons"],"prefs":{"type_to_search":false},"layout":"us","twin":"tests/e2e/scenarios/test_keyboard_navigation.py::test_tenxer_icons_stay_on_tiles_at_edges_in_search_and_peek","mutation":null,"known_bug":null,"cost":{"icons":1.8}}
 {"key":"ctrl+shift+m"}
 {"wait":{"pref":{"key":"tenxer_mode","value":true}},"message":"10xer mode to turn on"}
 {"note":"directory","as":"start"}

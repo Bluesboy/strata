@@ -1,4 +1,4 @@
-{"scenario":"paste-availability-follows-clipboard","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_clipboard.py::test_paste_availability_follows_the_clipboard","mutation":null,"known_bug":null}
+{"scenario":"paste-availability-follows-clipboard","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_clipboard.py::test_paste_availability_follows_the_clipboard","mutation":null,"known_bug":null,"cost":{"columns":0.7}}
 {"click":{"background":true},"button":3}
 {"wait":{"menu_items":{}},"message":"the pane context menu"}
 {"wait":{"present":{"menu_item":"Paste"}},"message":"the menu item 'Paste'"}

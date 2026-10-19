@@ -1,4 +1,4 @@
-{"scenario":"keyboard-selection-in-single-click-mode","modes":["columns","icons","list"],"prefs":{"list_folder_clicks":1,"list_file_clicks":1,"grid_folder_clicks":1,"grid_file_clicks":1,"explorer_folder_clicks":1,"explorer_file_clicks":1},"layout":"us","twin":"tests/e2e/scenarios/test_click_modes.py::test_keyboard_selection_still_works_in_single_click_mode[$mode]","mutation":null,"known_bug":null}
+{"scenario":"keyboard-selection-in-single-click-mode","modes":["columns","icons","list"],"prefs":{"list_folder_clicks":1,"list_file_clicks":1,"grid_folder_clicks":1,"grid_file_clicks":1,"explorer_folder_clicks":1,"explorer_file_clicks":1},"layout":"us","twin":"tests/e2e/scenarios/test_click_modes.py::test_keyboard_selection_still_works_in_single_click_mode[$mode]","mutation":null,"known_bug":null,"cost":{"columns":0.3,"icons":0.3,"list":0.3}}
 {"key":"Down"}
 {"wait":{"focused":true},"message":"keyboard focus"}
 {"note":"focused","as":"cursor"}

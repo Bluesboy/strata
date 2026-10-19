@@ -1,4 +1,4 @@
-{"scenario":"columns-home-end-mirror","modes":["columns"],"prefs":{"single_click_previews":false},"layout":"us","twin":"tests/e2e/scenarios/test_keyboard_navigation.py::test_columns_home_and_end_mirror_the_cursor","mutation":null,"known_bug":null}
+{"scenario":"columns-home-end-mirror","modes":["columns"],"prefs":{"single_click_previews":false},"layout":"us","twin":"tests/e2e/scenarios/test_keyboard_navigation.py::test_columns_home_and_end_mirror_the_cursor","mutation":null,"known_bug":null,"cost":{"columns":0.6}}
 {"select_with_keyboard":"documents"}
 {"wait":{"panes":["$root","documents"]},"message":"the child column to open"}
 {"key":"End"}

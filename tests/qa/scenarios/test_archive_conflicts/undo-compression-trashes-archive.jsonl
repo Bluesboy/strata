@@ -1,4 +1,4 @@
-{"scenario":"undo-compression-trashes-archive","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_archive_conflicts.py::test_undoing_a_compression_trashes_the_numbered_archive[zip]","mutation":null,"known_bug":null,"setup":[{"fs":{"path":"archive.zip","write":"original archive"}},{"fs":{"path":"archive (1).zip","write":"previous archive"}}]}
+{"scenario":"undo-compression-trashes-archive","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_archive_conflicts.py::test_undoing_a_compression_trashes_the_numbered_archive[zip]","mutation":null,"known_bug":null,"setup":[{"fs":{"path":"archive.zip","write":"original archive"}},{"fs":{"path":"archive (1).zip","write":"previous archive"}}],"cost":{"columns":1.6}}
 {"select":{"entry":"todo.txt"}}
 {"click":{"entry":"todo.txt"},"button":3}
 {"wait":{"menu_items":{}},"message":"the context menu for 'todo.txt'"}

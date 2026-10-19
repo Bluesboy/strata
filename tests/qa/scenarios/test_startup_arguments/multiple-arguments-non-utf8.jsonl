@@ -1,4 +1,4 @@
-{"scenario":"multiple-arguments-non-utf8","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_startup_arguments.py::test_multiple_arguments_include_non_utf8_directory_and_file","mutation":null,"known_bug":null,"session_bus":true}
+{"scenario":"multiple-arguments-non-utf8","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_startup_arguments.py::test_multiple_arguments_include_non_utf8_directory_and_file","mutation":null,"known_bug":null,"session_bus":true,"cost":{"columns":0.6}}
 {"fs":{"path":"startup-first","mkdir":true}}
 {"fs":{"path":"startup-first/first-argument.txt","write":"startup regression\n"}}
 {"fs":{"path":"startup-%FF","mkdir":true,"percent_path":true}}

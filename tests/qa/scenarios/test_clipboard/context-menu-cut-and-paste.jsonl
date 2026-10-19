@@ -1,4 +1,4 @@
-{"scenario":"context-menu-cut-and-paste","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_clipboard.py::test_context_menu_cut_and_paste[$mode]","mutation":null,"known_bug":null}
+{"scenario":"context-menu-cut-and-paste","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_clipboard.py::test_context_menu_cut_and_paste[$mode]","mutation":null,"known_bug":null,"cost":{"columns":1.2,"icons":1.2,"list":1.2}}
 {"click":{"entry":"readme.md"},"button":3}
 {"wait":{"menu_items":{}},"message":"the context menu for 'readme.md'"}
 {"wait":{"present":{"menu_item":"Cut"}},"message":"the menu item 'Cut'"}

@@ -1,4 +1,4 @@
-{"scenario":"created-folder-editor-narrow-window","modes":["columns"],"prefs":{"browser_mode":"columns","single_click_previews":false},"layout":"us","twin":"tests/e2e/scenarios/test_created_entry_columns.py::test_created_folder_editor_stays_visible_in_a_narrow_window","mutation":null,"known_bug":null}
+{"scenario":"created-folder-editor-narrow-window","modes":["columns"],"prefs":{"browser_mode":"columns","single_click_previews":false},"layout":"us","twin":"tests/e2e/scenarios/test_created_entry_columns.py::test_created_folder_editor_stays_visible_in_a_narrow_window","mutation":null,"known_bug":null,"cost":{"columns":0.9}}
 {"select":{"entry":"readme.md"}}
 {"resize":{"width":420,"height":300}}
 {"wait":{"window_width":420},"message":"a narrow window"}

@@ -1,0 +1,100 @@
+# SPDX-License-Identifier: MIT
+
+import contextlib
+import io
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from qa_cost import durations, scores, with_cost, write
+
+
+class ScoreTests(unittest.TestCase):
+    def test_a_run_scores_its_median_over_the_median_of_all_medians(self):
+        found = scores({
+            "a/columns": [10.0, 30.0, 11.0],  # median 11
+            "b/columns": [5.0, 6.0, 4.0],  # median 5
+            "c/list": [2.0, 2.2],  # median 2.1
+            "d/icons": [0.01, 0.02, 0.01],  # median 0.01
+            "e/icons": [5.5],
+        })
+        # The typical run is the median of 11, 5, 2.1, 0.01, and 5.5: 5.
+        self.assertEqual(found, {
+            "a/columns": 2.2, "b/columns": 1.0, "c/list": 0.4, "d/icons": 0.1, "e/icons": 1.1,
+        })
+
+    def test_the_result_lines_give_each_runs_time_and_status(self):
+        log = "\n".join([
+            "running 4 tests",
+            "RUN copy/columns (twin t.py::test[columns])",
+            "test a_unit_test ... ok <0.001s>",
+            "test copy/columns ... ok <12.345s>",
+            "PASS copy/columns (twin t.py::test[columns])",
+            "test copy/list-ru ... FAILED <3.5s>",
+            "test copy/icons ... ignored, skipped: issue 9",
+            "test result: FAILED. 2 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 12.35s",
+        ])
+        self.assertEqual(durations(log), {"copy/columns": (12.345, True), "copy/list-ru": (3.5, False)})
+
+
+class HeaderTests(unittest.TestCase):
+    HEADER = '{"scenario":"x","modes":["columns","list"],"twin":"t.py::f[$mode] ü","nested":{"cost":1}}'
+
+    def test_a_cost_is_added_last_and_nothing_else_changes(self):
+        updated = with_cost(self.HEADER, {"columns": 1.5, "list": 0.1})
+        self.assertEqual(updated, self.HEADER[:-1] + ',"cost":{"columns":1.5,"list":0.1}}')
+
+    def test_only_the_cost_value_is_replaced_wherever_it_stands(self):
+        header = '{ "scenario" : "x", "cost" : {"columns": 9.9} ,"modes":["columns"], "z":"}"}'
+        updated = with_cost(header, {"columns": 0.4})
+        self.assertEqual(
+            updated, '{ "scenario" : "x", "cost" : {"columns":0.4} ,"modes":["columns"], "z":"}"}'
+        )
+
+    def test_a_line_that_is_not_one_json_object_is_refused(self):
+        for bad in ('["x"]', '{"a":1', '{"a" 1}', '{"a":1 "b":2}'):
+            with self.assertRaises(ValueError, msg=bad):
+                with_cost(bad, {"columns": 1.0})
+
+    def test_write_changes_only_each_header_and_needs_a_time_for_every_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scenarios = root / "scenarios"
+            (scenarios / "test_a").mkdir(parents=True)
+            one = scenarios / "test_a/one.jsonl"
+            two = scenarios / "test_a/two.jsonl"
+            steps = '{"key":"Escape"}\n\n{"wait":{"panes":1}}'
+            one.write_text('{"scenario":"one","modes":["columns","list"]}\n' + steps)
+            two.write_text(
+                '{"scenario":"two","modes":["columns"],"variants":[{"id":"us"},{"id":"ru"}],'
+                '"cost":{"columns-us":7.0}}\n' + steps + "\n"
+            )
+            log = root / "qa.log"
+            log.write_text("\n".join([
+                "test one/columns ... ok <2.000s>",
+                "test one/list ... ok <4.000s>",
+                "test two/columns-us ... ok <4.000s>",
+            ]))
+            with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(write([log], scenarios), 1)
+            self.assertNotIn("cost", one.read_text())
+
+            with log.open("a") as output:
+                output.write("\ntest two/columns-ru ... FAILED <8.000s>\n")
+            with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(write([log, log], scenarios), 0)
+            self.assertEqual(
+                one.read_text(),
+                '{"scenario":"one","modes":["columns","list"],"cost":{"columns":0.5,"list":1.0}}\n' + steps,
+            )
+            self.assertEqual(
+                two.read_text(),
+                '{"scenario":"two","modes":["columns"],"variants":[{"id":"us"},{"id":"ru"}],'
+                '"cost":{"columns-us":1.0,"columns-ru":2.0}}\n' + steps + "\n",
+            )
+            self.assertEqual(json.loads(two.read_text().splitlines()[0])["scenario"], "two")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,4 +1,4 @@
-{"scenario":"airy-committed-rename-visible","modes":["columns"],"prefs":{"browser_density":"airy"},"layout":"us","twin":"tests/e2e/scenarios/test_rename_visibility.py::test_airy_committed_rename_stays_visible[$view]","mutation":null,"known_bug":null,"variants":[{"id":"Columns","vars":{"view":"Columns"}},{"id":"List","vars":{"view":"List"}}]}
+{"scenario":"airy-committed-rename-visible","modes":["columns"],"prefs":{"browser_density":"airy"},"layout":"us","twin":"tests/e2e/scenarios/test_rename_visibility.py::test_airy_committed_rename_stays_visible[$view]","mutation":null,"known_bug":null,"variants":[{"id":"Columns","vars":{"view":"Columns"}},{"id":"List","vars":{"view":"List"}}],"cost":{"columns-Columns":1.8,"columns-List":2.0}}
 {"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open","variants":["Columns"]}
 {"wait":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the Columns option","variants":["Columns"]}
 {"click":{"role":"radio menu item","name":"Columns"},"variants":["Columns"]}

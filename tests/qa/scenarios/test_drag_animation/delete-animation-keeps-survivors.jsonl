@@ -1,4 +1,4 @@
-{"scenario":"delete-animation-keeps-survivors","modes":["columns","icons","list"],"prefs":{"reduce_motion":false},"layout":"us","twin":"tests/e2e/scenarios/test_drag_animation.py::test_delete_animation_preserves_survivors_and_restores_interaction[$mode]","mutation":null,"known_bug":null,"gtk_settings":{"gtk-enable-animations":"true"}}
+{"scenario":"delete-animation-keeps-survivors","modes":["columns","icons","list"],"prefs":{"reduce_motion":false},"layout":"us","twin":"tests/e2e/scenarios/test_drag_animation.py::test_delete_animation_preserves_survivors_and_restores_interaction[$mode]","mutation":null,"known_bug":null,"gtk_settings":{"gtk-enable-animations":"true"},"cost":{"columns":1.6,"icons":1.5,"list":1.6}}
 {"expect":{"view_mode":"$view"}}
 {"fs":{"path":"zz-survivor.txt","write":"survivor"}}
 {"fs":{"path":".","remember_names":"original"}}

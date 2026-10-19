@@ -1,4 +1,4 @@
-{"scenario":"sidebar-navigation-range-anchor","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_selection.py::test_keyboard_selection_after_sidebar_navigation_initializes_the_range_anchor[$mode]","mutation":null,"known_bug":null}
+{"scenario":"sidebar-navigation-range-anchor","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_selection.py::test_keyboard_selection_after_sidebar_navigation_initializes_the_range_anchor[$mode]","mutation":null,"known_bug":null,"cost":{"columns":0.6,"icons":0.7,"list":0.7}}
 {"fs":{"path":"$home/a.txt","write":"a.txt"}}
 {"fs":{"path":"$home/b.txt","write":"b.txt"}}
 {"fs":{"path":"$home/c.txt","write":"c.txt"}}

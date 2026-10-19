@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs the `--qa` scenarios in tests/qa/scenarios/<twin test file>/ inside the pinned E2E image.
-#   ./scripts/qa.sh                          every scenario, every mode
-#   ./scripts/qa.sh arrow-keys-move-focus    one scenario (hyphens or underscores)
+#   ./scripts/qa.sh                                  every scenario, every mode
+#   ./scripts/qa.sh arrow-keys-move-focus            one scenario (hyphens or underscores)
+#   ./scripts/qa.sh arrow-keys-move-focus/columns    one run of it
 set -euo pipefail
 
 unset DISPLAY WAYLAND_DISPLAY NOTIFY_SOCKET
@@ -43,12 +44,33 @@ if [[ "$group_id" != 0 ]]; then
   printf 'strata-e2e:x:%s:\n' "$group_id" >> "$accounts/group"
 fi
 
-# Scenario names select tests exactly (hyphens or underscores); flags pass to libtest unchanged.
+# Each run is a test named `<scenario>/<run>` (tests/qa/harness.rs). A scenario
+# name (hyphens or underscores) selects all of its runs, `<scenario>/<run>` one;
+# flags pass to the runner's libtest-style harness unchanged, except that a
+# --skip naming a scenario or one of its runs, in either spelling, becomes
+# --skip-exact: it leaves out that scenario, never another it prefixes.
 scenarios="$repository/tests/qa/scenarios"
 arguments=()
+skip() {
+  local scenario="${1%%/*}"
+  scenario="${scenario//_/-}"
+  if [[ -n "$scenario" ]] && compgen -G "$scenarios/*/$scenario.jsonl" >/dev/null; then
+    arguments+=(--skip-exact "$scenario${1#"${1%%/*}"}")
+  else
+    arguments+=(--skip "$1")
+  fi
+}
 while (($#)); do
   case "$1" in
-    --skip|--test-threads|--format|--color|-Z)
+    --skip)
+      skip "${2:?$1 needs a value}"
+      shift 2
+      ;;
+    --skip=*)
+      skip "${1#--skip=}"
+      shift
+      ;;
+    --test-threads|--format|--color|-Z)
       arguments+=("$1" "${2:?$1 needs a value}")
       shift 2
       ;;
@@ -57,20 +79,21 @@ while (($#)); do
       shift
       ;;
     *)
-      name="${1//_/-}"
-      if ! compgen -G "$scenarios/*/$name.jsonl" >/dev/null; then
-        echo "No QA scenario named $1 in tests/qa/scenarios:" >&2
+      scenario="${1%%/*}"
+      scenario="${scenario//_/-}"
+      if ! compgen -G "$scenarios/*/$scenario.jsonl" >/dev/null; then
+        echo "No QA scenario named ${1%%/*} in tests/qa/scenarios:" >&2
         basename -a -s .jsonl "$scenarios"/*/*.jsonl | sort >&2
         exit 2
       fi
-      arguments+=("${name//-/_}")
+      arguments+=("$scenario${1#"${1%%/*}"}")
       named=1
       shift
       ;;
   esac
 done
 # A name selects only its own scenario, never every one it prefixes; --exact
-# makes a --skip match whole names too. A named scenario runs even when its
+# makes any other --skip match whole names too. A named scenario runs even when its
 # header's `skip` keeps it out of the default run (STRATA_QA_NAMED).
 if ((${named:-0})); then
   arguments+=(--exact)
@@ -100,9 +123,9 @@ exec "$engine" run "${options[@]}" \
     rustc --version
     output="$(mktemp)"
     # Without pipefail the pipeline reports tee; the test status is kept apart.
-    # --show-output prints each passing scenario run, which the check below counts;
-    # the always-on registration test alone does not count as a QA run.
-    cargo test --locked --features qa --test qa -- --include-ignored --show-output "$@" 2>&1 | tee "$output"
+    # Each passing run prints a PASS or KNOWN BUG line, which the check below
+    # counts; the unit tests of the runner alone do not count as a QA run.
+    cargo test --locked --features qa --test qa -- --include-ignored "$@" 2>&1 | tee "$output"
     status="${PIPESTATUS[0]}"
     if ((status != 0)); then exit "$status"; fi
     if ! grep -Eq "^(PASS|KNOWN BUG) " "$output"; then

@@ -1,4 +1,4 @@
-{"scenario":"sidebar-marquee-reaches-leading-pane","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_pointer_intent.py::test_sidebar_marquee_still_reaches_the_leading_pane[$mode]","mutation":null,"known_bug":null}
+{"scenario":"sidebar-marquee-reaches-leading-pane","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_pointer_intent.py::test_sidebar_marquee_still_reaches_the_leading_pane[$mode]","mutation":null,"known_bug":null,"cost":{"columns":1.4,"icons":1.2,"list":1.2}}
 {"select":{"entry":"documents"},"modes":["columns"]}
 {"wait":{"directory":"documents"},"message":"the browser to be working in 'documents'","modes":["columns"]}
 {"settle":{"pane":"documents"},"modes":["columns"]}

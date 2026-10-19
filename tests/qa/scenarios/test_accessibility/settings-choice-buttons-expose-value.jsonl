@@ -1,4 +1,4 @@
-{"scenario":"settings-choice-buttons-expose-value","modes":["columns"],"prefs":{"auto_refresh_interval":120},"layout":"us","twin":"tests/e2e/scenarios/test_accessibility.py::test_settings_choice_buttons_expose_their_current_value","mutation":null,"known_bug":null}
+{"scenario":"settings-choice-buttons-expose-value","modes":["columns"],"prefs":{"auto_refresh_interval":120},"layout":"us","twin":"tests/e2e/scenarios/test_accessibility.py::test_settings_choice_buttons_expose_their_current_value","mutation":null,"known_bug":null,"cost":{"columns":3.0}}
 {"activate":{"role":"button","name":"Settings"}}
 {"wait":{"presented":{"role":"button","name":"Modified date format","rendered":false}},"message":"the General settings page"}
 {"reveal":{"role":"button","name":"Drag & drop to another device"}}
