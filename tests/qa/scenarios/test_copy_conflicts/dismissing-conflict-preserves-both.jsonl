@@ -8,8 +8,7 @@
 {"move":{"pane":"archive"}}
 {"key":"ctrl+v"}
 {"wait":{"dialog":true},"message":"a dialog to appear"}
-{"expect":{"present":{"role":"button","name":"Keep Both","within":{"dialog":true}}},"variants":["copy-cancel","copy-escape","copy-close"]}
-{"expect":{"absent":{"role":"button","name":"Keep Both","within":{"dialog":true}}},"variants":["move-cancel"]}
+{"expect":{"present":{"role":"button","name":"Keep Both","within":{"dialog":true}}}}
 {"expect":{"absent":{"role":"button","name":"Merge","within":{"dialog":true}}},"message":"a file collision cannot merge"}
 {"key":"Escape","variants":["copy-escape"]}
 {"click":{"dialog_button":"$action"},"variants":["copy-cancel","copy-close","move-cancel"]}

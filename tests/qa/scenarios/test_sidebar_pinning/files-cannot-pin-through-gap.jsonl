@@ -4,8 +4,9 @@
 {"wait":{"entry":"pin-file.txt"},"message":"the entry 'pin-file.txt' to appear","variants":["False"]}
 {"select":{"entry":"pin-file.txt","dir":"$root"},"variants":["False"]}
 {"wait":{"selected":{"set":["pin-file.txt"]},"dir":"$root"},"message":"the drag selection in its source pane","variants":["False"]}
-{"wait":{"present":{"role":"grouping","name":"PINNED"}},"message":"the Pinned insertion targets","variants":["False"]}
-{"drag":{"from":{"entry":"pin-file.txt","dir":"$root"},"to":{"role":"grouping","name":"PINNED","nth":0}},"release":false,"variants":["False"]}
+{"drag":{"from":{"entry":"pin-file.txt","dir":"$root"},"to":{"ancestor":"scroll pane","of":{"sidebar":"Home"}},"to_at":["50%",-80]},"release":false,"variants":["False"]}
+{"wait":{"present":{"role":"grouping","name":"PINNED"}},"message":"a file drag over the sidebar to reveal the Pinned insertion targets","variants":["False"]}
+{"move":{"role":"grouping","name":"PINNED","nth":0},"variants":["False"]}
 {"button_up":1,"variants":["False"]}
 {"click":{"sidebar":"Home"},"variants":["False"]}
 {"wait":{"directory":"home"},"message":"the browser to be working in 'home'","variants":["False"]}
@@ -20,8 +21,9 @@
 {"select":{"entry":"pin-file.txt","dir":"$root"},"variants":["True"]}
 {"click":{"entry":"pin-folder","dir":"$root"},"mods":["ctrl"],"variants":["True"]}
 {"wait":{"selected":{"set":["pin-file.txt","pin-folder"]},"dir":"$root"},"message":"the drag selection in its source pane","variants":["True"]}
-{"wait":{"present":{"role":"grouping","name":"PINNED"}},"message":"the Pinned insertion targets","variants":["True"]}
-{"drag":{"from":{"entry":"pin-file.txt","dir":"$root"},"to":{"role":"grouping","name":"PINNED","nth":0}},"release":false,"variants":["True"]}
+{"drag":{"from":{"entry":"pin-file.txt","dir":"$root"},"to":{"ancestor":"scroll pane","of":{"sidebar":"Home"}},"to_at":["50%",-80]},"release":false,"variants":["True"]}
+{"wait":{"present":{"role":"grouping","name":"PINNED"}},"message":"a file drag over the sidebar to reveal the Pinned insertion targets","variants":["True"]}
+{"move":{"role":"grouping","name":"PINNED","nth":0},"variants":["True"]}
 {"button_up":1,"variants":["True"]}
 {"click":{"sidebar":"Home"},"variants":["True"]}
 {"wait":{"directory":"home"},"message":"the browser to be working in 'home'","variants":["True"]}
