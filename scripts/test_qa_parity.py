@@ -351,7 +351,10 @@ class StateParityIgnoreTests(unittest.TestCase):
         self.assertTrue(skipped, "the text-size scenario is skipped until issue 9 is fixed")
         self.assertFalse({scenario.name for scenario in skipped} & set(qa_parity.ci_units()))
         self.assertFalse({scenario.name for scenario in skipped} & {s.name for s in qa_parity.chosen_scenarios([])})
-        self.assertTrue(all(line.startswith("Skipped, not compared: ") for line in qa_parity.skipped_lines([])))
+        self.assertTrue(all(
+            line.startswith(("Skipped, not compared: ", "No twin, not compared: "))
+            for line in qa_parity.skipped_lines([])
+        ))
 
     def test_a_mutation_scenario_or_ignoring_every_key_is_rejected(self):
         self.assertEqual(state_parity_ignore({"mutation": "clipboard"}), ())
@@ -409,7 +412,8 @@ class CiShardingTests(unittest.TestCase):
         found = qa_parity.scenarios()
         self.assertEqual(
             sorted(units),
-            sorted(scenario.mutation or scenario.name for scenario in found if scenario.skip is None),
+            sorted(scenario.mutation or scenario.name for scenario in found
+                   if scenario.skip is None and scenario.twin),
         )
         for shards in (1, 3, qa_parity.CI_SHARDS, len(units) + 5):
             with self.subTest(shards=shards):
@@ -424,8 +428,8 @@ class CiShardingTests(unittest.TestCase):
             scenarios, mutations = root / "scenarios", root / "mutations"
             (scenarios / "test_example").mkdir(parents=True)
             mutations.mkdir()
-            (scenarios / "test_example" / "alpha.jsonl").write_text(json.dumps({"scenario": "alpha", "mutation": "break-alpha"}) + "\n")
-            (scenarios / "test_example" / "beta.jsonl").write_text(json.dumps({"scenario": "beta", "mutation": None}) + "\n")
+            (scenarios / "test_example" / "alpha.jsonl").write_text(json.dumps({"scenario": "alpha", "twin": "x", "mutation": "break-alpha"}) + "\n")
+            (scenarios / "test_example" / "beta.jsonl").write_text(json.dumps({"scenario": "beta", "twin": "x", "mutation": None}) + "\n")
             (mutations / "break-alpha.patch").write_text("+++ b/src/main.rs\n")
             with mock.patch.object(qa_parity, "SCENARIOS", scenarios), \
                     mock.patch.object(qa_parity, "MUTATIONS", mutations), \
@@ -435,7 +439,7 @@ class CiShardingTests(unittest.TestCase):
                 with contextlib.redirect_stdout(output):
                     self.assertEqual(qa_parity.ci_plan(None), 0)
                 self.assertIn('"names":"beta break-alpha"', output.getvalue())
-                (scenarios / "test_example" / "break-alpha.jsonl").write_text(json.dumps({"scenario": "break-alpha", "mutation": None}) + "\n")
+                (scenarios / "test_example" / "break-alpha.jsonl").write_text(json.dumps({"scenario": "break-alpha", "twin": "x", "mutation": None}) + "\n")
                 with self.assertRaises(SystemExit):
                     qa_parity.ci_units()
 
@@ -460,14 +464,72 @@ class ScenarioChoiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             scenarios = Path(directory)
             (scenarios / "test_example").mkdir()
-            (scenarios / "test_example" / "alpha.jsonl").write_text(json.dumps({"scenario": "alpha", "mutation": "break-alpha"}) + "\n")
-            (scenarios / "test_example" / "beta.jsonl").write_text(json.dumps({"scenario": "beta", "mutation": None}) + "\n")
+            (scenarios / "test_example" / "alpha.jsonl").write_text(json.dumps({"scenario": "alpha", "twin": "x", "mutation": "break-alpha"}) + "\n")
+            (scenarios / "test_example" / "beta.jsonl").write_text(json.dumps({"scenario": "beta", "twin": "x", "mutation": None}) + "\n")
             with mock.patch.object(qa_parity, "SCENARIOS", scenarios):
                 chosen = qa_parity.chosen_scenarios(["break-alpha", "beta", "alpha"])
                 self.assertEqual([(s.name, s.unit) for s in chosen],
                                  [("alpha", "break-alpha"), ("beta", "beta"), ("alpha", "break-alpha")])
                 with self.assertRaises(SystemExit):
                     qa_parity.chosen_scenarios(["gamma"])
+
+
+class TwinlessScenarioTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        scenarios, mutations = self.root / "scenarios", self.root / "mutations"
+        (scenarios / "test_example").mkdir(parents=True)
+        (scenarios / "hidden_files").mkdir()
+        mutations.mkdir()
+        (scenarios / "test_example" / "alpha.jsonl").write_text(
+            json.dumps({"scenario": "alpha", "modes": ["columns"], "twin": "x", "mutation": "break-alpha"}) + "\n")
+        (scenarios / "test_example" / "beta.jsonl").write_text(
+            json.dumps({"scenario": "beta", "modes": ["columns"], "twin": "y"}) + "\n")
+        (scenarios / "hidden_files" / "gamma.jsonl").write_text(
+            json.dumps({"scenario": "gamma", "modes": ["columns"], "skip": "flaky"}) + "\n")
+        (scenarios / "hidden_files" / "delta.jsonl").write_text(
+            json.dumps({"scenario": "delta", "modes": ["columns", "list"]}) + "\n")
+        (mutations / "break-alpha.patch").write_text("+++ b/src/main.rs\n")
+        for name, value in (("SCENARIOS", scenarios), ("MUTATIONS", mutations),
+                            ("OUTPUT", self.root / "output"), ("CI_SHARDS", 1)):
+            patcher = mock.patch.object(qa_parity, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_a_scenario_without_a_twin_takes_no_part_and_is_reported_as_no_twin(self):
+        self.assertEqual([s.name for s in qa_parity.chosen_scenarios([])], ["alpha", "beta"])
+        self.assertEqual(qa_parity.chosen_scenarios(["delta", "gamma"]), [])
+        self.assertEqual(qa_parity.ci_units(), ["beta", "break-alpha"])
+        self.assertEqual(
+            qa_parity.skipped_lines(["beta", "delta", "gamma"]),
+            ["No twin, not compared: delta", "No twin, not compared: gamma"],
+        )
+        self.assertEqual(qa_parity.skipped_lines([]),
+                         ["No twin, not compared: delta", "No twin, not compared: gamma"])
+
+    def test_naming_only_scenarios_without_a_twin_runs_nothing(self):
+        with mock.patch.object(qa_parity, "collect") as collect, \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(qa_parity.parity(["delta"]), 0)
+        collect.assert_not_called()
+        summary = (self.root / "output" / "summary.md").read_text()
+        self.assertIn("0 of 0 pairs agree", summary)
+        self.assertIn("No twin, not compared: delta", summary)
+
+    def test_a_qa_log_line_without_a_twin_pairs_with_nothing(self):
+        log = "\n".join([
+            "RUN delta/columns",
+            f"RUN beta/columns (twin {TWIN}[columns])",
+            "PASS delta/columns",
+            "delta/list failed:",
+            f"PASS beta/columns (twin {TWIN}[columns])",
+        ])
+        self.assertEqual(
+            {twin: (run.scenario, run.result.status) for twin, run in parse_qa_log(log).items()},
+            {f"{TWIN}[columns]": ("beta", "pass")},
+        )
 
 
 class AggregateTests(unittest.TestCase):
@@ -482,9 +544,9 @@ class AggregateTests(unittest.TestCase):
         (scenarios / "test_example").mkdir(parents=True)
         mutations.mkdir()
         for name in ("alpha", "beta"):
-            (scenarios / "test_example" / f"{name}.jsonl").write_text(json.dumps({"scenario": name, "mutation": f"break-{name}"}) + "\n")
+            (scenarios / "test_example" / f"{name}.jsonl").write_text(json.dumps({"scenario": name, "twin": "x", "mutation": f"break-{name}"}) + "\n")
             (mutations / f"break-{name}.patch").write_text("+++ b/src/main.rs\n")
-        (scenarios / "test_example" / "gamma.jsonl").write_text(json.dumps({"scenario": "gamma", "mutation": None}) + "\n")
+        (scenarios / "test_example" / "gamma.jsonl").write_text(json.dumps({"scenario": "gamma", "twin": "x", "mutation": None}) + "\n")
         self.shards = root / "shards"
         for name, value in (("SCENARIOS", scenarios), ("MUTATIONS", mutations),
                             ("OUTPUT", root / "untouched"), ("CI_SHARDS", 3)):

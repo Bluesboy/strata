@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Runs the `.jsonl` scenarios in `tests/qa/scenarios/<twin test file>/` against
+//! Runs the `.jsonl` scenarios in `tests/qa/scenarios/<folder>/` against
 //! `strata --qa`.
 //!
 //! Each run gets its own Xvfb, HOME, XDG directories, and fixture tree, seeded
@@ -444,9 +444,9 @@ struct Header {
     prefs: Map<String, Value>,
     #[serde(default = "default_layout")]
     layout: String,
-    /// The pytest node each run ports; `$mode` and variant `$variables` are
-    /// replaced per run, and a variant may name its own.
-    twin: String,
+    /// The pytest node each run ports, if any; `$mode` and variant
+    /// `$variables` are replaced per run, and a variant may name its own.
+    twin: Option<String>,
     mutation: Option<String>,
     known_bug: Option<String>,
     /// The file line of the step a `known_bug` run must fail at; a failure
@@ -512,6 +512,21 @@ struct Header {
     /// which `scripts/qa_cost.py` measures and writes; the costliest runs
     /// start first, and a run without one starts before them.
     cost: Option<BTreeMap<String, f64>>,
+    /// The scenario's rated value, an object [`check_quality`] reads; the
+    /// `qa-quality` skill defines the scale.
+    quality: Option<Value>,
+}
+
+/// `{"impact":1-5,"coverage":1-5,"criticality":1-5,"diagnostic":1-5,"score":0-100,"note":"..."}`.
+#[derive(Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+struct Quality {
+    impact: u8,
+    coverage: u8,
+    criticality: u8,
+    diagnostic: u8,
+    score: u8,
+    note: String,
 }
 
 /// One run's pointer events whose position is not compared, each named by
@@ -678,7 +693,7 @@ struct Scenario {
     steps: Vec<(usize, Value)>,
 }
 
-/// Every scenario file, each under the folder named after its twin's test file.
+/// Every scenario file, each in a folder of `tests/qa/scenarios` (see [`check_folder`]).
 fn scenario_files() -> Vec<PathBuf> {
     let directory = Path::new(REPOSITORY).join("tests/qa/scenarios");
     let mut files = Vec::new();
@@ -688,7 +703,7 @@ fn scenario_files() -> Vec<PathBuf> {
             .path();
         assert!(
             folder.is_dir(),
-            "{}: scenarios live in a folder named after their twin's test file",
+            "{}: scenarios live in a folder of tests/qa/scenarios",
             folder.display()
         );
         for file in fs::read_dir(&folder).expect("the scenario folder should be listable") {
@@ -785,10 +800,7 @@ fn planned_tests() -> Vec<harness::Test> {
                     .and_then(|cost| cost.get(&label))
                     .copied(),
                 exclusive: header.fixture_root.is_some(),
-                plan: Some(format!(
-                    "RUN {scenario}/{label} (twin {})",
-                    twin(&header, &run)
-                )),
+                plan: Some(format!("RUN {}", run_name(&scenario, &header, &run))),
                 run: Box::new(move || run_scenario(&path, &label)),
             });
         }
@@ -814,6 +826,29 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
             "the header names {:?} but the file is {expected:?}",
             header.scenario
         ));
+    }
+    // `./scripts/qa.sh` reads `_` in a name as `-`.
+    if !is_name(&header.scenario, '-') {
+        return Err(format!(
+            "a scenario name is lowercase words joined by hyphens, not {:?}",
+            header.scenario
+        ));
+    }
+    if header.twin.is_none() && header.variants.iter().any(|variant| variant.twin.is_some()) {
+        return Err("a variant's twin needs the header's twin".to_owned());
+    }
+    if header.twin.is_none()
+        && (header.mutation.is_some()
+            || !header.state_parity_ignore.is_empty()
+            || !header.input_parity_ignore.is_empty())
+    {
+        return Err(
+            "mutation, state_parity_ignore, and input_parity_ignore need the header's twin"
+                .to_owned(),
+        );
+    }
+    if let Some(quality) = &header.quality {
+        check_quality(quality)?;
     }
     for mode in header.modes.iter().chain(
         header
@@ -1051,6 +1086,92 @@ fn check_cost(header: &Header) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// Lowercase ASCII words of letters and digits, joined by `separator`.
+fn is_name(name: &str, separator: char) -> bool {
+    !name.is_empty()
+        && name.split(separator).all(|word| {
+            !word.is_empty()
+                && word
+                    .chars()
+                    .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit())
+        })
+}
+
+/// A scenario with a `twin` lives in the folder named after its twin's test
+/// file; one without lives in a feature-area folder named in snake_case,
+/// without the `test_` prefix that a twin's file carries.
+fn check_folder(folder: &str, header: &Header) -> Result<(), String> {
+    if header.twin.is_some() {
+        for run in runs(header) {
+            let node = twin(header, &run).unwrap_or_default();
+            let file = node
+                .split_once("::")
+                .map_or(node.as_str(), |(file, _)| file);
+            if Path::new(file).file_stem().and_then(|stem| stem.to_str()) != Some(folder) {
+                return Err(format!(
+                    "{}: the scenario belongs in the folder named after {file}",
+                    run.label
+                ));
+            }
+        }
+        return Ok(());
+    }
+    if !is_name(folder, '_') || folder.starts_with("test_") {
+        return Err(format!(
+            "a scenario without a twin lives in a feature-area folder named in snake_case \
+             without a test_ prefix, not {folder:?}"
+        ));
+    }
+    Ok(())
+}
+
+/// An object whose four ratings are 1 to 5, whose score is the one
+/// [`quality_score`] gives them, and whose note is one line.
+fn check_quality(quality: &Value) -> Result<Quality, String> {
+    if !quality.is_object() {
+        return Err(format!("quality is an object, not {quality}"));
+    }
+    let quality: Quality =
+        serde_json::from_value(quality.clone()).map_err(|error| format!("quality: {error}"))?;
+    for (name, value) in [
+        ("impact", quality.impact),
+        ("coverage", quality.coverage),
+        ("criticality", quality.criticality),
+        ("diagnostic", quality.diagnostic),
+    ] {
+        if !(1..=5).contains(&value) {
+            return Err(format!("quality {name} is 1 to 5, not {value}"));
+        }
+    }
+    let expected = quality_score(&quality);
+    if quality.score != expected {
+        return Err(format!(
+            "quality score is {expected} for these ratings, not {}",
+            quality.score
+        ));
+    }
+    // Every break Python's `str.splitlines` splits on, as the scripts read headers.
+    let breaks = [
+        '\n', '\r', '\u{b}', '\u{c}', '\u{1c}', '\u{1d}', '\u{1e}', '\u{85}', '\u{2028}',
+        '\u{2029}',
+    ];
+    if quality.note.trim().is_empty() || quality.note.contains(breaks) {
+        return Err("quality note is one non-empty line".to_owned());
+    }
+    Ok(quality)
+}
+
+/// The `qa-quality` rubric's score, 0 to 100: `100 * (coverage - 1) / 4 * P / 32`
+/// rounded half up, where `P = 3(impact - 1) + 3(criticality - 1) + 2(diagnostic - 1)`.
+fn quality_score(quality: &Quality) -> u8 {
+    let rating = |value: u8| u32::from(value) - 1;
+    let points = 3 * rating(quality.impact)
+        + 3 * rating(quality.criticality)
+        + 2 * rating(quality.diagnostic);
+    u8::try_from((50 * rating(quality.coverage) * points + 32) / 64)
+        .expect("ratings from 1 to 5 score at most 100")
 }
 
 /// `input_parity_ignore` names distinct runs of the scenario, each with
@@ -2062,10 +2183,19 @@ fn quote_path(bytes: &[u8]) -> String {
     quoted
 }
 
-/// The exact pytest node id a run ports.
-fn twin(header: &Header, run: &Run) -> String {
-    let pattern = run.variant.twin.as_deref().unwrap_or(&header.twin);
-    substitute_text(pattern, &variables(run, &placeholders()))
+/// The exact pytest node id a run ports, if the scenario has a twin.
+fn twin(header: &Header, run: &Run) -> Option<String> {
+    let pattern = run.variant.twin.as_deref().or(header.twin.as_deref())?;
+    Some(substitute_text(pattern, &variables(run, &placeholders())))
+}
+
+/// `<scenario>/<run>`, then ` (twin <node id>)` when the scenario has a twin,
+/// as the `RUN`, `PASS`, `KNOWN BUG`, and failure lines name a run.
+fn run_name(scenario: &str, header: &Header, run: &Run) -> String {
+    match twin(header, run) {
+        Some(node) => format!("{scenario}/{} (twin {node})", run.label),
+        None => format!("{scenario}/{}", run.label),
+    }
 }
 
 /// Replaces `$name` in every string of a step; longer names first so `$next` never eats `$nextish`.
@@ -4865,12 +4995,7 @@ fn run_scenario(path: &Path, label: &str) -> harness::Outcome {
     }
     let outcome = execute(&scenario, &run, &manifest);
     let header = &scenario.header;
-    let name = format!(
-        "{}/{} (twin {})",
-        header.scenario,
-        run.label,
-        twin(header, &run)
-    );
+    let name = run_name(&header.scenario, header, &run);
     let details = |heading: &str| {
         let mut lines: Vec<String> = outcome
             .errors
@@ -4915,8 +5040,12 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
         .tempdir_in("/tmp")
         .expect("the run's scratch directory should be created");
     let parity = std::env::var_os(PARITY_FIXTURES).is_some_and(|value| value == "1");
-    let parity_name =
-        |prefix: &str| parity.then(|| parity_name(prefix, &twin(&scenario.header, run)));
+    // A scenario without a twin has no counterpart to share fixture names with.
+    let parity_name = |prefix: &str| {
+        twin(&scenario.header, run)
+            .filter(|_| parity)
+            .map(|node| parity_name(prefix, &node))
+    };
     let fixed_name = scenario
         .header
         .fixture_root
@@ -6705,6 +6834,8 @@ unit_tests! {
     fixture_roots_and_baseline_steps_check_their_shape_before_the_run,
     a_skipped_scenario_names_a_reason_and_no_mutation_or_known_bug,
     a_cost_gives_each_run_label_a_positive_number,
+    a_scenario_without_a_twin_lives_in_a_feature_folder_and_names_its_runs_alone,
+    a_quality_rates_four_axes_and_its_score_follows_the_rubric,
     the_harness_starts_costly_runs_first_and_names_select_whole_scenarios,
     waiting_for_exit_wakes_on_the_exit_and_gives_up_at_the_timeout,
     no_test_attribute_hides_a_runner_test,
@@ -6755,15 +6886,14 @@ fn every_scenario_file_is_planned_and_well_formed() {
             .unwrap_or_default()
             .to_owned();
         let header = &scenario.header;
+        if let Err(error) = check_folder(&folder, header) {
+            panic!("{name}: {error}");
+        }
         for run in runs(header) {
-            let node = twin(header, &run);
+            let Some(node) = twin(header, &run) else {
+                continue;
+            };
             let (file, test) = node.split_once("::").unwrap_or((&node, ""));
-            assert_eq!(
-                Path::new(file).file_stem().and_then(|stem| stem.to_str()),
-                Some(folder.as_str()),
-                "{name}/{}: the scenario belongs in the folder named after {file}",
-                run.label
-            );
             let function = test.split('[').next().unwrap_or_default();
             let source = fs::read_to_string(Path::new(REPOSITORY).join(file)).unwrap_or_default();
             assert!(
@@ -7683,6 +7813,156 @@ fn a_cost_gives_each_run_label_a_positive_number() {
         r#","cost":[1.0,1.0]"#,
     ] {
         assert!(load(bad).is_err(), "{bad} should be rejected");
+    }
+}
+
+fn a_scenario_without_a_twin_lives_in_a_feature_folder_and_names_its_runs_alone() {
+    let directory = tempfile::tempdir().expect("a scratch directory");
+    let path = directory.path().join("example.jsonl");
+    let load = |header: &str| {
+        fs::write(&path, format!("{header}\n{{\"key\":\"Escape\"}}\n"))
+            .expect("the scenario should be written");
+        load_scenario(&path)
+    };
+    let names = |scenario: &Scenario| -> Vec<String> {
+        runs(&scenario.header)
+            .iter()
+            .map(|run| run_name("example", &scenario.header, run))
+            .collect()
+    };
+
+    let alone =
+        load(r#"{"scenario":"example","modes":["columns","list"],"variants":[{"id":"us"}]}"#)
+            .expect("a scenario without a twin should load");
+    assert_eq!(names(&alone), ["example/columns-us", "example/list-us"]);
+    assert_eq!(check_folder("hidden_files", &alone.header), Ok(()));
+    assert_eq!(check_folder("tabs", &alone.header), Ok(()));
+    for folder in [
+        "test_tabs",
+        "Hidden_files",
+        "hidden-files",
+        "hidden__files",
+        "_tabs",
+        "",
+    ] {
+        assert!(
+            check_folder(folder, &alone.header).is_err(),
+            "{folder:?} should be rejected"
+        );
+    }
+
+    let ported = load(
+        r#"{"scenario":"example","modes":["columns"],"twin":"tests/e2e/scenarios/test_tabs.py::test_x[$mode]"}"#,
+    )
+    .expect("a scenario with a twin should load");
+    assert_eq!(
+        names(&ported),
+        ["example/columns (twin tests/e2e/scenarios/test_tabs.py::test_x[columns])"]
+    );
+    assert_eq!(check_folder("test_tabs", &ported.header), Ok(()));
+    assert!(check_folder("tabs", &ported.header).is_err());
+
+    for bad in [
+        r#"{"scenario":"example","modes":["columns"],"variants":[{"id":"us","twin":"x"}]}"#,
+        r#"{"scenario":"example","modes":["columns"],"twin":null,"variants":[{"id":"us","twin":"x"}]}"#,
+        r#"{"scenario":"example","modes":["columns"],"mutation":"clipboard"}"#,
+        r#"{"scenario":"example","modes":["columns"],"state_parity_ignore":["focused"]}"#,
+        r#"{"scenario":"example","modes":["columns"],"input_parity_ignore":[{"run":"columns","events":[{"position":1,"event":"button 1 down"}]}]}"#,
+    ] {
+        assert!(load(bad).is_err(), "{bad} should be rejected");
+    }
+    let renamed = directory.path().join("Example_one.jsonl");
+    fs::write(
+        &renamed,
+        "{\"scenario\":\"Example_one\",\"modes\":[\"columns\"]}\n{\"key\":\"Escape\"}\n",
+    )
+    .expect("the scenario should be written");
+    assert!(
+        load_scenario(&renamed).is_err(),
+        "a scenario name is lowercase words joined by hyphens"
+    );
+}
+
+fn a_quality_rates_four_axes_and_its_score_follows_the_rubric() {
+    let directory = tempfile::tempdir().expect("a scratch directory");
+    let path = directory.path().join("example.jsonl");
+    let load = |quality: &str| {
+        fs::write(
+            &path,
+            format!(
+                "{{\"scenario\":\"example\",\"modes\":[\"columns\"],\"quality\":{quality}}}\n\
+                 {{\"key\":\"Escape\"}}\n"
+            ),
+        )
+        .expect("the scenario should be written");
+        load_scenario(&path).map(|scenario| {
+            scenario
+                .header
+                .quality
+                .map(|quality| check_quality(&quality))
+        })
+    };
+    let rated = |[impact, coverage, criticality, diagnostic]: [u8; 4], score: u8| {
+        format!(
+            r#"{{"impact":{impact},"coverage":{coverage},"criticality":{criticality},"diagnostic":{diagnostic},"score":{score},"note":"why it matters"}}"#
+        )
+    };
+    for (ratings, score) in [
+        ([1, 1, 1, 1], 0),
+        ([5, 1, 5, 5], 0),
+        ([1, 5, 1, 1], 0),
+        ([5, 5, 5, 5], 100),
+        ([3, 3, 3, 3], 25),
+    ] {
+        let [impact, coverage, criticality, diagnostic] = ratings;
+        assert_eq!(
+            load(&rated(ratings, score)),
+            Ok(Some(Ok(Quality {
+                impact,
+                coverage,
+                criticality,
+                diagnostic,
+                score,
+                note: "why it matters".to_owned(),
+            }))),
+            "{ratings:?} should score {score}"
+        );
+        let error = load(&rated(ratings, score + 1)).expect_err("a wrong score is rejected");
+        assert!(
+            error.contains(&format!("quality score is {score} ")),
+            "the error should name the expected score: {error}"
+        );
+    }
+    for bad in [
+        r#"{"impact":0,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"x"}"#,
+        r#"{"impact":3,"coverage":6,"criticality":3,"diagnostic":3,"score":25,"note":"x"}"#,
+        r#"{"impact":3,"coverage":3,"criticality":9,"diagnostic":3,"score":25,"note":"x"}"#,
+        r#"{"impact":3,"coverage":3,"criticality":3,"diagnostic":0,"score":25,"note":"x"}"#,
+        r#"{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":-1,"note":"x"}"#,
+        r#"{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25.0,"note":"x"}"#,
+        r#"{"impact":2.5,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"x"}"#,
+        r#"{"impact":"3","coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"x"}"#,
+        r#"{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":" "}"#,
+        r#"{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"two\nlines"}"#,
+        r#"{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"cr\rhere"}"#,
+        r#"{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"a\u000bb"}"#,
+        r#"{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"a\u000cb"}"#,
+        r#"{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"a\u001cb"}"#,
+        r#"{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"a\u001db"}"#,
+        r#"{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"a\u001eb"}"#,
+        r#"{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"a\u0085b"}"#,
+        r#"{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"a\u2028b"}"#,
+        r#"{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"a\u2029b"}"#,
+        r#"{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":3}"#,
+        r#"{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25}"#,
+        r#"{"impact":3,"coverage":3,"criticality":3,"score":25,"note":"x"}"#,
+        r#"{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"x","weight":2}"#,
+        r#"[3,3,3,3,25,"x"]"#,
+    ] {
+        assert!(
+            !matches!(load(bad), Ok(Some(Ok(_)))),
+            "{bad} should be rejected"
+        );
     }
 }
 

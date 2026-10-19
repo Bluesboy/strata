@@ -52,6 +52,28 @@ class HeaderTests(unittest.TestCase):
             updated, '{ "scenario" : "x", "cost" : {"columns":0.4} ,"modes":["columns"], "z":"}"}'
         )
 
+    def test_a_scenario_without_a_twin_is_timed_and_keeps_its_quality(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "scenarios/hidden_files").mkdir(parents=True)
+            path = root / "scenarios/hidden_files/alone.jsonl"
+            header = ('{"scenario":"alone","modes":["columns","list"],"quality":{"impact":3,'
+                      '"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"persists the toggle"}}')
+            path.write_text(header + '\n{"key":"Escape"}\n')
+            log = root / "qa.log"
+            log.write_text("\n".join([
+                "RUN alone/columns",
+                "test alone/columns ... ok <1.000s>",
+                "PASS alone/columns",
+                "test alone/list ... ok <3.000s>",
+            ]))
+            with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(write([log], root / "scenarios"), 0)
+            self.assertEqual(
+                path.read_text(),
+                header[:-1] + ',"cost":{"columns":0.5,"list":1.5}}\n{"key":"Escape"}\n',
+            )
+
     def test_a_line_that_is_not_one_json_object_is_refused(self):
         for bad in ('["x"]', '{"a":1', '{"a" 1}', '{"a":1 "b":2}'):
             with self.assertRaises(ValueError, msg=bad):

@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: MIT
 """Proves the `--qa` scenarios and their Python twins agree.
 
-For every scenario in tests/qa/scenarios/<twin test file>/ (or the ones named, each by its
-`mutation` patch or by its own name), inside the pinned container runners and
+For every scenario in tests/qa/scenarios/<folder>/ that names a `twin` (or the ones named,
+each by its `mutation` patch or by its own name), inside the pinned container runners and
 one after the other:
 
 - pass parity: both sides pass on the unmodified tree, run by run;
@@ -16,7 +16,8 @@ one after the other:
 - final-state parity: the compared keys of the final state snapshots agree.
 
 A scenario without a `mutation`, or any scenario under `--baseline`, gets
-baseline parity: pass, input, and state only.
+baseline parity: pass, input, and state only. A scenario without a `twin` has
+nothing to compare: it never runs here, and the summary lists it as "no twin".
 
 QA runs map to pytest node ids through the `(twin ...)` on their PASS and
 failed lines. Reports go to target/qa-parity: one `<unit>.md` per scenario,
@@ -102,6 +103,8 @@ class Scenario:
     input_parity_ignore: tuple[tuple[str, tuple[tuple[int, str], ...]], ...] = ()
     # Why the scenario stays out of the default QA run and out of parity.
     skip: str | None = None
+    # Whether the header names a Python twin; a scenario without one has no pair.
+    twin: bool = True
 
     @property
     def unit(self) -> str:
@@ -120,9 +123,10 @@ def scenarios() -> list[Scenario]:
             skip = skip_reason(header)
         except ValueError as error:
             raise SystemExit(f"{path}: {error}") from None
-        found.append(
-            Scenario(path.stem, header.get("mutation"), ignored, sends_input(path), positions, skip)
-        )
+        found.append(Scenario(
+            path.stem, header.get("mutation"), ignored, sends_input(path), positions, skip,
+            header.get("twin") is not None,
+        ))
     return found
 
 
@@ -949,20 +953,26 @@ def write_summary(reports: list[PairReport], elapsed: float | None, extra: list[
 # ----------------------------------------------------------------------- main
 
 def chosen_scenarios(names: list[str]) -> list[Scenario]:
-    """The named scenarios, or every one; a skipped scenario never takes part."""
+    """The named scenarios, or every one; a skipped scenario, or one without a
+    twin, never takes part."""
 
     found = [scenario_named(name) for name in names] if names else scenarios()
-    return [scenario for scenario in found if scenario.skip is None]
+    return [scenario for scenario in found if scenario.skip is None and scenario.twin]
 
 
 def skipped_lines(names: list[str]) -> list[str]:
-    """The summary's note on each skipped scenario among the chosen, with its reason."""
+    """The summary's note on each chosen scenario that takes no part: one without
+    a twin, and a skipped one with its reason."""
 
     found = [scenario_named(name) for name in names] if names else scenarios()
     return [
+        f"No twin, not compared: {scenario.name}"
+        for scenario in found
+        if not scenario.twin
+    ] + [
         f"Skipped, not compared: {scenario.name} ({scenario.skip})"
         for scenario in found
-        if scenario.skip is not None
+        if scenario.twin and scenario.skip is not None
     ]
 
 
@@ -1045,7 +1055,9 @@ def parity(names: list[str], rerun: bool = True, baseline_only: bool = False) ->
     # A report left from an earlier run must never stand in for this one.
     for stale in [OUTPUT / "summary.md"] + [OUTPUT / f"{scenario.unit}.md" for scenario in chosen]:
         stale.unlink(missing_ok=True)
-    if rerun:
+    # Nothing to run when every named scenario lacks a twin or is skipped;
+    # qa.sh without names would run them all.
+    if rerun and chosen:
         try:
             collect(chosen, baseline_only)
         except (Exception, SystemExit) as error:
@@ -1067,7 +1079,8 @@ def parity(names: list[str], rerun: bool = True, baseline_only: bool = False) ->
 PARITY_PATHS = (
     "src/", "data/", "build.rs", "Cargo.toml", "Cargo.lock",
     "tests/e2e/", "tests/qa/", "tests/qa.rs", "tests/fixtures/",
-    "scripts/qa.sh", "scripts/qa-parity.sh", "scripts/qa_parity.py",
+    "scripts/qa.sh", "scripts/lib/qa-container.sh", "scripts/qa-parity.sh",
+    "scripts/qa_parity.py",
     "scripts/e2e.sh", "scripts/e2e-native.sh", "scripts/e2e_base.py",
     "scripts/e2e_bundle.py", "scripts/e2e_images.py", ".github/workflows/ci.yml",
 )
@@ -1089,9 +1102,10 @@ def touches_parity(paths: list[str]) -> bool:
 
 def ci_units() -> list[str]:
     """What CI shards by: each mutation scenario's patch, which gets full
-    parity, and each other scenario's name, which gets baseline parity."""
+    parity, and each other scenario's name, which gets baseline parity; a
+    scenario without a twin has no pair."""
 
-    found = scenarios()
+    found = [scenario for scenario in scenarios() if scenario.twin]
     if not found:
         raise SystemExit("no QA scenarios to compare")
     patches = [scenario.mutation for scenario in found if scenario.mutation]

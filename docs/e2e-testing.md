@@ -644,13 +644,20 @@ volume. Nothing in `/tmp` outlives the container, since artifacts and the
 Cargo cache are under `/workspace/target`. The tmpfs takes the kernel's
 default limit, half of RAM; a full run at 24 threads peaked near 150 MB.
 
-A scenario is a `.jsonl` file that ports one Python test function. It lives in
-`tests/qa/scenarios/<test file>/`, the folder named after its twin's file (for
-example `tests/qa/scenarios/test_clipboard/copy-leaves-source.jsonl`); the
-runner finds every file there itself. Scenario names are unique across
-folders, and the runner's `every_scenario_file_is_planned_and_well_formed`
-test checks that, that each file sits in its twin's folder and loads, and that
-every run of every file is planned as a test. Its first line is a header:
+A scenario is a `.jsonl` file that ports one Python test function, or tests
+behaviour of its own. One with a `twin` lives in `tests/qa/scenarios/<test
+file>/`, the folder named after its twin's file (for example
+`tests/qa/scenarios/test_clipboard/copy-leaves-source.jsonl`); one without a
+`twin` is QA-only and lives in a feature-area folder named in snake_case
+(lowercase letters and digits joined by single underscores) without the
+`test_` prefix a twin's file carries, such as
+`tests/qa/scenarios/hidden_files/hidden-files-persist-across-restart.jsonl`.
+The runner finds every file there itself. Scenario names are lowercase words
+joined by hyphens, since `./scripts/qa.sh` reads `_` in a name as `-`, and are
+unique across folders; the runner's
+`every_scenario_file_is_planned_and_well_formed` test checks that, that each
+file sits in a folder its header allows and loads, and that every run of every
+file is planned as a test. Its first line is a header:
 
 ```json
 {"scenario":"arrow-keys-move-focus","modes":["columns"],"prefs":{"type_to_search":false},"layout":"us","twin":"tests/e2e/scenarios/test_keyboard_navigation.py::test_arrow_keys_move_focus_and_selection[arrows-$mode]","mutation":"keyboard-navigation","known_bug":null,"variants":[...]}
@@ -658,11 +665,30 @@ every run of every file is planned as a test. Its first line is a header:
 
 `modes` runs the file once per view, `mutation` names the patch that must make
 it fail, and `known_bug` an issue that makes a failure the expected result.
-`twin` is the exact pytest node id each run ports: `$mode` (`columns`, `icons`,
+The optional `twin` is the exact pytest node id each run ports: `$mode` (`columns`, `icons`,
 `list`) and a variant's `vars` are replaced per run, and a variant whose node
-does not fit the pattern sets its own `twin`. Every run must resolve to a
+does not fit the pattern sets its own `twin` (only when the header has one);
+`mutation`, `state_parity_ignore`, and `input_parity_ignore` also need a
+`twin`.
+Every run must resolve to a
 distinct node id, and the runner prints it beside each result, as in
-`PASS copy-leaves-source/columns-ru (twin tests/e2e/scenarios/test_clipboard.py::test_copy_leaves_the_source_in_place[columns-ru])`.
+`PASS copy-leaves-source/columns-ru (twin tests/e2e/scenarios/test_clipboard.py::test_copy_leaves_the_source_in_place[columns-ru])`;
+a run of a scenario without a `twin` is named alone, as in
+`PASS hidden-files-persist-across-restart/list`, takes a fresh fixture name
+even under `STRATA_PARITY_FIXTURES=1`, and writes `"twin":null` in its
+`result.json`.
+The optional `quality`
+(`{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"..."}`)
+rates the scenario: `impact`, `coverage`, `criticality`, and `diagnostic` are
+integers from 1 to 5, `score` an integer from 0 to 100, and `note` one
+non-empty line without any break Python's `str.splitlines` splits on
+(`\n`, `\r`, U+000B, U+000C, U+001C–U+001E, U+0085, U+2028, U+2029); the
+runner rejects any other key, a missing one, or a value out of range, and
+checks the score exactly:
+`P = 3(impact - 1) + 3(criticality - 1) + 2(diagnostic - 1)` and
+`score = (50(coverage - 1)P + 32) // 64`, a mismatch failing the load with the
+expected score. The `qa-quality` agent skill (`.agents/skills/qa-quality/`)
+defines what the ratings mean.
 A `skip` (`"skip":"<reason>"`) keeps a scenario without a `mutation` or
 `known_bug` out of the default `./scripts/qa.sh` run, which prints
 `SKIPPED <scenario> (run it by name): <reason>` in its place, and out of
@@ -1142,6 +1168,55 @@ Xvfb log, `state.json` (the `app` snapshot after the last step, taken once two
 reads 250 ms apart agree, at most five seconds), and `result.json` (the run's
 twin, errors, and each failed step with its line).
 
+### Driving a session by hand
+
+`scripts/qa-drive.sh` keeps one `strata --qa` session open in the pinned
+image, for checking a change interactively before (or instead of) writing a
+scenario. `start` starts a detached container with the same engine, image,
+mounts, account files, and `target/e2e-container` cache as `scripts/qa.sh`
+(both take them from `scripts/lib/qa-container.sh`), makes the
+build `qa.sh` makes (`cargo test --features qa --test qa --no-run`), seeds a
+fresh HOME, XDG directories, and fixture from `tests/fixtures/harness.json` as
+the runner does, starts Xvfb on `:90`, and launches the application in the
+fixture with the runner's environment; it prints the launch reply. A start
+that fails at any point removes its container. Each later subcommand is a
+short `docker exec` (or `podman exec`) that returns at once:
+
+```bash
+./scripts/qa-drive.sh start --tree '{"notes":{"plan.txt":"plan\n"}}' --pref browser_mode=list
+./scripts/qa-drive.sh send '{"select":{"entry":"notes"}}' '{"query":"state"}'
+./scripts/qa-drive.sh screenshot menu.png      # target/qa-drive/menu.png
+./scripts/qa-drive.sh restart --pref text_size=large
+./scripts/qa-drive.sh exec 'ls -A; cat "$XDG_CONFIG_HOME/strata/settings.toml"'
+./scripts/qa-drive.sh log
+./scripts/qa-drive.sh stop                      # removes the container
+```
+
+`send` writes each process command on the application's stdin and prints its
+one-line reply, waiting 90 s, or the command's `timeout_ms` plus 30 s; it
+reports a process that exited with its log tail. Replies are matched to
+commands by number, so the reply to a command whose wait gave up is skipped
+when it comes, never printed as a later command's. Runner steps (`fs`, `layout`,
+`screenshot`, `restart`, and the others marked "runner" above) are not process
+commands: use the subcommands, or a scenario. `--tree` takes a tree as the
+manifest writes one (a name, or JSON, or `@file`), `--pref KEY=VALUE` changes a
+seeded preference (the value is JSON, or else a string), `--env NAME=VALUE`
+adds a variable, and `--bus` starts the runner's private session bus in place
+of the address that cannot connect. `exec` runs a shell command in the
+fixture with the session's HOME, XDG directories, display, runtime directory,
+and bus. `restart` closes the application's stdin, signals its group if it
+has not quit within ten seconds (the runner's `EXIT_TIMEOUT` and
+`TERMINATE_GRACE`), rewrites the given
+preferences in its saved `settings.toml`, and launches it again on the same
+fixture and HOME. Every exchange is appended to
+`target/qa-drive/transcript.jsonl` in the artifacts' transcript format, and the
+input log, build log, screenshots, and (after `stop`) application log land in
+`target/qa-drive/`, which `start` empties. There is one session per checkout,
+and it shares the build cache, so never run it while `scripts/qa.sh` runs.
+The values it copies from `tests/qa.rs` (the QA environment, XDG layout,
+Xvfb arguments, bus configuration, and timeouts) are checked by
+`scripts/test_qa_drive.py`.
+
 ### Input log
 
 With `STRATA_INPUT_LOG=<path>` the process appends every synthetic event it
@@ -1212,7 +1287,10 @@ read under the suffixed one); a planned run with no
 result line, a `KNOWN BUG` result, a missing `result.json`, or a `qa.sh` exit
 status its results do not account for is a disagreement. A scenario with a
 `mutation` is held to all five checks; one without, or any scenario under
-`--baseline`, to baseline parity: pass, input, and state.
+`--baseline`, to baseline parity: pass, input, and state. A scenario without a
+`twin` has nothing to compare: parity never runs it, CI shards leave it out,
+and the summary lists it as `No twin, not compared: <scenario>`, so naming
+only such scenarios runs nothing.
 
 | Check | Holds when |
 | --- | --- |

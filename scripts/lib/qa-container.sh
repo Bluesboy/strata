@@ -1,0 +1,80 @@
+# shellcheck shell=bash
+# Sourced by scripts/qa.sh and scripts/qa-drive.sh: the engine, pinned image,
+# account files, and run options both use, so a session driven by hand runs
+# exactly where the QA scenarios run. Each function sets variables for its
+# caller; $repository must name the checkout.
+
+# Sets engine: STRATA_CONTAINER_ENGINE, else Podman when installed, else Docker.
+qa_container_engine() {
+  engine="${STRATA_CONTAINER_ENGINE:-}"
+  if [[ -z "$engine" ]]; then
+    if command -v podman >/dev/null 2>&1; then engine=podman; else engine=docker; fi
+  fi
+}
+
+# Sets engine, cargo_cache, image, user_id, group_id, and accounts, or exits.
+qa_container_prepare() {
+  qa_container_engine
+  if ! command -v "$engine" >/dev/null 2>&1; then
+    echo "QA scenarios require Docker or Podman; see docs/e2e-testing.md" >&2
+    exit 1
+  fi
+
+  # CI points the Cargo home and target directory at the restored quality cache,
+  # which `--all-features` built in the same image ("QA in CI", docs/e2e-testing.md).
+  cargo_cache="$(realpath -m --relative-to="$repository" "${STRATA_E2E_CARGO_CACHE:-$repository/target/e2e-container}")"
+  if [[ "$cargo_cache" != target/* ]]; then
+    echo "STRATA_E2E_CARGO_CACHE must name a directory under the checkout's target/." >&2
+    exit 1
+  fi
+
+  image="${STRATA_E2E_IMAGE:-}"
+  if [[ -z "$image" ]]; then
+    image="$(python3 "$repository/scripts/e2e_base.py" ensure --engine "$engine")"
+  else
+    image="$(python3 "$repository/scripts/e2e_base.py" verify "$image" --engine "$engine")"
+  fi
+
+  user_id="$(id -u)"
+  group_id="$(id -g)"
+  accounts="$repository/target/e2e-container/accounts-$user_id-$group_id"
+  mkdir -p "$accounts"
+  printf 'root:x:0:0:root:/root:/bin/sh\n' > "$accounts/passwd"
+  printf 'root:x:0:\n' > "$accounts/group"
+  if [[ "$user_id" != 0 ]]; then
+    printf 'strata-e2e:x:%s:%s:E2E:/tmp/strata-build-home:/bin/sh\n' "$user_id" "$group_id" >> "$accounts/passwd"
+  fi
+  if [[ "$group_id" != 0 ]]; then
+    printf 'strata-e2e:x:%s:\n' "$group_id" >> "$accounts/group"
+  fi
+}
+
+# Sets options: the arguments given, then the shared run options.
+qa_container_options() {
+  # Every run writes its fixture, HOME, and fonts under /tmp; a tmpfs keeps
+  # those writes and their fsyncs off the image's overlay. Nothing there outlives
+  # the container: artifacts and the Cargo cache are under /workspace.
+  options=("$@" --platform=linux/amd64 --user "$user_id:$group_id" --shm-size=512m
+    --tmpfs /tmp:rw,exec,mode=1777)
+  if [[ "$(basename "$engine")" == podman ]]; then
+    options+=(--userns=keep-id --passwd=false --security-opt 'unmask=/proc/*')
+  else
+    options+=(--security-opt systempaths=unconfined --security-opt seccomp=unconfined --security-opt apparmor=unconfined)
+  fi
+}
+
+# Sets mounts: the checkout, the account files, the working directory, and
+# the build environment every QA container gets.
+qa_container_mounts() {
+  mounts=(
+    --mount "type=bind,source=$repository,target=/workspace"
+    --mount "type=bind,source=$accounts/passwd,target=/etc/passwd,readonly"
+    --mount "type=bind,source=$accounts/group,target=/etc/group,readonly"
+    --workdir /workspace
+    --env HOME=/tmp/strata-build-home
+    --env "CARGO_HOME=/workspace/$cargo_cache/cargo"
+    --env "CARGO_TARGET_DIR=/workspace/$cargo_cache/build"
+    --env CARGO_PROFILE_DEV_DEBUG=0 --env CARGO_INCREMENTAL=0
+    --env STRATA_QA_CONTAINER=1
+  )
+}
