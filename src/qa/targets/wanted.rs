@@ -42,6 +42,7 @@ pub(crate) fn has_state(widget: &gtk::Widget, state: StateName) -> bool {
         StateName::Sensitive => now.sensitive,
         StateName::Selectable => now.selectable,
         StateName::Editable => now.editable,
+        StateName::Busy => now.busy,
         StateName::Horizontal => orientation == Some(gtk::Orientation::Horizontal),
         StateName::Vertical => orientation == Some(gtk::Orientation::Vertical),
     }

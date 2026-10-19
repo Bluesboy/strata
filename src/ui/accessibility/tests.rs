@@ -76,6 +76,7 @@ fn qa_reads_back_what_the_naming_helpers_set() {
                     checked: None,
                     pressed: None,
                     selected: None,
+                    busy: None,
                 })
             );
 
@@ -106,6 +107,14 @@ fn qa_reads_back_what_the_naming_helpers_set() {
             assert_eq!(
                 qa::labelled_by(&option),
                 [title.upcast::<gtk::Widget>(), option.upcast()]
+            );
+
+            let picture = gtk::Picture::new();
+            set_busy(&picture, true);
+            set_busy(&picture, false);
+            assert_eq!(
+                qa::naming(&picture).and_then(|naming| naming.busy),
+                Some(false)
             );
         },
     );

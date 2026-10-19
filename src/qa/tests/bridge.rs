@@ -17,9 +17,10 @@ fn a_native_toggle_reports_its_own_state_over_a_recorded_one() {
             crate::ui::accessibility_qa::record(&plain, |naming| {
                 naming.pressed = Some(true);
                 naming.checked = Some(true);
+                naming.busy = Some(true);
             });
             let states = targets::states(plain.upcast_ref());
-            assert!(states.pressed && states.checked);
+            assert!(states.pressed && states.checked && states.busy);
 
             let switch = gtk::Switch::new();
             switch.set_active(true);

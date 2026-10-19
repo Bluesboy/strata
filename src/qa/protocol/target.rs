@@ -625,6 +625,7 @@ pub(crate) enum StateName {
     Sensitive,
     Selectable,
     Editable,
+    Busy,
     Horizontal,
     Vertical,
 }

@@ -14,8 +14,8 @@
 {"key":"F5"}
 {"wait":{"replaced":{"target":{"entry":"rename-target"},"since":"listed"}},"message":"F5's reload to rebuild the row"}
 {"wait":{"entry":"rename-target"},"message":"the entry 'rename-target' to appear"}
-{"select":{"entry":"rename-target"},"variants":["Columns"]}
-{"click":{"entry":"rename-target"},"count":2,"variants":["List"]}
+{"select_with_keyboard":"rename-target"}
+{"key":"Return"}
 {"wait":{"directory":"rename-target"},"message":"the browser to be working in 'rename-target'"}
 {"settle":{"pane":"rename-target"}}
 {"key":"Home"}

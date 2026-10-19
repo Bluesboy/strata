@@ -265,7 +265,7 @@ through a painted frame unchanged.
 | `{"background":true,"dir":...}` | An empty point in a pane (a point; takes no `at`). |
 | `{"container":"archive"}` | The list or grid inside a pane. |
 | `{"viewport":null}` | The scroll viewport around a pane's entry list. |
-| `{"role":"button","name":"Settings"}` | By role and accessible name. Options: `"nth":-1`, `"name_ends_with":["/a"]`, `"name_matches":"^\\d+$"` (regex), `"description":...`, `"states":["selected"]` (also `focused`, `checked`, `pressed`, `sensitive`, `horizontal`, `vertical`), `"within":TARGET`, `"has":{role target}` (a match containing that widget), `"rendered":false` (presented but maybe scrolled away). `role` may be a list, or `*` for any. |
+| `{"role":"button","name":"Settings"}` | By role and accessible name. Options: `"nth":-1`, `"name_ends_with":["/a"]`, `"name_matches":"^\\d+$"` (regex), `"description":...`, `"states":["selected"]` (also `focused`, `checked`, `pressed`, `sensitive`, `busy`, `horizontal`, `vertical`), `"within":TARGET`, `"has":{role target}` (a match containing that widget), `"rendered":false` (presented but maybe scrolled away). `role` may be a list, or `*` for any. |
 | `{"named":"Apply to All","within":{"dialog":true}}` | Any role by name, inside another target. |
 | `{"menu_item":"New File"}` | A menu item, in the open menu if there is one. |
 | `{"sidebar":"Home"}`, `{"header":"Choose sort field"}` | A sidebar place; a column header button. |
@@ -342,7 +342,7 @@ pane name) where the check reads a pane.
 | `{"present":TARGET}`, `{"absent":TARGET}` | Found on screen, or not found or not on screen. |
 | `{"presented":TARGET}` | Found, even scrolled away. |
 | `{"on_screen":TARGET}` | Within the window's height. |
-| `{"state":{"target":T,"selected":true,"focused":false,"checked":false,"pressed":true,"sensitive":true}}` | Each given state matches; also `selectable`, `editable`, `focusable`. An active switch is `pressed` and `checked`. |
+| `{"state":{"target":T,"selected":true,"focused":false,"checked":false,"pressed":true,"sensitive":true}}` | Each given state matches; also `selectable`, `editable`, `focusable`, and `busy` (what `accessibility::set_busy` recorded). An active switch is `pressed` and `checked`. |
 | `{"name":{"target":T,"text":"0:05"}}`, `{"text":{"target":T,"text":"..."}}`, `{"description":{"target":T,"text":"Ctrl+C"}}` | Accessible name, text content, or description, exactly or as a pattern (`{"contains":...}`). |
 | `{"mentions":{"target":T,"text":"..."}}` | Some name or description in the subtree contains the text; `"role":"label"` limits it; `"words":"a b"` allows any whitespace; `"equals"` matches a whole collapsed name. |
 | `{"subtree_text":{"target":T,"contains":"...","strip_newlines":true}}` | The subtree's joined text contains the part. |

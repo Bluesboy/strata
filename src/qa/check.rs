@@ -113,6 +113,7 @@ impl Controller {
                         (check.selectable, states.selectable),
                         (check.editable, states.editable),
                         (check.focusable, states.focusable),
+                        (check.busy, states.busy),
                     ];
                     verdict(
                         wanted
@@ -127,6 +128,7 @@ impl Controller {
                             "selectable": states.selectable,
                             "editable": states.editable,
                             "focusable": states.focusable,
+                            "busy": states.busy,
                         }),
                     )
                 }

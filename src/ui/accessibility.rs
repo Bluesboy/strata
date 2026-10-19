@@ -128,6 +128,12 @@ pub(super) fn set_pressed(widget: &impl IsA<gtk::Accessible>, pressed: bool) {
     qa::record(widget, |naming| naming.pressed = Some(pressed));
 }
 
+pub(super) fn set_busy(widget: &impl IsA<gtk::Accessible>, busy: bool) {
+    widget.update_state(&[gtk::accessible::State::Busy(busy)]);
+    #[cfg(feature = "qa")]
+    qa::record(widget, |naming| naming.busy = Some(busy));
+}
+
 /// Option rows show their chosen state by toggling a check icon from several
 /// places; mirroring the icon keeps the accessible state from drifting. The
 /// icon's own `visible` property is read because the closed popover hides
@@ -181,6 +187,7 @@ pub(super) fn describe_entry(item: &gtk::ListItem, display_name: &str, entry: Op
             checked: naming.checked,
             pressed: naming.pressed,
             selected: naming.selected,
+            busy: naming.busy,
         };
     });
 }
@@ -230,6 +237,7 @@ pub(super) fn describe_pane(pane: &impl IsA<gtk::Accessible>, directory: &str, m
             checked: naming.checked,
             pressed: naming.pressed,
             selected: naming.selected,
+            busy: naming.busy,
         };
     });
 }
@@ -251,6 +259,7 @@ pub(super) fn describe_entry_container(container: &impl IsA<gtk::Accessible>, di
             checked: naming.checked,
             pressed: naming.pressed,
             selected: naming.selected,
+            busy: naming.busy,
         };
     });
 }
@@ -277,6 +286,7 @@ pub(super) fn describe_pane_surface(
             checked: naming.checked,
             pressed: naming.pressed,
             selected: naming.selected,
+            busy: naming.busy,
         };
     });
 }
@@ -315,6 +325,7 @@ pub(super) fn describe_menu_item(
             checked: naming.checked,
             pressed: naming.pressed,
             selected: naming.selected,
+            busy: naming.busy,
         };
     });
 }

@@ -25,6 +25,7 @@ pub(crate) struct Naming {
     pub(crate) checked: Option<bool>,
     pub(crate) pressed: Option<bool>,
     pub(crate) selected: Option<bool>,
+    pub(crate) busy: Option<bool>,
 }
 
 struct Record {

@@ -15,6 +15,7 @@ pub(crate) struct States {
     pub(crate) selectable: bool,
     pub(crate) editable: bool,
     pub(crate) focusable: bool,
+    pub(crate) busy: bool,
 }
 
 pub(crate) fn states(widget: &gtk::Widget) -> States {
@@ -80,6 +81,10 @@ pub(crate) fn states(widget: &gtk::Widget) -> States {
             })
             .unwrap_or(false),
         focusable: widget.is_focusable(),
+        busy: recorded
+            .as_ref()
+            .and_then(|naming| naming.busy)
+            .unwrap_or(false),
     }
 }
 
