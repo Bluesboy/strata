@@ -1,4 +1,4 @@
-{"scenario":"tenxer-sidebar-header-round-trips","modes":["columns"],"prefs":{"tenxer_mode":true,"type_to_search":false},"layout":"us","twin":"tests/e2e/scenarios/test_keyboard_navigation.py::test_tenxer_sidebar_and_header_round_trips","mutation":null,"known_bug":null,"cost":{"columns":4.5}}
+{"scenario":"tenxer-sidebar-header-round-trips","modes":["columns"],"prefs":{"tenxer_mode":true,"type_to_search":false},"layout":"us","twin":"tests/e2e/scenarios/test_keyboard_navigation.py::test_tenxer_sidebar_and_header_round_trips","mutation":null,"known_bug":null,"cost":{"columns":4.5},"quality":{"impact":3,"coverage":3,"criticality":3,"diagnostic":2,"score":22,"note":"Keyboard header-toggle compact/hide and Ctrl+Shift+B focus; same sequence repeated per view, only QA use of the toggle's keyboard route"}}
 {"fs":{"path":"empty-sidebar","mkdir":true}}
 {"wait":{"entry":"empty-sidebar"},"message":"the entry 'empty-sidebar' to appear"}
 {"key":"ctrl+1"}

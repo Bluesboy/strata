@@ -1,4 +1,4 @@
-{"scenario":"columns-home-end-mirror","modes":["columns"],"prefs":{"single_click_previews":false},"layout":"us","twin":"tests/e2e/scenarios/test_keyboard_navigation.py::test_columns_home_and_end_mirror_the_cursor","mutation":null,"known_bug":null,"cost":{"columns":0.6}}
+{"scenario":"columns-home-end-mirror","modes":["columns"],"prefs":{"single_click_previews":false},"layout":"us","twin":"tests/e2e/scenarios/test_keyboard_navigation.py::test_columns_home_and_end_mirror_the_cursor","mutation":null,"known_bug":null,"cost":{"columns":0.6},"quality":{"impact":3,"coverage":3,"criticality":4,"diagnostic":4,"score":33,"note":"Columns Home/End and Up mirror the cursor and close the stale child column; only Home/End route in Columns, arrow-keys cover Up/Down"}}
 {"select_with_keyboard":"documents"}
 {"wait":{"panes":["$root","documents"]},"message":"the child column to open"}
 {"key":"End"}

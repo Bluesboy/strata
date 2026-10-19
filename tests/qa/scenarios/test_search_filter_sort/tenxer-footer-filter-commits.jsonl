@@ -1,4 +1,4 @@
-{"scenario":"tenxer-footer-filter-commits","modes":["columns","icons","list"],"prefs":{"tenxer_mode":true,"type_to_search":false,"single_click_previews":false,"filter_include_subfolders":false},"layout":"us","twin":"tests/e2e/scenarios/test_search_filter_sort.py::test_tenxer_footer_filter_commits_reopens_and_clears[$mode]","mutation":null,"known_bug":null,"cost":{"columns":0.6,"icons":0.6,"list":0.6}}
+{"scenario":"tenxer-footer-filter-commits","modes":["columns","icons","list"],"prefs":{"tenxer_mode":true,"type_to_search":false,"single_click_previews":false,"filter_include_subfolders":false},"layout":"us","twin":"tests/e2e/scenarios/test_search_filter_sort.py::test_tenxer_footer_filter_commits_reopens_and_clears[$mode]","mutation":null,"known_bug":null,"cost":{"columns":0.6,"icons":0.6,"list":0.6},"quality":{"impact":2,"coverage":3,"criticality":3,"diagnostic":4,"score":23,"note":"Footer filter committed by Enter, reopened with f pre-filled, then Escape clears it; only scenario reopening a committed filter to clear"}}
 {"select":{"entry":"readme.md","dir":"$root"}}
 {"key":"f"}
 {"wait":{"field":{}},"message":"an editable field to take focus"}

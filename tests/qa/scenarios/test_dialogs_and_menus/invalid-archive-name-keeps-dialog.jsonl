@@ -1,4 +1,4 @@
-{"scenario":"invalid-archive-name-keeps-dialog","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_dialogs_and_menus.py::test_an_invalid_archive_name_keeps_the_compress_dialog_open","mutation":null,"known_bug":null,"cost":{"columns":0.9}}
+{"scenario":"invalid-archive-name-keeps-dialog","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_dialogs_and_menus.py::test_an_invalid_archive_name_keeps_the_compress_dialog_open","mutation":null,"known_bug":null,"cost":{"columns":0.9},"quality":{"impact":3,"coverage":3,"criticality":3,"diagnostic":4,"score":28,"note":"Invalid archive name typed in Compress dialog keeps it open with no archive; provider escape rejection is unit-tested, dialog Return route only here"}}
 {"click":{"entry":"readme.md"},"button":3}
 {"wait":{"menu_items":{}},"message":"the context menu for 'readme.md'"}
 {"wait":{"present":{"menu_item":"Compress…"}},"message":"the menu item 'Compress…'"}

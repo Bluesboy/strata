@@ -1,4 +1,4 @@
-{"scenario":"list-transfer-reveal-selects-copy","modes":["list"],"prefs":{"browser_mode":"list"},"layout":"us","twin":"tests/e2e/scenarios/test_dialogs_and_menus.py::test_list_transfer_reveal_into_a_visited_folder_selects_the_copy","mutation":null,"known_bug":null,"cost":{"list":2.3}}
+{"scenario":"list-transfer-reveal-selects-copy","modes":["list"],"prefs":{"browser_mode":"list"},"layout":"us","twin":"tests/e2e/scenarios/test_dialogs_and_menus.py::test_list_transfer_reveal_into_a_visited_folder_selects_the_copy","mutation":null,"known_bug":null,"cost":{"list":2.3},"quality":{"impact":2,"coverage":3,"criticality":3,"diagnostic":3,"score":20,"note":"Copy to chooser copy into a visited folder in List selects the copy; only selection-after-transfer check (floating-chooser-transfers-files covers copy in Columns)"}}
 {"click":{"entry":"documents"},"count":2}
 {"wait":{"directory":"documents"},"message":"the browser to be working in 'documents'"}
 {"settle":{"pane":"documents"}}

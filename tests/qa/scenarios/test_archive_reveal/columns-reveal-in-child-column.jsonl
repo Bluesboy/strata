@@ -1,4 +1,4 @@
-{"scenario":"columns-reveal-in-child-column","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_archive_reveal.py::test_columns_reveals_archive_in_active_child_column","mutation":null,"known_bug":null,"tree":{"nested":{"{000..199}.txt":"{}\n"},"a":{"b":{"c":{"d":{"{000..199}.txt":"{}\n"}}}},"{000..199}.txt":"{}\n"},"cost":{"columns":1.8}}
+{"scenario":"columns-reveal-in-child-column","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_archive_reveal.py::test_columns_reveals_archive_in_active_child_column","mutation":null,"known_bug":null,"tree":{"nested":{"{000..199}.txt":"{}\n"},"a":{"b":{"c":{"d":{"{000..199}.txt":"{}\n"}}}},"{000..199}.txt":"{}\n"},"cost":{"columns":1.8},"quality":{"impact":3,"coverage":2,"criticality":3,"diagnostic":3,"score":13,"note":"Compress via right-click in active child column; columns-reveal-in-parent/deep-column cover the same route and archive-on-screen check"}}
 {"wait":{"view_mode":"Columns"},"message":"the browser to switch to the Columns view"}
 {"select":{"entry":"nested"}}
 {"wait":{"directory":"nested"},"message":"the browser to be working in 'nested'"}

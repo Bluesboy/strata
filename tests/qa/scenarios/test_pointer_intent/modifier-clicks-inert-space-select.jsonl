@@ -1,4 +1,4 @@
-{"scenario":"modifier-clicks-inert-space-select","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_pointer_intent.py::test_modifier_clicks_on_inert_space_still_select[$mode]","mutation":null,"known_bug":null,"cost":{"columns":1.2,"icons":1.2,"list":1.2}}
+{"scenario":"modifier-clicks-inert-space-select","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_pointer_intent.py::test_modifier_clicks_on_inert_space_still_select[$mode]","mutation":null,"known_bug":null,"cost":{"columns":1.2,"icons":1.2,"list":1.2},"quality":{"impact":3,"coverage":3,"criticality":3,"diagnostic":4,"score":28,"note":"Ctrl/Shift press on inert row space selects in columns and list; leftover-click-honors-modifiers covers the release-first path, icons route duplicates control-click"}}
 {"fs":{"path":"full","mkdir":true}}
 {"fs":{"path":"full/{000..179}.txt","write":"{}\n"}}
 {"select":{"entry":"full"},"modes":["columns"]}

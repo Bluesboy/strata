@@ -1,4 +1,4 @@
-{"scenario":"thumbnail-workers-stepper-persists","modes":["columns"],"prefs":{"thumbnail_workers":16},"layout":"us","twin":"tests/e2e/scenarios/test_thumbnail_worker_settings.py::test_thumbnail_workers_stepper_persists_changes_and_resets","mutation":null,"known_bug":null,"cost":{"columns":1.4}}
+{"scenario":"thumbnail-workers-stepper-persists","modes":["columns"],"prefs":{"thumbnail_workers":16},"layout":"us","twin":"tests/e2e/scenarios/test_thumbnail_worker_settings.py::test_thumbnail_workers_stepper_persists_changes_and_resets","mutation":null,"known_bug":null,"cost":{"columns":1.4},"quality":{"impact":2,"coverage":3,"criticality":3,"diagnostic":4,"score":23,"note":"Settings stepper writes thumbnail_workers live and reset restores CPU default; GUI route unique, unit tests pin only the preference"}}
 {"activate":{"role":"button","name":"Settings"}}
 {"wait":{"present":{"role":"text","name":"Search settings"}},"message":"settings search"}
 {"click":{"role":"text","name":"Search settings"}}

@@ -1,4 +1,4 @@
-{"scenario":"columns-reveal-in-deep-column","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_archive_reveal.py::test_columns_reveals_archive_in_deeply_nested_column","mutation":null,"known_bug":null,"tree":{"nested":{"{000..199}.txt":"{}\n"},"a":{"b":{"c":{"d":{"{000..199}.txt":"{}\n"}}}},"{000..199}.txt":"{}\n"},"cost":{"columns":2.7}}
+{"scenario":"columns-reveal-in-deep-column","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_archive_reveal.py::test_columns_reveals_archive_in_deeply_nested_column","mutation":null,"known_bug":null,"tree":{"nested":{"{000..199}.txt":"{}\n"},"a":{"b":{"c":{"d":{"{000..199}.txt":"{}\n"}}}},"{000..199}.txt":"{}\n"},"cost":{"columns":2.7},"quality":{"impact":2,"coverage":2,"criticality":3,"diagnostic":3,"score":10,"note":"Archive reveal after Compress in a column four levels deep; child and parent reveal scenarios share the route, only the depth differs"}}
 {"wait":{"view_mode":"Columns"},"message":"the browser to switch to the Columns view"}
 {"select":{"entry":"a"}}
 {"wait":{"directory":"a"},"message":"the browser to be working in 'a'"}

@@ -1,4 +1,4 @@
-{"scenario":"skipping-one-collision-pastes-rest","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_clipboard.py::test_skipping_one_collision_still_pastes_the_rest","mutation":null,"known_bug":null,"cost":{"columns":1.3}}
+{"scenario":"skipping-one-collision-pastes-rest","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_clipboard.py::test_skipping_one_collision_still_pastes_the_rest","mutation":null,"known_bug":null,"cost":{"columns":1.3},"quality":{"impact":5,"coverage":1,"criticality":3,"diagnostic":4,"score":0,"note":"Skip keeps the existing file and pastes the rest; GTK test skipping_the_only_collision_still_transfers_accepted_items asserts the same outcome, and Ctrl+V paste is covered by other clipboard scenarios"}}
 {"fs":{"path":"archive/notes.txt","write":"existing\n"}}
 {"select":{"entry":"documents"}}
 {"wait":{"directory":"documents"},"message":"the browser to be working in 'documents'"}

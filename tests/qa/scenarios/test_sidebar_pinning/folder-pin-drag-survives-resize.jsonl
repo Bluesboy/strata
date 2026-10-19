@@ -1,4 +1,4 @@
-{"scenario":"folder-pin-drag-survives-resize","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_sidebar_pinning.py::test_folder_pin_drag_survives_sidebar_shrinking_and_expanding[$mode]","mutation":null,"known_bug":null,"cost":{"columns":1.7,"icons":1.7,"list":1.7}}
+{"scenario":"folder-pin-drag-survives-resize","modes":["columns","icons","list"],"layout":"us","twin":"tests/e2e/scenarios/test_sidebar_pinning.py::test_folder_pin_drag_survives_sidebar_shrinking_and_expanding[$mode]","mutation":null,"known_bug":null,"cost":{"columns":1.7,"icons":1.7,"list":1.7},"quality":{"impact":3,"coverage":3,"criticality":3,"diagnostic":4,"score":28,"note":"Folder pin drag kept across sidebar resize and restart; source unmoved; pin route only, chooser resize scenario covers the chooser route"}}
 {"wait":{"present":{"role":"grouping","name":"PINNED"}},"message":"the Pinned insertion targets"}
 {"drag":{"from":{"entry":"archive"},"to":{"role":"grouping","name":"PINNED","nth":-1}},"release":false}
 {"resize":{"width":400}}

@@ -1,4 +1,4 @@
-{"scenario":"rename-commits-on-enter","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_inline_renaming.py::test_leaving_a_valid_name_commits_it[enter-existing-file-columns]","mutation":"rename-enter","known_bug":null,"cost":{"columns":0.9}}
+{"scenario":"rename-commits-on-enter","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_inline_renaming.py::test_leaving_a_valid_name_commits_it[enter-existing-file-columns]","mutation":"rename-enter","known_bug":null,"cost":{"columns":0.9},"quality":{"impact":4,"coverage":2,"criticality":4,"diagnostic":4,"score":19,"note":"Return commits a Columns rename of an existing file; valid-name-commits-remaining covers Columns Enter for new names, click-away covers the pointer route"}}
 {"select":{"entry":"readme.md"}}
 {"select_with_keyboard":"todo.txt"}
 {"key":"F2"}

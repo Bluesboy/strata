@@ -1,4 +1,4 @@
-{"scenario":"rename-from-context-menu","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_entry_management.py::test_rename_from_the_context_menu","mutation":null,"known_bug":null,"cost":{"columns":0.8}}
+{"scenario":"rename-from-context-menu","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_entry_management.py::test_rename_from_the_context_menu","mutation":null,"known_bug":null,"cost":{"columns":0.8},"quality":{"impact":3,"coverage":3,"criticality":3,"diagnostic":4,"score":28,"note":"Context-menu Rename item then Enter renames on disk; only context-menu route to rename, rename-shortcuts covers F2/ctrl+r"}}
 {"click":{"entry":"readme.md"},"button":3}
 {"wait":{"menu_items":{}},"message":"the context menu for 'readme.md'"}
 {"wait":{"present":{"menu_item":"Rename"}},"message":"the menu item 'Rename'"}

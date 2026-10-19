@@ -1,4 +1,4 @@
-{"scenario":"new-items-in-empty-directory","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_entry_management.py::test_new_items_can_be_created_in_an_initially_empty_directory[$kind]","mutation":null,"known_bug":null,"variants":[{"id":"file","vars":{"kind":"file"}},{"id":"folder","vars":{"kind":"folder"}}],"cost":{"columns-file":1.5,"columns-folder":1.1}}
+{"scenario":"new-items-in-empty-directory","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_entry_management.py::test_new_items_can_be_created_in_an_initially_empty_directory[$kind]","mutation":null,"known_bug":null,"variants":[{"id":"file","vars":{"kind":"file"}},{"id":"folder","vars":{"kind":"folder"}}],"cost":{"columns-file":1.5,"columns-folder":1.1},"quality":{"impact":3,"coverage":3,"criticality":3,"diagnostic":3,"score":25,"note":"New file and folder in an empty directory via shortcut and context menu, rename-on-create and discard; GUI empty-state path, fs creation unit-tested in create_entry.rs"}}
 {"select":{"entry":"archive"}}
 {"wait":{"directory":"archive"},"message":"the browser to be working in 'archive'"}
 {"settle":{"pane":"archive"}}

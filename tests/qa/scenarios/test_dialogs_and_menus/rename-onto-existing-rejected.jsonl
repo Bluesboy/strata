@@ -1,4 +1,4 @@
-{"scenario":"rename-onto-existing-rejected","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_dialogs_and_menus.py::test_renaming_onto_an_existing_name_is_rejected","mutation":"rename-error-dialog","known_bug":null,"cost":{"columns":0.8}}
+{"scenario":"rename-onto-existing-rejected","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_dialogs_and_menus.py::test_renaming_onto_an_existing_name_is_rejected","mutation":"rename-error-dialog","known_bug":null,"cost":{"columns":0.8},"quality":{"impact":5,"coverage":3,"criticality":4,"diagnostic":4,"score":42,"note":"Columns F2 rename onto an existing name shows the Unable to rename item dialog and keeps both files; overlaps the footer inline-conflict scenario in tenxer mode only in refusal, not in the dialog route"}}
 {"select":{"entry":"todo.txt"}}
 {"key":"F2"}
 {"wait":{"field":{}},"message":"an editable field to take focus"}

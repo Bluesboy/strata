@@ -1,4 +1,4 @@
-{"scenario":"drop-on-partially-visible-column","modes":["columns"],"prefs":{"single_click_previews":false},"layout":"us","twin":"tests/e2e/scenarios/test_drag_and_drop.py::test_dropping_on_partially_visible_column_moves_file_without_jumping","mutation":null,"known_bug":null,"cost":{"columns":1.1}}
+{"scenario":"drop-on-partially-visible-column","modes":["columns"],"prefs":{"single_click_previews":false},"layout":"us","twin":"tests/e2e/scenarios/test_drag_and_drop.py::test_dropping_on_partially_visible_column_moves_file_without_jumping","mutation":null,"known_bug":null,"cost":{"columns":1.1},"quality":{"impact":3,"coverage":2,"criticality":4,"diagnostic":3,"score":15,"note":"Drop on a partly visible column in a narrow window moves the file; drag-to-column overlaps strip-edge-scrolls-columns-in; no-jump check is only a pane-exists wait"}}
 {"fs":{"path":"documents/deep","mkdir":true,"parents":true}}
 {"fs":{"path":"documents/deep/cargo.txt","write":"cargo\n"}}
 {"resize":{"width":640,"height":360}}
