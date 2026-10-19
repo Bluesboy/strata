@@ -64,6 +64,9 @@ class QualityRunnerTests(unittest.TestCase):
         self.assertIn("STRATA_QUALITY_TASK", args)
         self.assertIn("STRATA_QUALITY_SHARD", args)
         self.assertTrue(any(arg.startswith("STRATA_QUALITY_COMMIT=") for arg in args))
+        tmp = args[args.index("--tmpfs") + 1].split(":", 1)
+        self.assertEqual(tmp[0], "/tmp")
+        self.assertIn("exec", tmp[1].split(","))
         self.assertEqual(args[-1], "test")
 
     def test_workflow_matrix_and_required_gate_match_the_plan(self):
@@ -74,7 +77,7 @@ class QualityRunnerTests(unittest.TestCase):
         self.assertIn("fail-fast: false", shard)
         self.assertIn("STRATA_QUALITY_TASK: shard", shard)
         self.assertNotIn("cargo test", shard)
-        gate = workflow.split("\n  quality:\n", 1)[1].split("\n  e2e-build:", 1)[0]
+        gate = workflow.split("\n  quality:\n", 1)[1].split("\n  release-scripts:", 1)[0]
         self.assertIn("name: Format, lint, and test", gate)
         self.assertIn("needs: [quality-build, quality-shard]", gate)
         self.assertIn("always()", gate)
@@ -85,12 +88,18 @@ class QualityRunnerTests(unittest.TestCase):
         workflow = (REPOSITORY / ".github/workflows/ci.yml").read_text()
         jobs = dict(re.findall(r"^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)",
                                workflow.split("\njobs:\n", 1)[1], re.M | re.S))
-        for name in ("quality-shard", "quality", "e2e-build", "e2e", "release-scripts"):
+        for name in ("quality-shard", "quality", "release-scripts"):
             with self.subTest(job=name):
                 condition = re.search(r"^    if: (.+)$", jobs[name], re.M).group(1)
                 self.assertIn("github.event_name != 'push'", condition)
-        self.assertIn("needs: e2e-build", jobs["e2e-shard"])
-        self.assertNotIn("always()", jobs["e2e-shard"])
+        self.assertFalse({"e2e-build", "e2e-shard", "e2e"} & jobs.keys())
+        e2e = (REPOSITORY / ".github/workflows/e2e.yml").read_text()
+        triggers = e2e.split("\non:\n", 1)[1].split("\n\n", 1)[0]
+        self.assertEqual(re.findall(r"^  (\w+):", triggers, re.M), ["workflow_dispatch"])
+        e2e_jobs = dict(re.findall(r"^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)",
+                                   e2e.split("\njobs:\n", 1)[1], re.M | re.S))
+        self.assertIn("needs: e2e-build", e2e_jobs["e2e-shard"])
+        self.assertNotIn("always()", e2e_jobs["e2e-shard"])
         build = jobs["quality-build"]
         condition = re.search(r"^    if: (.+)$", build, re.M).group(1)
         self.assertNotIn("github.event_name != 'push'", condition)

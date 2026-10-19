@@ -59,6 +59,7 @@ Strata combines spatial Miller-column navigation with familiar Icons and List vi
 - **Adaptive appearance:** compact or airy density, six bundled themes, custom themes, and live Omarchy Quattro theme following.
 - **Updates in the app:** automatic update checks (on by default; turn them off in **Settings → Updates**), release notes, verified downloads, and in-place installation for release binaries.
 - **Custom actions:** add your own scripts to the file and folder context menus, with a manager in **Settings → Actions** and background progress in the Jobs dashboard. See [Custom actions](docs/custom-actions.md).
+- **Integrations:** opt-in providers maintained in the repository's [`integrations/`](integrations/README.md) catalog, installed, updated and removed from **Settings → Integrations**; they plug services and devices into the context menu and the **Send to…** menu. See [External file providers](docs/file-providers.md).
 - **System file chooser:** opt in through **Settings → General → System file chooser**, the installer, or `strata --install-portal`; see [portal setup](docs/portal-file-chooser.md).
 - **Encrypted-volume unlock:** opt in through the installer, **Settings → General → Desktop integration** on Omarchy, or `strata --install-udiskie-unlock`; restore with `strata --uninstall-udiskie-unlock` (Settings **Restore default** on Omarchy only).
 
@@ -69,14 +70,26 @@ Arch Linux and Omarchy are the primary supported environments. Current binaries 
 ### Interactive installation
 
 The interactive installer detects the Linux architecture, glibc version, Arch
-Linux, and Omarchy 3 or 4. It installs the latest verified stable release and
-offers optional desktop-menu, default-folder-handler, "Open file location", system
-file chooser, encrypted-volume unlock, SMB, broader image/RAW, and Omarchy keybind
-integration:
+Linux, and Omarchy 3 or 4. Choose the recommended installation for Strata and its
+application launcher without changing existing defaults, or customize the desktop,
+file chooser, encrypted-volume unlock, SMB, image/RAW, and shortcut integrations.
+Only options supported by your system are offered:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lgse/strata/main/install.sh | bash
 ```
+
+Use the arrow keys and Enter to choose a setup; Space toggles custom options.
+Small or basic terminals use numbered choices instead. The original block-art logo
+uses its Tokyo Night pale-blue, blue, and violet brand colors; other colors follow
+your terminal palette. `NO_COLOR=1` disables colors. A continuous dithered progress
+bar shows actual transfer percentages, with a spinner when the total is unknown.
+Selected packages share one package-manager transaction, with its normal
+confirmation. Pass `--verbose` for detailed download and verification output;
+failures always show diagnostics.
+Integration results always remain visible, including service-restart notices.
+Detailed logs are retained for failures, warnings, and integration notices; package
+operations are logged without recording terminal password input.
 
 The installer shows every privileged package operation before asking to run it.
 It verifies both the published SHA-256 digest and GitHub Actions provenance before
@@ -93,10 +106,12 @@ curl -fsSL https://raw.githubusercontent.com/lgse/strata/main/install.sh \
       --with-smb \
       --with-raw \
       --with-desktop-entry \
-      --with-folder-association \
-      --with-omarchy-keybinds \
-      --with-udiskie-unlock
+      --with-folder-association
 ```
+
+Add `--with-omarchy-keybinds` only on Omarchy 3 or 4. Add
+`--with-udiskie-unlock` only when `udiskie` is already installed on an Arch-based
+system. Unsupported explicit options are rejected before installation begins.
 
 Each `--with-*` flag implies `--non-interactive`, and folder association implies
 the desktop entry and `--with-file-manager`. Use `--with-file-manager` by itself
@@ -193,6 +208,12 @@ Device discovery requires the GVfs UDisks2 volume monitor (`gvfs` on Arch and
 Fedora; `gvfs-daemons` on Debian/Ubuntu). Without that backend, removable drives
 may be absent from Devices. SMB support remains optional. Phones need additional
 backends; see [Connecting phones](#connecting-phones).
+
+If previews, thumbnails, network locations, or drives don't work after installation,
+open **Settings → Diagnostics** and select **Run**. It tests each of these features,
+names any missing package with an install command for your distribution that
+you can copy or run in your terminal, and
+**Copy report** copies the results for a bug report.
 
 #### 2. Download and verify
 
@@ -655,6 +676,8 @@ Select **Add a theme**, enter a name, and choose the semantic colors for the bac
 
 Custom themes are stored as shareable TOML files in `~/.config/strata/themes/`. A selected theme is re-read when its file changes on disk, so a generator that rewrites it in place (for example a [matugen](https://github.com/InioX/matugen) template following the wallpaper) updates open windows without a restart. See [Themes](docs/themes.md) for the schema, file location, live updates, and Omarchy color mapping.
 
+To go beyond the color tokens, an optional `~/.config/strata/style.css` is loaded above Strata's own stylesheets and re-read when it changes; see [User stylesheet](docs/themes.md#user-stylesheet).
+
 ## Release channels
 
 Strata defaults to the **Stable** channel: only final tagged releases are ever offered, and a Stable install never receives, sees, or is notified about a prerelease.
@@ -740,10 +763,12 @@ Start with [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Dee
 - [Preview panel and column layout](docs/preview-panel-layout.md)
 - [10xer mode](docs/10xer-mode.md)
 - [Architecture principles](docs/architecture.md)
+- [Filesystem compatibility](docs/filesystem-compatibility.md)
 - [Preview sandbox](docs/preview-sandbox.md)
 - [Hardened configuration](docs/hardened-configuration.md)
 - [Performance baseline](docs/performance-baseline.md)
 - [Custom actions](docs/custom-actions.md)
+- [External file providers and bundled integrations](docs/file-providers.md)
 - [Themes and Omarchy integration](docs/themes.md)
 - [Unsafe code policy](docs/unsafe-code.md)
 - [Releasing](docs/releasing.md)

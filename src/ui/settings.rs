@@ -25,8 +25,11 @@ mod tests;
 mod about;
 mod actions;
 mod bindings;
+mod diagnostics;
 mod exclusions;
 mod general;
+mod install_command;
+mod integrations;
 mod search;
 mod theme;
 mod wrap;
@@ -596,6 +599,79 @@ fn activation_matrix_width(rows: &[ResponsiveActivationRow]) -> i32 {
         .map_or(0, |matrix| matrix.width())
 }
 
+// Reports no horizontal minimum, so the page scroller gives the page the viewport
+// width instead of the content's own width. A page wider than the viewport would
+// otherwise turn the scroller into a sideways pan over the settings.
+mod page_content_bin {
+    use super::*;
+
+    #[derive(Default)]
+    pub struct PageContentBin;
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for PageContentBin {
+        const NAME: &'static str = "StrataSettingsPageContentBin";
+        type Type = super::PageContentBin;
+        type ParentType = gtk::Widget;
+    }
+
+    impl ObjectImpl for PageContentBin {
+        fn dispose(&self) {
+            while let Some(child) = self.obj().first_child() {
+                child.unparent();
+            }
+        }
+    }
+
+    impl WidgetImpl for PageContentBin {
+        fn request_mode(&self) -> gtk::SizeRequestMode {
+            // The page height depends on the width, because description labels
+            // wrap; without this the scroller caches a single-line height
+            // measured before the viewport width is known and the page stops
+            // short of its own content.
+            self.obj()
+                .first_child()
+                .map_or(gtk::SizeRequestMode::ConstantSize, |child| {
+                    child.request_mode()
+                })
+        }
+
+        fn measure(&self, orientation: gtk::Orientation, for_size: i32) -> (i32, i32, i32, i32) {
+            let Some(child) = self.obj().first_child() else {
+                return (0, 0, -1, -1);
+            };
+            let (minimum, natural, minimum_baseline, natural_baseline) =
+                child.measure(orientation, for_size);
+            let minimum = if orientation == gtk::Orientation::Horizontal {
+                0
+            } else {
+                minimum
+            };
+            (minimum, natural, minimum_baseline, natural_baseline)
+        }
+
+        fn size_allocate(&self, width: i32, height: i32, baseline: i32) {
+            if let Some(child) = self.obj().first_child() {
+                child.allocate(width, height, baseline, None);
+            }
+        }
+    }
+}
+
+glib::wrapper! {
+    pub struct PageContentBin(ObjectSubclass<page_content_bin::PageContentBin>)
+        @extends gtk::Widget,
+        @implements gtk::Accessible, gtk::Buildable, gtk::ConstraintTarget;
+}
+
+impl PageContentBin {
+    fn new(child: &impl IsA<gtk::Widget>) -> Self {
+        let bin: Self = glib::Object::new();
+        child.set_parent(&bin);
+        bin
+    }
+}
+
 fn reflow_settings(
     widget: &gtk::Widget,
     compact: bool,
@@ -740,6 +816,9 @@ fn uses_compact_navigation(dialog_width: i32) -> bool {
     dialog_width < COMPACT_NAVIGATION_BREAKPOINT
 }
 
+/// Shows a directory in the hosting window's browser.
+pub(crate) type OpenFolder = Rc<dyn Fn(std::path::PathBuf)>;
+
 #[expect(
     deprecated,
     reason = "GTK 4.12 deprecated translate_coordinates and allocation without a replacement for click-in-bounds checks"
@@ -750,6 +829,7 @@ pub fn build_layer(
     preferences: Rc<PreferenceManager>,
     update_notice: UpdateNoticeHandler,
     install_guard: InstallGuard,
+    open_folder: OpenFolder,
 ) -> gtk::Box {
     let layer = gtk::Box::new(gtk::Orientation::Vertical, 0);
     layer.add_css_class("app-modal-layer");
@@ -803,6 +883,7 @@ pub fn build_layer(
     let (general, responsive_setting_rows, responsive_activation_rows) =
         general_page(preferences.clone());
     stack.add_named(&general, Some("general"));
+    stack.add_named(&diagnostics::diagnostics_page(), Some("diagnostics"));
     stack.add_named(&about_page(), Some("about"));
     // Heavy pages build on first selection, never during startup: the
     // Updates page spawns package-manager detection plus release-note
@@ -837,9 +918,17 @@ pub fn build_layer(
     // Navigation entries register as their buttons are created, so the
     // responsive panel compacts correctly even with lazy pages.
     let responsive_for_nav = responsive_panel.clone();
-    let built: Rc<RefCell<std::collections::HashSet<&'static str>>> =
-        Rc::new(RefCell::new(["general", "about"].into_iter().collect()));
+    let built: Rc<RefCell<std::collections::HashSet<&'static str>>> = Rc::new(RefCell::new(
+        ["general", "diagnostics", "about"].into_iter().collect(),
+    ));
     let dismiss_hooks = DismissHooks::default();
+    let close_settings: Rc<dyn Fn()> = {
+        let layer = layer.clone();
+        let button = settings_button.clone();
+        let root = root.clone();
+        let hooks = dismiss_hooks.clone();
+        Rc::new(move || hide(&layer, &button, &root, &hooks))
+    };
     let nav_buttons: Rc<RefCell<Vec<(gtk::Button, &'static str)>>> =
         Rc::new(RefCell::new(Vec::new()));
     for entry in &NAVIGATION {
@@ -863,6 +952,8 @@ pub fn build_layer(
         let responsive_panel = responsive_panel.clone();
         let search_state = settings_search.state.clone();
         let dismiss_hooks = dismiss_hooks.clone();
+        let open_folder = open_folder.clone();
+        let close_settings = close_settings.clone();
         button.connect_clicked(move |clicked| {
             for (candidate, _) in buttons.borrow().iter() {
                 if candidate == clicked {
@@ -887,6 +978,16 @@ pub fn build_layer(
                         let page = actions::actions_page();
                         search::apply(&page, &search_state);
                         stack.add_named(&page, Some("actions"));
+                    }
+                    "integrations" => {
+                        let open_folder = open_folder.clone();
+                        let close_settings = close_settings.clone();
+                        let page = integrations::integrations_page(Some(Rc::new(move |path| {
+                            close_settings();
+                            open_folder(path);
+                        })));
+                        search::apply(&page, &search_state);
+                        stack.add_named(&page, Some("integrations"));
                     }
                     "updates" => {
                         let container = updates_container.clone();
@@ -950,13 +1051,6 @@ pub fn build_layer(
     layer.append(&row);
     layer.append(&bottom);
 
-    let close_settings: Rc<dyn Fn()> = {
-        let layer = layer.clone();
-        let button = settings_button.clone();
-        let root = root.clone();
-        let hooks = dismiss_hooks.clone();
-        Rc::new(move || hide(&layer, &button, &root, &hooks))
-    };
     // A window closed mid-preview never runs `hide`; the preview is process-wide.
     layer.connect_unrealize(move |_| dismiss_hooks.run());
     let close_hide = close_settings.clone();
@@ -2973,7 +3067,7 @@ struct NavigationEntry {
 
 /// Settings pages in navigation order. Search finds page titles here and routes
 /// to the button built from each entry.
-static NAVIGATION: [NavigationEntry; 5] = [
+static NAVIGATION: [NavigationEntry; 7] = [
     NavigationEntry {
         page: "general",
         label: "General",
@@ -2996,10 +3090,24 @@ static NAVIGATION: [NavigationEntry; 5] = [
         accessible_label: None,
     },
     NavigationEntry {
+        page: "integrations",
+        label: "Integrations",
+        subtitle: "Apps and services",
+        icon: icons::BLOCKS,
+        accessible_label: None,
+    },
+    NavigationEntry {
         page: "updates",
         label: "Updates",
         subtitle: "Channel, release notes",
         icon: icons::DOWNLOADS,
+        accessible_label: None,
+    },
+    NavigationEntry {
+        page: "diagnostics",
+        label: "Diagnostics",
+        subtitle: "Troubleshooting",
+        icon: icons::STETHOSCOPE,
         accessible_label: None,
     },
     NavigationEntry {
@@ -3046,9 +3154,14 @@ fn scrollable_page(content: &gtk::Box, class: Option<&str>) -> gtk::Widget {
     content.append(&empty);
     constrain_page_text(content.upcast_ref());
     content.set_hexpand(true);
+    let page = PageContentBin::new(content);
+    // GTK treats an `External` horizontal policy as scrollable, so sideways
+    // swipes pan the page and paint the theme's near-black overshoot stripe.
+    // `Never` refuses them; the bin keeps the page fitting the viewport, so
+    // nothing is clipped.
     let scroller = gtk::ScrolledWindow::builder()
-        .child(content)
-        .hscrollbar_policy(gtk::PolicyType::External)
+        .child(&page)
+        .hscrollbar_policy(gtk::PolicyType::Never)
         .vscrollbar_policy(gtk::PolicyType::Automatic)
         .hexpand(true)
         .vexpand(true)

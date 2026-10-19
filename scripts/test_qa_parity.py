@@ -648,9 +648,8 @@ class CiWorkflowTests(unittest.TestCase):
         for name in informational:
             with self.subTest(job=name):
                 self.assertRegex(jobs[name], r"(?m)^    continue-on-error: true$")
-        for gate in ("quality", "e2e"):
-            needs = re.search(r"^    needs: (.+)$", jobs[gate], re.M).group(1)
-            self.assertFalse(set(re.findall(r"[\w-]+", needs)) & set(informational), gate)
+        needs = re.search(r"^    needs: (.+)$", jobs["quality"], re.M).group(1)
+        self.assertFalse(set(re.findall(r"[\w-]+", needs)) & set(informational))
 
     def test_both_release_marker_checks_grep_a_prefix_of_the_qa_usage_constant(self):
         source = (REPOSITORY / "src/qa.rs").read_text()

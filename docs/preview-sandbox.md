@@ -9,11 +9,39 @@ FHS, `/run/wrappers/bin`, `/nix/store`, or `/gnu/store`.
 
 ## Packaging non-FHS runtimes
 
-Packagers can set these optional environment variables **when compiling Strata**.
-They are embedded in the executable; setting them when launching Strata has no
-effect and does not override the sandbox's cleared environment.
+Two kinds of configuration cover packages whose runtime does not live under
+`/usr`: where the host finds bubblewrap and the other helpers it runs directly,
+and which runtime tree and helper paths the sandbox binds and runs inside.
 
-| Build-time variable | Default | Purpose |
+### Host helper directories
+
+`STRATA_TRUSTED_COMMAND_PATH` is a colon-separated list of additional directories
+in which the host looks for helpers such as `bwrap`, `xdg-mime`, and the
+provider runtimes. It is read **only when compiling Strata**, so a package can
+point it at the `bin` directories of its runtime closure without requiring users
+to install those tools into a system profile:
+
+```sh
+STRATA_TRUSTED_COMMAND_PATH='/nix/store/<bubblewrap>/bin:/nix/store/<xdg-utils>/bin' \
+cargo build --release --locked
+```
+
+The fixed system directories are always searched first, so `/run/wrappers/bin`
+and the system profiles keep priority over configured directories. Every entry
+must be an absolute directory; the build fails on empty or relative entries. At
+run time a configured directory is searched only when it canonicalizes under one
+of the trust roots above, and the helper found there must still canonicalize
+under a trust root. The user's `PATH` and home directory are never consulted,
+and a required helper that cannot be found in a trusted directory still fails
+closed.
+
+### Sandbox runtime paths
+
+These variables select the runtime tree and helper paths inside the sandbox.
+Each one is resolved in this order: a value set **when launching Strata**, then
+a value embedded **when compiling Strata**, then the default.
+
+| Variable | Default | Purpose |
 | --- | --- | --- |
 | `STRATA_SANDBOX_PATH` | `/usr/bin` | Colon-separated helper binary directories inside the sandbox |
 | `STRATA_SANDBOX_ROOT` | `/usr` | System runtime tree, bound read-only at the same absolute path |
@@ -30,6 +58,17 @@ STRATA_SANDBOX_GDK_PIXBUF_MODULE_FILE='/nix/store/<pixbuf-loaders>/lib/gdk-pixbu
 cargo build --release --locked
 ```
 
+A prebuilt release can be configured the same way at launch, once its ELF
+dependencies are available and bubblewrap is installed in a trusted system
+directory:
+
+```sh
+STRATA_SANDBOX_PATH='/nix/store/<ffmpeg>/bin:/nix/store/<imagemagick>/bin' \
+STRATA_SANDBOX_ROOT='/nix/store' \
+STRATA_SANDBOX_PRLIMIT='/nix/store/<util-linux>/bin/prlimit' \
+strata
+```
+
 Replace the illustrative store paths with package dependency paths and include
 all required helper binary directories. The root replaces `/usr`, rather than
 adding another mount. The launcher, helpers, loaders cache, and its referenced
@@ -37,6 +76,13 @@ modules and runtime dependencies must be reachable within the sandbox mounts.
 Use only trusted, admin-managed runtime trees: binding `/` or a user-data tree
 would expose private files to untrusted decoders. Values are taken literally;
 leave variables unset to use defaults, rather than setting empty values.
+
+Launch-time values are validated before use. Every path must be absolute and
+free of `..` components, and a launch-time `STRATA_SANDBOX_ROOT` must be `/usr`,
+`/nix/store`, or `/gnu/store`, or a directory inside one of them. A value
+that fails validation is logged and ignored, and the embedded or default value
+stays in effect. The launch-time variables are read by the host only; the
+sandbox still starts with a cleared environment.
 
 These settings apply to one-shot, pooled browser, media, and RAR extraction
 sandboxes. They do not change host-side trusted bubblewrap lookup, namespace
@@ -72,7 +118,31 @@ isolation, resource limits, or the other narrow optional runtime mounts.
 ## Local 3D model previews
 
 Quick Preview accepts STL, 3MF and FreeCAD (`.FCStd`) files. STL and single-part
-3MF geometry use a fixed-angle software render; FreeCAD uses its saved image.
+3MF geometry use a software render with four diagonal camera views looking down
+at the model; FreeCAD uses its saved image. Rendered
+meshes show media-style previous/next controls around a circular camera-position
+indicator, with stable centring and scale. Its dot sweeps around the circle to the
+selected corner, respecting the reduced-motion and system animation settings.
+The indicator is a top-down map: a hollow circle marks the model at the centre,
+and the camera dot sits on the outer circumference. Camera directions are shared
+with the renderer: +X is right, −Y is front, and +Z is up. The initial front-left
+camera therefore appears at the lower left; front-right is lower right,
+back-right upper right and back-left upper left. These names follow the model's
+coordinate axes.
+View names are exposed to assistive technology; the visible controls use the
+orbit diagram without a text caption.
+The model and controls form one vertically centred block using the video player's
+layout. Geometry renders on a square canvas, avoiding unused space from the pane's
+aspect ratio. Above the badges, the filename and its position among model files
+in the current sorted or filtered listing use the same styling as video previews.
+Above the camera controls, media-style badges show the mesh encoding (binary STL,
+ASCII STL or 3MF) and the rendered triangle count. These details come from the
+existing parse/render pass and remain part of the cached preview. Thumbnail-only
+previews do not parse geometry for badges. Dimensions and units are not shown.
+While another view renders, the last image dims and a spinner appears in the
+preview header beside the open button. Failed view changes
+retain that image with a visible error so the controls can retry. Embedded images
+have no camera controls and are never replaced with geometry for view selection.
 A 3MF package with exactly one usable embedded PNG uses that image, even if other
 candidates are corrupt or its geometry spans multiple model parts. Two usable
 images are ambiguous: Quick Preview tries geometry, while browser thumbnailing
@@ -88,7 +158,10 @@ Heavy Quick Previews (models, PDFs, workbooks and DOCX) share one process-wide
 permit and use one-shot sandboxes. Cancellation retains that permit until the
 helper exits. Format is carried explicitly across the sandbox boundary, including
 for symlinks; the UI supplies the render palette. Geometry PNG cache keys include
-format, size and palette, and open model previews reload on palette changes.
+format, size, palette and camera view. Open model previews reload on palette
+changes while retaining the selected camera; another file starts from the default
+front-left view. The helper reports whether its PNG came from a mesh or an
+embedded thumbnail, and mesh results must identify the requested camera view.
 
 Input, package and geometry limits are centralized in
 `src/services/model_preview.rs`. These are compile-time constants, not Settings

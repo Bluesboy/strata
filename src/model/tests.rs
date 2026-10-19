@@ -75,14 +75,16 @@ fn lexical_normalization_resolves_dot_segments_without_touching_the_filesystem()
 
 #[test]
 fn uri_locations_remain_explicit_and_have_one_breadcrumb() {
-    let trash = Location::uri("trash:///");
+    for (uri, name) in [("trash:///", "Trash"), ("network:///", "Network")] {
+        let location = Location::uri(uri);
 
-    assert_eq!(trash.native_path(), None);
-    assert_eq!(trash.uri_value(), Some("trash:///"));
-    assert_eq!(trash.display_name(), "Trash");
-    assert_eq!(trash.display_path(), "trash:///");
-    assert_eq!(trash.breadcrumbs(), vec![trash.clone()]);
-    assert_eq!(trash.parent(), None);
+        assert_eq!(location.native_path(), None, "{uri}");
+        assert_eq!(location.uri_value(), Some(uri));
+        assert_eq!(location.display_name(), name, "{uri}");
+        assert_eq!(location.display_path(), uri);
+        assert_eq!(location.breadcrumbs(), vec![location.clone()], "{uri}");
+        assert_eq!(location.parent(), None, "{uri}");
+    }
 }
 
 #[test]
@@ -166,7 +168,7 @@ fn remote_locations_keep_uri_parents_and_breadcrumbs() {
 }
 
 #[test]
-fn rebasing_preserves_uri_descendants_and_rejects_unrelated_or_mixed_locations() {
+fn rebasing_preserves_descendants_across_location_kinds_and_rejects_unrelated_ones() {
     for scheme in ["smb", "sftp"] {
         let from = Location::uri(format!("{scheme}://host/share/old"));
         let to = Location::uri(format!("{scheme}://host/share/new%20folder"));
@@ -185,8 +187,23 @@ fn rebasing_preserves_uri_descendants_and_rejects_unrelated_or_mixed_locations()
         ] {
             assert!(Location::uri(unrelated).rebase(&from, &to).is_none());
         }
+        let local = Location::local("/fixture/new");
+        let nested = Location::uri(format!("{scheme}://host/share/old/nested/a:b"));
+        assert_eq!(from.rebase(&from, &local), Some(local.clone()));
+        assert_eq!(
+            nested.rebase(&from, &local),
+            Some(Location::local("/fixture/new/nested/a:b"))
+        );
+        let back = Location::local("/fixture/new/nested/a:b")
+            .rebase(&local, &from)
+            .expect("rebased onto the share");
         assert!(
-            from.rebase(&from, &Location::local("/fixture/new"))
+            gio::File::for_uri(back.uri_value().expect("a URI"))
+                .equal(&gio::File::for_uri(nested.uri_value().expect("a URI")))
+        );
+        assert!(
+            Location::local("/fixture/newer/a:b")
+                .rebase(&local, &from)
                 .is_none()
         );
     }

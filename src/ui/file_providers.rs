@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
 use super::thumbnail::ThumbnailSlot;
+use crate::assets::icons;
 use crate::services::file_providers::{
-    self as protocol, Client, Decoration, Feedback, MenuAction, OutcomeStatus, Registration,
-    Request, Update,
+    self as protocol, Client, Decoration, Feedback, MenuAction, OutcomeStatus, Placement,
+    Registration, Request, Update,
 };
+use crate::services::integration_catalog::Category;
 use gtk::{gdk, gio, glib, prelude::*};
 use std::{
     cell::RefCell,
@@ -35,6 +37,7 @@ struct Provider {
     id: String,
     name: String,
     heading_icon: Option<gdk::Texture>,
+    category: Option<Category>,
     cache: HashMap<String, Answer<Decoration>>,
     menus: HashMap<MenuKey, Answer<Vec<MenuAction>>>,
     freshness: Freshness,
@@ -57,23 +60,29 @@ struct Hub {
     slots: HashMap<usize, Slot>,
     pending: HashMap<u64, Pending>,
     serial: u64,
+    /// Whether the tick timer is running; it stops once discovery finds nothing.
+    ticking: bool,
 }
 thread_local! { static HUB: RefCell<Option<Hub>> = const { RefCell::new(None) }; }
+fn spawn_discovery() -> mpsc::Receiver<Vec<Registration>> {
+    let (tx, discovery) = mpsc::channel();
+    let root = protocol::config_root();
+    std::thread::spawn(move || {
+        let _ = tx.send(root.map_or_else(Vec::new, |p| protocol::discover(&p)));
+    });
+    discovery
+}
 fn with_hub<T>(f: impl FnOnce(&mut Hub) -> T) -> T {
     HUB.with(|cell| {
         if cell.borrow().is_none() {
-            let (tx, discovery) = mpsc::channel();
-            let root = protocol::config_root();
-            std::thread::spawn(move || {
-                let _ = tx.send(root.map_or_else(Vec::new, |p| protocol::discover(&p)));
-            });
             cell.replace(Some(Hub {
-                discovery,
+                discovery: spawn_discovery(),
                 discovered: false,
                 providers: Vec::new(),
                 slots: HashMap::new(),
                 pending: HashMap::new(),
                 serial: 0,
+                ticking: true,
             }));
             glib::timeout_add_local(Duration::from_millis(100), tick_hub);
         }
@@ -86,12 +95,41 @@ fn with_hub<T>(f: impl FnOnce(&mut Hub) -> T) -> T {
 fn tick_hub() -> glib::ControlFlow {
     let idle = with_hub(|hub| {
         hub.tick();
-        hub.has_no_providers()
+        if hub.has_no_providers() {
+            hub.ticking = false;
+        }
+        !hub.ticking
     });
     if idle {
         glib::ControlFlow::Break
     } else {
         glib::ControlFlow::Continue
+    }
+}
+
+/// The themed icon standing for an integration without artwork of its own.
+pub(crate) fn category_icon(category: Option<Category>) -> &'static str {
+    match category {
+        Some(Category::Cloud) => icons::CLOUD,
+        Some(Category::Devices) => icons::SMARTPHONE,
+        Some(Category::VersionControl) => icons::GIT_BRANCH,
+        Some(Category::Other) | None => icons::BLOCKS,
+    }
+}
+
+/// Stops every provider and discovers the registrations again, so edits
+/// under the providers directory take effect without a restart.
+pub(crate) fn reload() {
+    reload_with(spawn_discovery());
+}
+
+fn reload_with(discovery: mpsc::Receiver<Vec<Registration>>) {
+    let start_timer = with_hub(|hub| {
+        hub.reload(discovery);
+        !std::mem::replace(&mut hub.ticking, true)
+    });
+    if start_timer {
+        glib::timeout_add_local(Duration::from_millis(100), tick_hub);
     }
 }
 
@@ -183,6 +221,21 @@ impl Hub {
         self.discovered && self.providers.is_empty()
     }
 
+    /// Drops the running providers, which ends their processes, and waits
+    /// for a new discovery result. Tracked rows lose their badges until the
+    /// new providers answer.
+    fn reload(&mut self, discovery: mpsc::Receiver<Vec<Registration>>) {
+        self.discovery = discovery;
+        self.discovered = false;
+        self.providers.clear();
+        self.pending.clear();
+        for slot in self.slots.values() {
+            if let Some(widget) = slot.widget.upgrade() {
+                widget.set_decoration(None, None);
+            }
+        }
+    }
+
     fn send(&mut self, provider: usize, mut r: Request, pending: Pending) {
         self.serial += 1;
         r.id = self.serial;
@@ -235,11 +288,13 @@ impl Hub {
                     .as_ref()
                     .and_then(|icon| icons.get(icon))
                     .cloned();
+                let category = r.manifest.category.as_deref().and_then(Category::from_id);
                 self.providers.push(Provider {
                     client: protocol::start(r),
                     id,
                     name,
                     heading_icon,
+                    category,
                     icons,
                     cache: HashMap::new(),
                     menus: HashMap::new(),
@@ -594,7 +649,7 @@ fn notify(owner: &glib::WeakRef<gtk::Widget>, message: &str) {
 }
 /// The caller owns the epoch: rebuilding/closing a menu cancels its old watcher.
 pub(super) fn watch_menu(
-    model: gio::Menu,
+    models: (gio::Menu, Option<gio::Menu>),
     group: gio::SimpleActionGroup,
     owner: (&gtk::Widget, &gtk::PopoverMenu),
     paths: Vec<PathBuf>,
@@ -621,7 +676,7 @@ pub(super) fn watch_menu(
     let owner = owner.downgrade();
     let popover = popover.downgrade();
     let mut renderer = menus::Renderer::new(
-        model,
+        models,
         group,
         owner.clone(),
         popover.clone(),

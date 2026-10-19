@@ -55,10 +55,15 @@ fn bundled_catalog_is_valid_unique_and_alphabetical() {
     }
 }
 
+type TextColor = (&'static str, fn(&ThemeTokens) -> &str);
 type ContrastFloor = (&'static str, fn(&ThemeTokens) -> &str, f64);
 
 #[test]
-fn bundled_themes_keep_body_text_readable() {
+fn bundled_themes_keep_text_readable() {
+    let colors: [TextColor; 2] = [
+        ("text", |tokens| &tokens.text),
+        ("dim text", |tokens| &tokens.dim_text),
+    ];
     let floors: [ContrastFloor; 2] = [
         ("background", |tokens| &tokens.background, 4.5),
         ("surface", |tokens| &tokens.surface, 3.0),
@@ -67,13 +72,15 @@ fn bundled_themes_keep_body_text_readable() {
     assert!(!themes.is_empty());
     let mut failures = Vec::new();
     for theme in &themes {
-        for (role, color, floor) in floors {
-            let ratio = contrast(&theme.tokens.text, color(&theme.tokens));
-            if ratio < floor {
-                failures.push(format!(
-                    "{} text on {role} is {ratio:.2}:1, below the {floor}:1 floor",
-                    theme.id
-                ));
+        for (name, color) in colors {
+            for (role, background, floor) in floors {
+                let ratio = contrast(color(&theme.tokens), background(&theme.tokens));
+                if ratio < floor {
+                    failures.push(format!(
+                        "{} {name} on {role} is {ratio:.2}:1, below the {floor}:1 floor",
+                        theme.id
+                    ));
+                }
             }
         }
     }
@@ -221,6 +228,13 @@ fn wait_for_live_theme(mut ready: impl FnMut() -> bool) {
         gtk::glib::MainContext::default().iteration(false);
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
+}
+
+fn has_color(label: &gtk::Label, expected: &gtk::gdk::RGBA) -> bool {
+    let actual = label.color();
+    (actual.red() - expected.red()).abs() < 0.01
+        && (actual.green() - expected.green()).abs() < 0.01
+        && (actual.blue() - expected.blue()).abs() < 0.01
 }
 
 /// Runs the main loop past the refresh debounce so a missing change is a real absence.
@@ -741,7 +755,7 @@ fn file_icon_colors_repaint_catppuccin_icons_live_across_images() {
 }
 
 #[test]
-fn desktop_gtk_theme_and_user_stylesheet_do_not_restyle_widgets() {
+fn desktop_gtk_theme_and_gtk_css_do_not_restyle_widgets() {
     let desktop = tempfile::tempdir().expect("desktop config");
     let config = desktop.path().join("config");
     let data = desktop.path().join("data");
@@ -765,7 +779,7 @@ fn desktop_gtk_theme_and_user_stylesheet_do_not_restyle_widgets() {
     )
     .expect("user stylesheet");
     gtk_test_with_env(
-        "ui::theme::tests::desktop_gtk_theme_and_user_stylesheet_do_not_restyle_widgets",
+        "ui::theme::tests::desktop_gtk_theme_and_gtk_css_do_not_restyle_widgets",
         [
             ("GTK_THEME", String::new()),
             ("XDG_CONFIG_HOME", config.display().to_string()),
@@ -789,9 +803,7 @@ fn desktop_gtk_theme_and_user_stylesheet_do_not_restyle_widgets() {
                 gtk::gdk::RGBA::parse(&manager.starter_tokens().text).expect("text color");
             let actual = label.color();
             assert!(
-                (actual.red() - expected.red()).abs() < 0.01
-                    && (actual.green() - expected.green()).abs() < 0.01
-                    && (actual.blue() - expected.blue()).abs() < 0.01,
+                has_color(&label, &expected),
                 "label color {actual} should be Strata's text color {expected}"
             );
             window.close();
@@ -908,6 +920,41 @@ fn interface_font_applies_before_settings_open_and_live_while_previews_stay_mono
             assert_eq!(parse_errors.get(), 0, "font stylesheet parses cleanly");
             popover.unparent();
             window.destroy();
+        },
+    );
+}
+
+#[test]
+fn user_stylesheet_overrides_strata_and_reloads_live() {
+    gtk_test(
+        "ui::theme::tests::user_stylesheet_overrides_strata_and_reloads_live",
+        || {
+            let config = crate::ui::preferences::config_directory();
+            std::fs::create_dir_all(&config).expect("config directory");
+            let stylesheet = config.join("style.css");
+
+            let manager = ThemeManager::shared();
+            std::fs::write(
+                &stylesheet,
+                "label { color: nope; }\nlabel { color: rgb(255, 0, 0); }\n",
+            )
+            .expect("user stylesheet");
+            let window = gtk::Window::new();
+            let label = gtk::Label::new(Some("styled"));
+            window.set_child(Some(&label));
+            window.present();
+            let red = gtk::gdk::RGBA::parse("rgb(255, 0, 0)").expect("red");
+            let green = gtk::gdk::RGBA::parse("rgb(0, 255, 0)").expect("green");
+            let text = gtk::gdk::RGBA::parse(&manager.starter_tokens().text).expect("text color");
+            wait_for_live_theme(|| has_color(&label, &red));
+
+            std::fs::write(&stylesheet, "label { color: rgb(0, 255, 0); }\n")
+                .expect("edited stylesheet");
+            wait_for_live_theme(|| has_color(&label, &green));
+
+            std::fs::remove_file(&stylesheet).expect("remove stylesheet");
+            wait_for_live_theme(|| has_color(&label, &text));
+            window.close();
         },
     );
 }

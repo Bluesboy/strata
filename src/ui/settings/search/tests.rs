@@ -64,6 +64,15 @@ fn localized_setting_titles_keep_stable_search_targets() {
                     "zh-CN: {query}"
                 );
             }
+            rust_i18n::set_locale("zh-TW");
+            // The titles are 顯示 F1 快捷鍵按鈕 and Omarchy 變體.
+            for (query, id) in [("快捷鍵按鈕", "hints"), ("Omarchy變體", "omarchy-variant")]
+            {
+                assert!(
+                    find_matches(&normalized(query)).ids.contains(id),
+                    "zh-TW: {query}"
+                );
+            }
         },
     );
 }
@@ -91,6 +100,10 @@ fn ranks_exact_labels_aliases_and_small_typing_errors() {
         ("keybindings", "general", "hints"),
         ("render documents", "general", "render-documents"),
         ("markdown", "general", "render-documents"),
+        ("add-ons", "integrations", "integrations"),
+        ("plugins", "integrations", "integrations"),
+        ("troubleshoot", "diagnostics", "diagnostics"),
+        ("ffmpeg", "diagnostics", "diagnostics"),
     ] {
         let matches = find_matches(&normalized(query));
         assert_eq!(matches.best_page, Some(page), "{query}");
@@ -153,6 +166,7 @@ fn settings_layer(manager: &Rc<PreferenceManager>) -> (gtk::Widget, gtk::Entry, 
         manager.clone(),
         Rc::new(|_| {}),
         super::super::install_guard(),
+        Rc::new(|_| {}),
     );
     layer.set_visible(true);
     let layer: gtk::Widget = layer.upcast();
@@ -487,6 +501,10 @@ fn every_page_row_is_registered_for_search() {
                 ),
                 ("actions", super::super::actions::actions_page()),
                 (
+                    "integrations",
+                    super::super::integrations::integrations_page(None),
+                ),
+                (
                     "updates",
                     super::super::updates_page(
                         manager.clone(),
@@ -496,6 +514,7 @@ fn every_page_row_is_registered_for_search() {
                     )
                     .0,
                 ),
+                ("diagnostics", super::super::diagnostics::diagnostics_page()),
                 ("about", super::super::about_page()),
             ];
             assert_eq!(

@@ -5,7 +5,7 @@
 
 use crate::app::Browser;
 use crate::model::{FileEntry, Location};
-use crate::services::{FileSource, LoadHandle, OperationProvider};
+use crate::services::{FileSource, LoadHandle, LocationValidationError, OperationProvider};
 use crate::ui::browser::clipboard::{copy_locations, register_cut_view};
 use crate::ui::browser::collection::cancel_source;
 pub(super) use crate::ui::browser::columns::COLUMN_WIDTH;
@@ -13,7 +13,7 @@ use crate::ui::browser::columns::ColumnView;
 use crate::ui::browser::desktop::selected_terminal_location;
 use crate::ui::browser::inline_edit::{PendingEntryRename, PendingRename};
 use crate::ui::browser::location::{
-    MountCredentials, UnlockProgressSlot, is_breadcrumb_button_target,
+    MountCredentials, PendingConnect, UnlockProgressSlot, is_breadcrumb_button_target,
 };
 use crate::ui::browser::paths::{can_pin_entry, is_trash_location};
 use crate::ui::browser::peek::{PeekAnchor, PeekView};
@@ -30,6 +30,8 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::{Rc, Weak};
 use std::time::Duration;
+
+const SIZE_NOTICE_DURATION: Duration = Duration::from_millis(1200);
 
 pub(in crate::ui) type PlaybackHandoff = Rc<dyn Fn(&Location) -> Option<Duration>>;
 
@@ -66,6 +68,7 @@ mod result_selection;
 mod tab_location;
 mod tab_stops;
 mod transfer;
+mod transfer_report;
 mod trash;
 
 #[cfg(test)]
@@ -98,12 +101,13 @@ pub(super) use crate::ui::browser::entry::{
     format_file_size, icon_for_name, metadata_needs_fill, model_type_group,
 };
 pub(crate) use crate::ui::browser::file_commands::{
-    ConflictFocus, CreateRefusal, PinChange, TargetCommand, Yank, can_rename,
+    ConflictFocus, CreateRefusal, PinChange, TargetCommand, Yank, can_rename, typed_rename_is_taken,
 };
 pub(super) use crate::ui::browser::inline_edit::{queue_rename, reveal_rename_row};
 pub(in crate::ui) use crate::ui::browser::listing_filter::{
     FilterFocus, FilterStatus, results_step_target, scroll_results_to, selected_cursor,
 };
+pub(in crate::ui) use crate::ui::browser::location::ConnectOutcome;
 pub(super) use crate::ui::browser::pane_header::{
     column_sort_direction_toggle, column_sort_menu, empty_trash_button, pane_new_folder_button,
     pane_refresh_button, sync_column_sort_direction,
@@ -119,6 +123,11 @@ type PinHandler = Rc<dyn Fn(Location, String)>;
 type UnpinHandler = Rc<dyn Fn(&Location)>;
 type PinStatusHandler = Rc<dyn Fn(&Location) -> PinStatus>;
 type PrintHandler = Rc<dyn Fn(FileEntry)>;
+type PreparingTransfer = (
+    (Location, Vec<Location>, bool),
+    gio::Cancellable,
+    Weak<FileProgressState>,
+);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum PinStatus {
@@ -269,6 +278,7 @@ pub(super) struct ViewState {
     deferred_delete_empty_depth: Cell<Option<usize>>,
     pending_navigate: RefCell<Option<Location>>,
     pending_location_credentials: RefCell<Option<MountCredentials>>,
+    pending_connect: RefCell<Option<Rc<PendingConnect>>>,
     pending_trash_lookup: RefCell<Option<LoadHandle>>,
     pending_empty_trash: RefCell<Option<LoadHandle>>,
     trash_loading: RefCell<Option<TrashLoadingView>>,
@@ -280,6 +290,8 @@ pub(super) struct ViewState {
     drag_source_depth: Cell<Option<usize>>,
     suppress_scroll_after_drop: Cell<bool>,
     transfer_replaces_cursor: Cell<bool>,
+    transfer_preparation: RefCell<Option<Rc<FileProgressState>>>,
+    preparing_transfers: RefCell<Vec<PreparingTransfer>>,
     drop_active_depths: Cell<Option<(usize, usize)>>,
     find: RefCell<find::FindState>,
     listing_filter: listing_filter::FilterState,
@@ -653,6 +665,7 @@ impl BrowserView {
             deferred_delete_empty_depth: Cell::new(None),
             pending_navigate: RefCell::new(None),
             pending_location_credentials: RefCell::new(None),
+            pending_connect: RefCell::new(None),
             pending_trash_lookup: RefCell::new(None),
             pending_empty_trash: RefCell::new(None),
             trash_loading: RefCell::new(None),
@@ -664,6 +677,8 @@ impl BrowserView {
             drag_source_depth: Cell::new(None),
             suppress_scroll_after_drop: Cell::new(false),
             transfer_replaces_cursor: Cell::new(false),
+            transfer_preparation: RefCell::new(None),
+            preparing_transfers: RefCell::new(Vec::new()),
             drop_active_depths: Cell::new(None),
             find: RefCell::new(find::FindState::default()),
             listing_filter: listing_filter::FilterState::default(),
@@ -1211,6 +1226,33 @@ impl BrowserView {
             .apply_resolved_icons_size(size);
     }
 
+    /// Resizes Icons thumbnails; false outside Icons.
+    pub(in crate::ui) fn resize_icons_thumbnails(
+        &self,
+        change: super::browser_modes::ThumbnailResize,
+    ) -> bool {
+        // Released first: the slider's change reaches the mode views through preferences.
+        let target = self.state.mode_views.borrow().icons_thumbnail_scale();
+        let Some((scale, location)) = target else {
+            return false;
+        };
+        let size = change.apply(&scale, location.as_ref());
+        self.show_size_notice(&rust_i18n::t!("Thumbnail size: %{size}px", size = size));
+        true
+    }
+
+    pub(in crate::ui) fn set_text_size(&self, size: crate::ui::preferences::TextSize) {
+        super::preferences::PreferenceManager::shared().set_text_size(size);
+        self.show_size_notice(&rust_i18n::t!(
+            "Text size: %{size}px",
+            size = size.root_font_px()
+        ));
+    }
+
+    fn show_size_notice(&self, text: &str) {
+        super::notice::show_status(&self.state.overlay, text, SIZE_NOTICE_DURATION);
+    }
+
     pub fn activate_focused(&self) {
         if self.view_mode() != BrowserMode::Columns {
             self.state.browser.activate_focused_in_place();
@@ -1460,18 +1502,42 @@ impl BrowserView {
     /// resolves against the open native folder; errors use the location bar's
     /// dialog and leave the current folder open.
     pub(in crate::ui) fn open_typed_location(&self, input: &str) {
-        let base = self
+        if let Err(error) = self
             .state
-            .browser
-            .active_location()
-            .and_then(|location| location.native_path().map(std::path::Path::to_path_buf));
-        if let Err(error) = self.state.open_typed_location(input, base.as_deref()) {
+            .open_typed_location(input, self.typed_location_base().as_deref())
+        {
             show_error_dialog(
                 &self.state.overlay,
                 &crate::i18n::tr("Unable to open location"),
                 &error.to_string(),
             );
         }
+    }
+
+    /// Opens a typed path or URI for a dialog that stays up while it connects.
+    /// `finished` runs once, when the location opens or connecting fails, unless
+    /// [`Self::cancel_connect`] runs first. Invalid input is returned instead.
+    pub(in crate::ui) fn connect_typed_location(
+        &self,
+        input: &str,
+        finished: impl Fn(ConnectOutcome) + 'static,
+    ) -> Result<(), LocationValidationError> {
+        self.state.connect_typed_location(
+            input,
+            self.typed_location_base().as_deref(),
+            Box::new(finished),
+        )
+    }
+
+    pub(in crate::ui) fn cancel_connect(&self) {
+        self.state.cancel_connect();
+    }
+
+    fn typed_location_base(&self) -> Option<std::path::PathBuf> {
+        self.state
+            .browser
+            .active_location()
+            .and_then(|location| location.native_path().map(std::path::Path::to_path_buf))
     }
 
     pub fn set_peek_enabled(&self, enabled: bool) {
@@ -2168,6 +2234,11 @@ impl BrowserView {
                 }
                 None
             })
+    }
+
+    pub(in crate::ui) fn search_result_for_space(&self) -> Option<FileEntry> {
+        self.filter_focus()?;
+        self.selected_search_result()
     }
 
     pub(super) fn connect_search_selection_changed(&self, handler: Rc<dyn Fn()>) {

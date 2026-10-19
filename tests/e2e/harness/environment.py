@@ -64,6 +64,8 @@ class TestEnvironment:
     # A display's own helper environment, which keeps a random name under
     # parity so the scenario's environment can take the test's.
     helper: bool = False
+    # Variables a scenario adds before the application starts.
+    extra_variables: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # pytest names the running test as "<node id> (<phase>)". Under
@@ -147,7 +149,7 @@ class TestEnvironment:
     def variables(self) -> dict[str, str]:
         """Environment variables that pin locale, rendering, and storage."""
 
-        return {
+        variables = {
             "HOME": str(self.home),
             "XDG_CONFIG_HOME": str(self.config_home),
             "XDG_DATA_HOME": str(self.data_home),
@@ -155,6 +157,8 @@ class TestEnvironment:
             "XDG_STATE_HOME": str(self.state_home),
             **STATIC_VARIABLES,
         }
+        variables.update(self.extra_variables)
+        return variables
 
     def cleanup(self) -> None:
         shutil.rmtree(self.root, ignore_errors=True)

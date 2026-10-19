@@ -1288,6 +1288,10 @@ colorchooser button.circular:disabled {
   padding: 12px 16px;
 }
 
+.overlay-notice.status {
+  min-width: 0;
+}
+
 .overlay-notice-heading {
   font-weight: bold;
 }
@@ -1759,14 +1763,6 @@ menubutton.form-control:disabled > button {
   padding: 18px 24px 26px;
 }
 
-.settings-option {
-  background: alpha(@strata_bg, 0.55);
-  border: 1px solid alpha(@strata_border, 0.24);
-  border-radius: 6px;
-  min-height: 60px;
-  padding: 10px 14px;
-}
-
 .settings-option-title {
   color: @strata_text;
   font-weight: 700;
@@ -2032,30 +2028,34 @@ menubutton.form-control:disabled > button {
 
 switch {
   background: @strata_muted;
-  border: 1px solid alpha(@strata_border, 0.72);
-  /* Track and thumb share one radius so they keep the same corner shape at
-     every roundness; GTK caps each at half its size. */
-  border-radius: 14px;
+  border: 1px solid alpha(@strata_border, 0.8);
+  /* The knob radius is 5/6 of the track's, its share of the track height, so
+     both reach a full circle at the same roundness and stay concentric. */
+  border-radius: 24px;
   box-shadow: none;
   min-height: 22px;
-  min-width: 40px;
+  min-width: 44px;
   transition: background 160ms ease-out, border-color 160ms ease-out;
 }
 
 switch:checked {
-  background: @strata_accent;
-  border-color: @strata_accent;
+  background: alpha(@strata_accent, 0.25);
+  border-color: alpha(@strata_accent, 0.65);
 }
 
-switch slider,
-switch:checked slider {
-  background: @strata_text;
+switch slider {
+  background: @strata_dim_text;
   border: none;
-  border-radius: 14px;
-  box-shadow: 0 1px 3px alpha(#000000, 0.4);
-  min-height: 18px;
-  min-width: 18px;
+  border-radius: 20px;
+  box-shadow: none;
+  margin: 1px;
+  min-height: 20px;
+  min-width: 20px;
   transition: background 160ms ease-out;
+}
+
+switch:checked slider {
+  background: @strata_accent;
 }
 
 .sidebar-shell,
@@ -3216,6 +3216,18 @@ paned > separator {
   font-variant-numeric: tabular-nums;
 }
 
+.preview-media-center.preview-model-camera {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.preview-header-spinner {
+  margin: 0 4px;
+  min-width: 16px;
+  min-height: 16px;
+}
+
 .preview-media-seek,
 .preview-media-volume {
   border: none;
@@ -3460,7 +3472,8 @@ entry.preview-command-entry selection {
   background: @strata_surface;
   color: @strata_text;
   border-top: 1px solid @strata_border;
-  padding: 3px 4px;
+  /* The right inset matches the F1 button's text: footer, border and button padding. */
+  padding: 3px 11px 3px 4px;
   min-height: 24px;
   font-size: 0.85em;
 }
@@ -4013,17 +4026,12 @@ dropdown.form-control popover row:selected check {
 }
 
 .segmented-control-option:hover {
-  background: alpha(@strata_highlight, 0.65);
   color: @strata_text;
 }
 
 .segmented-control-option:checked {
   background: alpha(@strata_accent, 0.22);
   color: @strata_accent;
-}
-
-.segmented-control-option:checked:hover {
-  background: alpha(@strata_accent, 0.28);
 }
 
 .segmented-control-option:active {
@@ -5617,6 +5625,15 @@ entry.theme-search {
   background: transparent;
 }
 
+/* The default theme paints the overshoot indication with a near-black
+   gradient; inside the settings sheet it reads as artifacting. */
+.settings-dialog scrolledwindow overshoot,
+.settings-dialog scrolledwindow undershoot {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
 
 /* Alternate browser presentations */
 .mode-icons,
@@ -6120,6 +6137,157 @@ two-column presentation. */
   margin: -6px 4px 12px;
 }
 
+.settings-diagnostics-page .menu-heading {
+  font-size: 0.875em;
+  letter-spacing: 1.5px;
+  padding: 0;
+  margin: 36px 4px 12px;
+}
+
+.diagnostics-actions {
+  margin-top: 10px;
+}
+
+.install-command > entry.preview-command-entry {
+  padding-right: 72px;
+}
+
+.install-command-status.error {
+  color: @strata_danger;
+}
+
+.diagnostics-summary {
+  color: @strata_dim_text;
+  margin: 18px 4px 0;
+}
+
+.diagnostics-row {
+  padding: 18px;
+}
+
+.settings-group .diagnostics-row + .diagnostics-row {
+  border-top: 1px solid alpha(@strata_border, 0.55);
+}
+
+.diagnostics-status {
+  margin-top: 1px;
+}
+
+.diagnostics-message.problem {
+  color: @strata_danger;
+}
+
+.diagnostics-detail {
+  color: @strata_dim_text;
+  font-family: monospace;
+  font-size: 0.85em;
+}
+
+.diagnostics-fix {
+  margin-top: 4px;
+}
+
+.settings-group .integration-row + .integration-row {
+  border-top: 1px solid alpha(@strata_border, 0.55);
+}
+
+.integration-heading {
+  color: @strata_dim_text;
+  font-size: 0.875em;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  margin: 0 4px;
+}
+
+.integration-count,
+.integration-filter-count {
+  color: @strata_dim_text;
+  font-size: 0.75em;
+}
+
+.integration-count {
+  background: alpha(@strata_border, 0.35);
+  border-radius: 8px;
+  font-weight: 700;
+  padding: 1px 7px;
+}
+
+.integration-filters {
+  margin: 0 0 12px;
+}
+
+.integration-logo {
+  background: alpha(@strata_bg, 0.55);
+  border: 1px solid alpha(@strata_border, 0.55);
+  border-radius: 8px;
+}
+
+.integration-card {
+  background: mix(@strata_bg, @strata_muted, 0.25);
+  border: 1px solid alpha(@strata_border, 0.55);
+  border-radius: 10px;
+}
+
+.integration-card-body {
+  padding: 18px;
+}
+
+.integration-installed {
+  color: @strata_accent;
+  font-size: 0.875em;
+}
+
+.integration-requirements-toggle {
+  background: transparent;
+  border: none;
+  border-top: 1px solid alpha(@strata_border, 0.55);
+  border-radius: 0 0 10px 10px;
+  box-shadow: none;
+  padding: 12px;
+}
+
+/* Lines the toggle's content up with the 18px card body. */
+.integration-requirements-toggle > box {
+  margin: 0 6px;
+}
+
+.integration-requirements-toggle.expanded {
+  border-radius: 0;
+}
+
+.integration-requirements-toggle:hover {
+  background: alpha(@strata_accent, 0.08);
+}
+
+.integration-requirements {
+  padding: 18px;
+}
+
+.integration-requirement.missing label {
+  color: @strata_danger;
+}
+
+.integration-message.error {
+  color: @strata_danger;
+}
+
+.integration-confirmation {
+  margin-top: 4px;
+}
+
+.integration-separator {
+  background: alpha(@strata_border, 0.55);
+  margin: 3px 2px;
+  min-width: 1px;
+}
+
+.integration-actions .settings-action-button.borderless,
+.integration-actions .settings-action-button.borderless:hover,
+.integration-actions .settings-action-button.borderless:active,
+.integration-actions .settings-action-button.borderless:focus-visible {
+  border-color: transparent;
+}
+
 .settings-group {
   background: mix(@strata_bg, @strata_muted, 0.25);
   border: 1px solid alpha(@strata_border, 0.55);
@@ -6130,8 +6298,7 @@ two-column presentation. */
   background: mix(@strata_bg, @strata_muted, 0.25);
   border: 1px solid alpha(@strata_border, 0.55);
   border-radius: 10px;
-  min-height: 42px;
-  padding: 9px 18px;
+  padding: 18px;
 }
 
 .settings-group .settings-option {
@@ -6194,31 +6361,6 @@ two-column presentation. */
   opacity: 0.7;
 }
 
-.settings-dialog switch {
-  min-width: 42px;
-  min-height: 22px;
-  border-radius: 20px;
-  background: @strata_muted;
-  border: 1px solid alpha(@strata_border, 0.8);
-}
-
-.settings-dialog switch slider {
-  min-width: 18px;
-  min-height: 18px;
-  margin: 1px;
-  background: @strata_dim_text;
-  box-shadow: none;
-}
-
-.settings-dialog switch:checked {
-  background: alpha(@strata_accent, 0.25);
-  border-color: alpha(@strata_accent, 0.65);
-}
-
-.settings-dialog switch:checked slider {
-  background: @strata_accent;
-}
-
 .settings-dialog .settings-option:disabled,
 .settings-dialog .theme-library:disabled {
   opacity: 0.45;
@@ -6231,7 +6373,7 @@ two-column presentation. */
 }
 
 .settings-exclusion-row {
-  padding: 6px 8px;
+  padding: 8px;
 }
 
 .settings-exclusion-row + .settings-exclusion-row {
@@ -6345,10 +6487,10 @@ two-column presentation. */
 }
 
 .settings-dialog .theme-card {
-  min-height: 50px;
+  min-height: 0;
   min-width: 0;
   border-radius: 0;
-  padding: 0 18px;
+  padding: 18px;
 }
 
 .settings-dialog .theme-card:hover,
@@ -6373,7 +6515,7 @@ two-column presentation. */
 }
 
 .theme-library-footer {
-  padding: 10px 18px;
+  padding: 18px;
   border-top: 1px solid alpha(@strata_border, 0.55);
   color: @strata_dim_text;
   font-size: 0.9375em;
@@ -6467,8 +6609,8 @@ two-column presentation. */
 }
 
 .about-detail-row {
-  min-height: 56px;
-  padding: 0 18px;
+  min-height: 0;
+  padding: 18px;
   border: none;
 }
 
@@ -6489,8 +6631,8 @@ two-column presentation. */
 .about-repository,
 .about-repository:link,
 .about-repository:visited {
-  min-height: 54px;
-  padding: 0 18px;
+  min-height: 0;
+  padding: 18px;
   color: @strata_text;
 }
 
@@ -6507,8 +6649,23 @@ two-column presentation. */
   min-width: 0;
 }
 
-.settings-dialog.compact .settings-option {
+.settings-dialog.compact .settings-option,
+.settings-dialog.compact .diagnostics-row,
+.settings-dialog.compact .about-detail-row,
+.settings-dialog.compact .about-repository,
+.settings-dialog.compact .theme-card,
+.settings-dialog.compact .theme-library-footer,
+.settings-dialog.compact .release-notes-toggle,
+.settings-dialog.compact .release-notes-card,
+.settings-dialog.compact .settings-actions-empty,
+.settings-dialog.compact .integration-card-body,
+.settings-dialog.compact .integration-requirements,
+.settings-dialog.compact .integration-requirements-toggle {
   padding: 10px;
+}
+
+.settings-dialog.compact .integration-requirements-toggle > box {
+  margin: 0;
 }
 
 .settings-dialog.compact .settings-library-toolbar {
@@ -6535,7 +6692,7 @@ two-column presentation. */
 .settings-dialog .settings-close image,
 .settings-dialog .settings-indent,
 .settings-dialog .about-repository image {
-  -gtk-icon-filter: saturate(0) opacity(0.65);
+  -gtk-icon-filter: opacity(0.65);
 }
 
 .settings-dialog .settings-nav-active image {
@@ -6589,7 +6746,7 @@ two-column presentation. */
   border: none;
   box-shadow: none;
   border-radius: 10px;
-  padding: 12px 18px;
+  padding: 18px;
   color: @strata_text;
 }
 
@@ -6601,17 +6758,19 @@ two-column presentation. */
   background: @strata_highlight;
 }
 
-.release-notes-toggle image {
+.release-notes-toggle image,
+.integration-requirements-toggle .integration-chevron {
   transform: rotate(90deg);
-  -gtk-icon-filter: saturate(0) opacity(0.65);
+  -gtk-icon-filter: opacity(0.65);
 }
 
-.release-notes-toggle.expanded image {
+.release-notes-toggle.expanded image,
+.integration-requirements-toggle.expanded .integration-chevron {
   transform: rotate(270deg);
 }
 
 .settings-release-expander .release-notes-card {
-  padding: 12px 18px;
+  padding: 18px;
 }
 
 .settings-backdrop {
@@ -6625,7 +6784,7 @@ two-column presentation. */
 }
 
 .settings-search-icon {
-  -gtk-icon-filter: saturate(0) opacity(0.65);
+  -gtk-icon-filter: opacity(0.65);
 }
 
 .settings-dialog .settings-library-toolbar .menu-heading {
@@ -6633,10 +6792,15 @@ two-column presentation. */
   padding: 0;
 }
 
-.settings-dialog.compact .about-detail-row {
-  min-height: 36px;
-  padding-top: 10px;
-  padding-bottom: 10px;
+/* With the rows' own 3px, the block's edges match its 18px sides. */
+.settings-dialog .diagnostics-system {
+  padding: 15px 0;
+}
+
+.settings-dialog .diagnostics-system .about-detail-row {
+  min-height: 0;
+  padding: 3px 18px;
+  border: none;
 }
 
 .settings-global-search {
@@ -6896,7 +7060,7 @@ popover.jobs-popover.background {
 }
 
 .settings-actions-empty {
-  padding: 14px 18px;
+  padding: 18px;
 }
 
 popover.settings-action-library {
@@ -6998,25 +7162,7 @@ popover.settings-action-library > contents {
 }
 
 .settings-action-dialog .action-dialog-actions {
-  background: alpha(@strata_highlight, 0.12);
   padding: 14px 22px;
-}
-
-.settings-action-dialog .action-dialog-cancel {
-  border-color: transparent;
-}
-
-.settings-action-dialog .action-dialog-confirm {
-  background: @strata_accent;
-  color: @strata_bg;
-}
-
-.settings-action-dialog .action-dialog-confirm:hover {
-  background: mix(@strata_accent, @strata_text, 0.12);
-}
-
-.settings-action-dialog .action-dialog-confirm:active {
-  background: mix(@strata_accent, @strata_bg, 0.15);
 }
 
 .settings-action-tabs,
@@ -7028,7 +7174,7 @@ popover.settings-action-library > contents {
 }
 
 .settings-action-tabs > header {
-  padding: 0 22px;
+  padding: 0 16px;
   border-bottom: 1px solid alpha(@strata_border, 0.35);
 }
 
@@ -7037,33 +7183,34 @@ popover.settings-action-library > contents {
   margin: 0;
 }
 
+/* The tab's side padding gives the focus ring room around the text; the
+   label draws the indicator so it stays as wide as the text. */
 .settings-action-tabs > header > tabs > tab {
   background: transparent;
   border: none;
-  border-bottom: 2px solid transparent;
   border-radius: 0;
   box-shadow: none;
-  color: @strata_dim_text;
-  margin: 0 20px 0 0;
+  color: @strata_text;
+  margin: 0 8px 0 0;
   min-height: 36px;
-  padding: 0;
-  outline-offset: -4px;
+  outline-offset: -2px;
+  padding: 0 6px;
 }
 
 .settings-action-tabs > header > tabs > tab label {
-  font-size: 0.85em;
+  border-bottom: 2px solid transparent;
   font-weight: 600;
-  letter-spacing: 1px;
-  text-transform: uppercase;
+  opacity: 0.55;
+  transition: opacity 160ms ease-out;
 }
 
-.settings-action-tabs > header > tabs > tab:hover {
-  color: @strata_text;
-  background: alpha(@strata_highlight, 0.25);
+.settings-action-tabs > header > tabs > tab:hover label,
+.settings-action-tabs > header > tabs > tab:focus-visible label,
+.settings-action-tabs > header > tabs > tab:checked label {
+  opacity: 1;
 }
 
-.settings-action-tabs > header > tabs > tab:checked {
-  color: @strata_text;
+.settings-action-tabs > header > tabs > tab:checked label {
   border-bottom-color: @strata_accent;
 }
 

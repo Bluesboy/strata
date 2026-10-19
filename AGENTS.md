@@ -177,9 +177,7 @@ pass before merge.
 - Use the bug report form for defects, the feature request form for enhancements, and a blank issue only when neither form fits.
 - Bug reports must include the Strata version, installation method, environment, reproduction steps, expected behavior, and any available sanitized logs. Never ask reporters to upload a core dump because it may contain secrets or private document contents.
 - Keep pull request descriptions concise: explain what changed and why, provide manual steps to exercise the feature or reproduce the fixed bug, state the expected result, and link the issue. Do not list automated checks that CI already runs.
-- Include before/after screenshots or a short video on every PR with user-visible changes. Upload sanitized captures through GitHub's PR description/comment editor and embed the resulting GitHub-hosted attachment URLs in the PR's Visual evidence section. Write `N/A` with a brief reason only for non-visual changes.
-- Never commit PR evidence, screenshots, recordings, one-off capture scripts, logs, review reports, or PR-specific test plans to the source tree. Keep captures in session-owned scratch or ignored `target/` paths. Maintained README media and executable visual-regression baselines are exceptions, not places to stash review captures.
-- `gh pr create` and `gh pr edit` can embed existing attachment URLs but do not upload local image/video attachments. If no supported authenticated upload route is available, retain the local captures, provide their exact paths and captions, and ask the owner to upload them through the GitHub editor. Explicitly mark visual evidence as pending; do not claim it is attached, substitute local file links, or commit files as a workaround. CI artifacts may supplement review but expire and are not a replacement for inline PR visuals.
+- Agents do not produce PR visual evidence: they cannot upload attachments, so screenshots and recordings taken for a PR are wasted work. Write `N/A` in the template's Visual evidence section and describe the change in words. Never commit screenshots, recordings, one-off capture scripts, logs, review reports, or PR-specific test plans to the source tree; maintained README media and executable visual-regression baselines are the only exceptions.
 - Keep lasting behavior and test guidance in maintained documentation; put task checklists, test results, and review history in the issue or PR instead.
 - Pull request titles must pass `.github/workflows/pr-title.yml`; do not bypass or weaken the Conventional Commit title check.
 
@@ -224,12 +222,12 @@ pass before merge.
 ## Internationalization
 
 - Every new or changed application-owned, user-facing string must be localized
-  with `rust-i18n` and added or updated in **all eleven supported languages in the
+  with `rust-i18n` and added or updated in **all twelve supported languages in the
   same change**: English, French, German, Spanish, Japanese, Brazilian Portuguese,
-  Korean, Vietnamese, Italian, Russian, and Simplified Chinese. This includes
-  labels, buttons, menus, placeholders, tooltips, accessibility
-  names/descriptions, dialogs, help text, errors, notifications, and
-  status/progress messages.
+  Korean, Vietnamese, Italian, Russian, Simplified Chinese, and Traditional
+  Chinese. This includes labels, buttons, menus, placeholders, tooltips,
+  accessibility names/descriptions, dialogs, help text, errors, notifications,
+  and status/progress messages.
 - Follow `docs/internationalization.md` and update the matching catalogs under
   `data/locales/`. English fallback is a runtime safeguard, not permission to leave
   translations missing or copy English into other languages as a placeholder.

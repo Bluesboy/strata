@@ -99,7 +99,7 @@ class ContainerRunnerTests(unittest.TestCase):
                     self.assertFalse(any(call["args"][0] == "run" for call in calls))
 
     def test_ci_explicitly_runs_the_engine_that_loaded_its_runtime(self):
-        workflow = (REPOSITORY / ".github/workflows/ci.yml").read_text()
+        workflow = (REPOSITORY / ".github/workflows/e2e.yml").read_text()
         loader = re.search(r"zstd -dc target/e2e-runtime/runtime.tar.zst \| (\w+) load", workflow)
         step = workflow.split("- name: Run the assigned scenarios without rebuilding or installing", 1)[1]
         step = step.split("- name:", 1)[0]

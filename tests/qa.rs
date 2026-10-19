@@ -4066,7 +4066,11 @@ impl FsCheck {
             FsKind::ZipMembers(members) => {
                 let file = File::open(&path).map_err(|error| error.to_string())?;
                 let mut archive = zip::ZipArchive::new(file).map_err(|error| error.to_string())?;
-                let names: Vec<String> = archive.file_names().map(str::to_owned).collect();
+                let names = archive
+                    .file_names()
+                    .map(|name| name.map(|name| name.into_owned()))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| error.to_string())?;
                 let mut contents = Vec::new();
                 for index in 0..archive.len() {
                     let mut member = archive.by_index(index).map_err(|error| error.to_string())?;
@@ -7336,7 +7340,10 @@ fn file_parts_join_repeats_and_fs_actions_write_archives_and_sparse_files() {
         zip::ZipArchive::new(File::open(root.path().join("a.zip")).expect("the archive"))
             .expect("a readable zip");
     assert_eq!(
-        archive.file_names().collect::<Vec<_>>(),
+        archive
+            .file_names()
+            .collect::<Result<Vec<_>, _>>()
+            .expect("readable names"),
         ["3D/3dmodel.model", "Metadata/thumbnail.png"]
     );
     assert_eq!(
@@ -7679,7 +7686,13 @@ fn glob_and_zipcrypto_helpers_mirror_the_twins() {
         let collision = peers::zipcrypto_collision(&path).expect("a colliding password");
         assert!(collision.parse::<u32>().is_ok_and(|number| number < 4096));
         let archive = zip::ZipArchive::new(File::open(&path).expect("the archive")).expect("a zip");
-        assert_eq!(archive.file_names().collect::<Vec<_>>(), ["some.txt"]);
+        assert_eq!(
+            archive
+                .file_names()
+                .collect::<Result<Vec<_>, _>>()
+                .expect("readable names"),
+            ["some.txt"]
+        );
     }
 }
 

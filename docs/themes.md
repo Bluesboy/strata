@@ -2,7 +2,7 @@
 
 Strata styles the interface with nine semantic color tokens. Bundled themes are the fallback on any Linux desktop; Azure Glow is the default. Settings presents all 95 bundled themes in one searchable, light/dark-filterable scrolling catalog.
 
-Tinted Base16 entries map colors to Strata tokens as follows: `base00` to background, `base01` to surface, `base05` to text, `base0D` to accent, `base08` to danger, `base02` to muted and highlight, `base03` to border, and `base04` to dim text. A few bundled entries override the mapped foreground values so body text stays readable: text is at least 4.5:1 on background and 3:1 on surface. Where the upstream dim text is also unreadable, it is adjusted to stay legible while remaining dimmer than text. The catalog comments each override next to the value. Source revision and licensing details are recorded in [`THIRD_PARTY_LICENSES.md`](../THIRD_PARTY_LICENSES.md).
+Tinted Base16 entries map colors to Strata tokens as follows: `base00` to background, `base01` to surface, `base05` to text, `base0D` to accent, `base08` to danger, `base02` to muted and highlight, `base03` to border, and `base04` to dim text. A few bundled entries override the mapped foreground values so body text stays readable: text is at least 4.5:1 on background and 3:1 on surface; the catalog comments each override next to the value. Where the upstream dim text is also unreadable, loading the bundled theme lifts it to the same floors, stopping as soon as they are met so it stays dimmer than text. Source revision and licensing details are recorded in [`THIRD_PARTY_LICENSES.md`](../THIRD_PARTY_LICENSES.md).
 
 ## GTK CSS precedence
 
@@ -26,6 +26,40 @@ Strata isolates its appearance from desktop GTK styling:
 The `@strata_*` namespace prevents accidental collisions with other
 stylesheets' `@theme_*` colors; it does not stop deliberate `@strata_*`
 redefinitions in a user stylesheet.
+
+## User stylesheet
+
+To restyle Strata itself, create an optional stylesheet at:
+
+```text
+~/.config/strata/style.css
+```
+
+It is loaded above every stylesheet Strata ships, including the active theme,
+so its rules win over Strata's own. The `@strata_*` colors of the active theme
+are available, which keeps overrides in step with theme changes:
+
+```css
+/* A floating, rounded sidebar */
+.sidebar-shell {
+    margin: 8px 0 8px 8px;
+    border-right: none;
+    border-radius: 14px;
+    background: alpha(@strata_surface, 0.6);
+}
+
+/* Let the card show through the sidebar's own opaque layers */
+.sidebar-shell .sidebar-scroll,
+.sidebar-shell .sidebar-scroll viewport,
+.sidebar-shell .sidebar {
+    background: transparent;
+}
+```
+
+Strata re-reads the file when it changes, so edits apply to open windows
+without a restart; deleting it restores the default appearance. Rules GTK
+cannot parse are skipped and logged as warnings. Class names are not a stable
+interface and may change between releases.
 
 ## Custom theme files
 
