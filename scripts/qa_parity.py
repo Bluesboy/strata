@@ -54,9 +54,12 @@ COMPARED_STATE = ("view_mode", "directory", "panes", "focused", "focused_pane", 
 # What a scenario's `state_parity_ignore` may name: a compared key, or a
 # compared key of each pane.
 IGNORABLE_STATE = COMPARED_STATE + ("panes.selected", "panes.focused")
+# `state_parity_ignore: ["*"]` leaves the whole final state out, for a twin
+# that ends its own application before the state can be read.
+WHOLE_STATE = "*"
 # Both runners then name each fixture directory after the twin's node id.
 PARITY_FIXTURES = {"STRATA_PARITY_FIXTURES": "1"}
-# Same file naming as `node_file_name` in tests/e2e/conftest.py.
+# Same file naming as `node_file_name` in tests/e2e/harness/parity.py.
 UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 
 RUN = r"(?P<scenario>[^/\s]+)/(?P<run>\S+) \(twin (?P<twin>.+?)\)"
@@ -93,6 +96,8 @@ class Scenario:
     # Per run label, the (1-based number, expected event) pairs whose pointer
     # position is not compared.
     input_parity_ignore: tuple[tuple[str, tuple[tuple[int, str], ...]], ...] = ()
+    # Why the scenario stays out of the default QA run and out of parity.
+    skip: str | None = None
 
     @property
     def unit(self) -> str:
@@ -108,12 +113,29 @@ def scenarios() -> list[Scenario]:
         try:
             ignored = state_parity_ignore(header)
             positions = input_parity_ignore(header)
+            skip = skip_reason(header)
         except ValueError as error:
             raise SystemExit(f"{path}: {error}") from None
         found.append(
-            Scenario(path.stem, header.get("mutation"), ignored, sends_input(path), positions)
+            Scenario(path.stem, header.get("mutation"), ignored, sends_input(path), positions, skip)
         )
     return found
+
+
+def skip_reason(header: dict) -> str | None:
+    """Why a scenario stays out of the default run and out of parity, if it does.
+
+    `tests/qa.rs` rejects the same values when it loads the scenario.
+    """
+
+    reason = header.get("skip")
+    if reason is None:
+        return None
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError("skip gives the reason the scenario stays out of the run")
+    if header.get("mutation") is not None or header.get("known_bug") is not None:
+        raise ValueError("skip is for a scenario without a mutation or known_bug")
+    return reason
 
 
 def sends_input(path: Path) -> bool:
@@ -138,15 +160,20 @@ def run_labels(header: dict) -> list[str]:
     ]
 
 
-IGNORED_EVENT = re.compile(r"^button (\d+) (down|up)$")
+IGNORED_EVENT = re.compile(r"^(?:button (\d+)|key) (down|up)$|^typed digits$")
+# US key positions of the digits 1-9 and 0, as the X server numbers them.
+DIGIT_KEYCODES = frozenset(range(10, 20))
 
 
 def input_parity_ignore(header: dict) -> tuple[tuple[str, tuple[tuple[int, str], ...]], ...]:
-    """The input events a scenario's input parity compares without their pointer position.
+    """The input events a scenario's input parity compares without their position or key.
 
     Each entry names one run and, for each such event, its 1-based number
-    among the run's key and pointer events (motion lines aside) and the event
-    expected there, such as `button 1 down`; the event itself, and every other
+    among the run's key and pointer events (motion lines aside) on the Python
+    side and the event expected there: `button 1 down` (compared without its
+    pointer position), `key down` (without its keycode), or `typed digits`, a
+    run of digit key presses that may differ in length between the sides, as
+    a random number typed into a field. The event itself, and every other
     event, is still compared, so a step added before it cannot shift the
     exemption onto another event. `tests/qa.rs` rejects the same values when
     it loads the scenario.
@@ -183,7 +210,7 @@ def input_parity_ignore(header: dict) -> tuple[tuple[str, tuple[tuple[int, str],
             ):
                 raise ValueError(
                     "an input_parity_ignore event is {\"position\": N, \"event\": \"button 1 down\"}"
-                    " with a distinct position from 1"
+                    " (or \"key down\", or \"typed digits\") with a distinct position from 1"
                 )
             kept.append((event["position"], event["event"]))
         found.append((run, tuple(kept)))
@@ -199,6 +226,12 @@ def state_parity_ignore(header: dict) -> tuple[str, ...]:
     ignored = header.get("state_parity_ignore", [])
     if not isinstance(ignored, list) or not all(isinstance(key, str) for key in ignored):
         raise ValueError("state_parity_ignore is a list of compared state keys")
+    if ignored == [WHOLE_STATE]:
+        if header.get("mutation") is not None:
+            raise ValueError(
+                "state_parity_ignore is for baseline parity; a scenario with a mutation keeps every check"
+            )
+        return (WHOLE_STATE,)
     unknown = [key for key in ignored if key not in IGNORABLE_STATE]
     if unknown or len(set(ignored)) != len(ignored):
         raise ValueError(
@@ -236,7 +269,7 @@ def scenario_named(name: str) -> Scenario:
 
 
 # File names stay well inside the 255-byte limit; a longer node id keeps its
-# start and a digest of the whole, as `tests/e2e/conftest.py` names it.
+# start and a digest of the whole, as `tests/e2e/harness/parity.py` names it.
 NODE_FILE_NAME_LIMIT = 200
 NODE_FILE_NAME_KEPT = 180
 
@@ -389,7 +422,10 @@ def compare_input(
     A run that only moves the pointer, as a hover does, compares its motion
     lines the same way instead. Two empty logs agree only for a scenario that
     sends no input at all. Each `(number, "button 1 down")` in `positions` must
-    be that pointer event on both sides, and is compared without its coordinates.
+    be that pointer event on both sides, and is compared without its coordinates;
+    a `"key down"` without its keycode; and `"typed digits"` starts a run of
+    digit key presses on each side, of any length, after which the logs are
+    compared again from the ends of both runs. Numbers count Python's events.
     """
 
     def events(text: str, side: str) -> tuple[list[tuple], list[tuple]]:
@@ -419,39 +455,87 @@ def compare_input(
     expected = dict(positions)
     if expected and set(expected) >= set(range(1, len(left) + 1)):
         return Comparison(False, "input_parity_ignore leaves no event position compared")
-    for number, event in expected.items():
-        match = IGNORED_EVENT.match(event)
-        wanted = ("pointer", int(match[1]), match[2]) if match else None
-        for side, events in (("Python", left), ("QA", right)):
-            if number > len(events):
-                return Comparison(
-                    False, f"input_parity_ignore names event {number}, past {side}'s {len(events)}"
-                )
-            found = events[number - 1]
-            if (found[0], *found[3:]) != wanted:
+
+    def digits(events: list[tuple], start: int) -> int:
+        """How many events from `start` are digit key presses, each down then up."""
+
+        end = start
+        while (
+            end + 1 < len(events)
+            and events[end][0] == "key"
+            and events[end][1] in DIGIT_KEYCODES
+            and events[end][2] == "down"
+            and events[end + 1] == ("key", events[end][1], "up")
+        ):
+            end += 2
+        return end - start
+
+    left_index = right_index = 0
+    visited = set()
+    while left_index < len(left) and right_index < len(right):
+        number = left_index + 1
+        visited.add(number)
+        event = expected.get(number)
+        one, other = left[left_index], right[right_index]
+        if event == "typed digits":
+            spans = digits(left, left_index), digits(right, right_index)
+            if not all(spans):
                 return Comparison(
                     False,
-                    f"input_parity_ignore expects {event!r} as event {number}; {side} sent {found}",
+                    f"input_parity_ignore expects typed digits as event {number}; "
+                    f"Python sent {one}, QA {other}",
                 )
-    for index, (one, other) in enumerate(zip(left, right)):
-        if index + 1 in expected:
+            left_index += spans[0]
+            right_index += spans[1]
             continue
-        if one[0] != other[0]:
-            return Comparison(False, f"event {index + 1}: Python {one}, QA {other}")
-        if one[0] == "key" and one != other:
-            return Comparison(False, f"event {index + 1}: Python {one}, QA {other}")
-        if one[0] in ("pointer", "motion") and (
+        if event is not None:
+            match = IGNORED_EVENT.match(event)
+            if match[1]:
+                wanted = ("pointer", int(match[1]), match[2])
+                shape = lambda found: (found[0], *found[3:])  # noqa: E731
+            else:
+                wanted = ("key", match[2])
+                shape = lambda found: (found[0], found[-1])  # noqa: E731
+            for side, found in (("Python", one), ("QA", other)):
+                if shape(found) != wanted:
+                    return Comparison(
+                        False,
+                        f"input_parity_ignore expects {event!r} as event {number}; {side} sent {found}",
+                    )
+        elif one[0] != other[0]:
+            return Comparison(False, f"event {number}: Python {one}, QA {other}")
+        elif one[0] == "key" and one != other:
+            return Comparison(False, f"event {number}: Python {one}, QA {other}")
+        elif one[0] in ("pointer", "motion") and (
             one[3:] != other[3:]
             or abs(one[1] - other[1]) > PIXEL_TOLERANCE
             or abs(one[2] - other[2]) > PIXEL_TOLERANCE
         ):
-            return Comparison(False, f"event {index + 1}: Python {one}, QA {other}")
-    if len(left) != len(right):
+            return Comparison(False, f"event {number}: Python {one}, QA {other}")
+        left_index += 1
+        right_index += 1
+    past = [number for number in expected if number > len(left)]
+    if past:
+        return Comparison(
+            False, f"input_parity_ignore names event {past[0]}, past Python's {len(left)}"
+        )
+    if expected and not visited - set(expected):
+        return Comparison(False, "input_parity_ignore leaves no event position compared")
+    # A named position inside a run of typed digits was skipped, never checked.
+    skipped = sorted(set(expected) - visited)
+    if skipped:
+        return Comparison(
+            False,
+            f"input_parity_ignore names event {skipped[0]}, inside a run of typed digits",
+        )
+    if left_index < len(left) or right_index < len(right):
         return Comparison(False, f"Python sent {len(left)} events, QA {len(right)}")
     return Comparison(True, f"{len(left)} events")
 
 
 def compare_state(python: dict | None, qa: dict | None, ignore: tuple[str, ...] = ()) -> Comparison:
+    if ignore == (WHOLE_STATE,):
+        return Comparison(True, "not compared: state_parity_ignore *")
     if not python or "error" in python:
         return Comparison(False, f"no Python state: {(python or {}).get('error', 'missing')}")
     if not qa:
@@ -854,9 +938,21 @@ def write_summary(reports: list[PairReport], elapsed: float | None, extra: list[
 # ----------------------------------------------------------------------- main
 
 def chosen_scenarios(names: list[str]) -> list[Scenario]:
-    if names:
-        return [scenario_named(name) for name in names]
-    return scenarios()
+    """The named scenarios, or every one; a skipped scenario never takes part."""
+
+    found = [scenario_named(name) for name in names] if names else scenarios()
+    return [scenario for scenario in found if scenario.skip is None]
+
+
+def skipped_lines(names: list[str]) -> list[str]:
+    """The summary's note on each skipped scenario among the chosen, with its reason."""
+
+    found = [scenario_named(name) for name in names] if names else scenarios()
+    return [
+        f"Skipped, not compared: {scenario.name} ({scenario.skip})"
+        for scenario in found
+        if scenario.skip is not None
+    ]
 
 
 def baseline_pairs(scenario: Scenario, qa: dict[str, QaRun], python: dict[str, Result]) -> list[RunPair]:
@@ -948,7 +1044,7 @@ def parity(names: list[str], rerun: bool = True, baseline_only: bool = False) ->
     reports = evaluate(chosen, baseline_only=baseline_only)
     for report in reports:
         print(f"   {report.scenario} / {report.patch or 'baseline'}: {'agree' if report.agree else 'DISAGREE'}")
-    summary = write_summary(reports, time.monotonic() - started)
+    summary = write_summary(reports, time.monotonic() - started, skipped_lines(names))
     print("\n" + summary)
     return 0 if all(report.agree for report in reports) else 1
 
@@ -996,7 +1092,7 @@ def ci_units() -> list[str]:
     clashing = sorted({scenario.name for scenario in found if not scenario.mutation} & set(patches))
     if clashing:
         raise SystemExit(f"a scenario is named like another's mutation: {', '.join(clashing)}")
-    return sorted(scenario.unit for scenario in found)
+    return sorted(scenario.unit for scenario in found if scenario.skip is None)
 
 
 def shard_units(units: list[str], shards: int) -> list[list[str]]:

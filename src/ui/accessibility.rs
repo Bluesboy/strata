@@ -117,6 +117,14 @@ pub(super) fn set_labelled_by(widget: &impl IsA<gtk::Accessible>, labels: &[&gtk
     qa::record_labelled_by(widget, labels);
 }
 
+/// Drops the widget's `labelled-by` relation, such as the one a button's text
+/// label gives it, so its own accessible label names it.
+pub(super) fn clear_labelled_by(widget: &impl IsA<gtk::Accessible>) {
+    widget.reset_relation(gtk::AccessibleRelation::LabelledBy);
+    #[cfg(feature = "qa")]
+    qa::record_labelled_by_reset(widget);
+}
+
 pub(super) fn set_selected(widget: &impl IsA<gtk::Accessible>, selected: bool) {
     widget.update_state(&[gtk::accessible::State::Selected(Some(selected))]);
     #[cfg(feature = "qa")]

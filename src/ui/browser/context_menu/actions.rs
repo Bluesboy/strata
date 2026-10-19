@@ -898,7 +898,7 @@ fn present_native_items(
 
 fn label_menu_item(widget: &gtk::Widget, item: &ItemPresentation) {
     // GTK 4.14's unnamed labelled-by relation otherwise masks the accessible name.
-    widget.reset_relation(gtk::AccessibleRelation::LabelledBy);
+    crate::ui::accessibility::clear_labelled_by(widget);
     crate::ui::accessibility::set_label(widget, &item.label);
     crate::ui::accessibility::set_description(widget, Some(&item.description));
     // GTK renders the `accel` attribute itself; the row shows Strata's label.

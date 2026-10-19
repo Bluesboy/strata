@@ -70,7 +70,8 @@ while (($#)); do
   esac
 done
 # A name selects only its own scenario, never every one it prefixes; --exact
-# makes a --skip match whole names too.
+# makes a --skip match whole names too. A named scenario runs even when its
+# header's `skip` keeps it out of the default run (STRATA_QA_NAMED).
 if ((${named:-0})); then
   arguments+=(--exact)
 fi
@@ -93,6 +94,7 @@ exec "$engine" run "${options[@]}" \
   --env STRATA_QA_CONTAINER=1 \
   --env "STRATA_QA_KEEP_ARTIFACTS=${STRATA_QA_KEEP_ARTIFACTS:-0}" \
   --env "STRATA_PARITY_FIXTURES=${STRATA_PARITY_FIXTURES:-0}" \
+  --env "STRATA_QA_NAMED=${named:-0}" \
   "$image" bash -euc '
     mkdir -p "$HOME" "$CARGO_HOME"
     rustc --version

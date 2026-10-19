@@ -9,8 +9,8 @@ use super::{
     pixels::{self, Capture},
     protocol::{
         Accessor, At, Axis, Change, Check, Chord, Command, EntryPart, EntryTarget, FieldCheck,
-        Modifier, Names, Offset, Predicate, Presence, Query, Target, TextMatch, changed_keys,
-        parse_command,
+        Modifier, Names, Offset, Predicate, Presence, Query, StateName, Target, TextMatch,
+        changed_keys, parse_command,
     },
     state::{self, EntryObservation, FieldState, Observation, PaneObservation},
     step_towards,
@@ -118,6 +118,8 @@ fn commands_parse_from_the_scenario_spelling_with_their_defaults() {
                 nth: None,
                 states: Vec::new(),
                 name_matches: None,
+                has: None,
+                rendered: true,
             },
             message: Some("m".to_owned()),
         })
@@ -464,6 +466,8 @@ fn every_target_kind_parses_from_its_key() {
             nth: None,
             states: Vec::new(),
             name_matches: None,
+            has: None,
+            rendered: true,
         }
     );
     assert_eq!(
@@ -508,6 +512,8 @@ fn every_target_kind_parses_from_its_key() {
             nth: Some(-1),
             states: Vec::new(),
             name_matches: None,
+            has: None,
+            rendered: true,
         }
     );
     assert_eq!(target(r#"{"focused_widget":true}"#), Target::FocusedWidget);
@@ -1562,6 +1568,128 @@ fn notebook_tabs_and_scrolled_text_report_what_the_bridge_does() {
             let plain = gtk::TextView::new();
             let _unlabelled = gtk::ScrolledWindow::builder().child(&plain).build();
             assert_eq!(super::targets::accessible_name(plain.upcast_ref()), "");
+        },
+    );
+}
+
+#[test]
+fn portal_reveal_and_window_steps_parse_and_reject_what_they_cannot_mean() {
+    assert_eq!(
+        parse_command(r#"{"adopt":"Picker","timeout_ms":20000,"message":"m"}"#),
+        Ok(Command::Adopt {
+            title: "Picker".to_owned(),
+            timeout: Duration::from_millis(20_000),
+            message: Some("m".to_owned()),
+        })
+    );
+    assert_eq!(
+        parse_command(r#"{"keep":[1,2,3,4],"as":"foreign"}"#),
+        Ok(Command::Keep {
+            rect: [1, 2, 3, 4],
+            name: "foreign".to_owned(),
+        })
+    );
+    assert!(matches!(
+        parse_command(
+            r#"{"keys_until":{"focused":true},"keys":["Tab"],"times":3,"check_first":true,"await_focus_change":{"timeout_ms":5000},"exhausted":"never"}"#
+        ),
+        Ok(Command::KeysUntil {
+            await_focus_change: Some((timeout, None)),
+            exhausted: Some(_),
+            ..
+        }) if timeout == Duration::from_millis(5000)
+    ));
+    assert!(matches!(
+        parse_command(r#"{"open_menu":{"role":"button","name":"A"},"until":{"menu_items":{}}}"#),
+        Ok(Command::OpenMenu { open_states, .. }) if open_states == [StateName::Checked]
+    ));
+    for invalid in [
+        r#"{"adopt":""}"#,
+        r#"{"keep":[1,2,3],"as":"x"}"#,
+        r#"{"reveal":{"role":"button"}}"#,
+        r#"{"reveal_control":{"entry":"a"}}"#,
+        r#"{"open_menu":{"role":"button","name":"A"},"until":{"menu_items":{}},"open_states":[]}"#,
+        r#"{"wait":{"file":{"path":"/a","exists":true,"mode_bits":{"mask":"100","set":true}}}}"#,
+        r#"{"wait":{"file":{"path":"/a","mode_bits":{"mask":"9","set":true}}}}"#,
+        r#"{"wait":{"present":{"role":["*","button"]}}}"#,
+        r#"{"wait":{"present":{"role":"list item","has":{"entry":"a"}}}}"#,
+    ] {
+        assert!(
+            parse_command(invalid).is_err(),
+            "{invalid} should be rejected"
+        );
+    }
+    for valid in [
+        r#"{"wait":{"some_window":{"title":"Strata","holds":{"windows":{"title":"Strata","count":2}}}}}"#,
+        r#"{"wait":{"child_names":{"of":{"parent":{"sidebar":"Home"}},"role":"button","names":{"starts_with":["Home"]}}}}"#,
+        r#"{"wait":{"present":{"role":"*","states":["selected"],"within":{"preview":true}}}}"#,
+        r#"{"wait":{"present":{"role":"list item","has":{"role":"label","name":"a"}}}}"#,
+        r#"{"wait":{"state":{"target":{"row":"a"},"focusable":true}}}"#,
+        r#"{"expect":[{"alive":"x"},{"focus_outside":{"remembered":"x"}},{"focused_widget_is":{"remembered":"x"}}]}"#,
+        r#"{"expect":{"subtree_text":{"target":{"dialog":true},"contains":"a","strip_newlines":true}}}"#,
+    ] {
+        assert!(parse_command(valid).is_ok(), "{valid} should parse");
+    }
+}
+
+#[test]
+fn name_filters_take_a_leading_run() {
+    let names: Vec<String> = ["Home", "Trash", "Network"].map(str::to_owned).into();
+    let leading = |first: &[&str]| {
+        Names::Including(Box::new(
+            serde_json::from_value(json!({ "starts_with": first })).expect("a name filter"),
+        ))
+    };
+    assert!(leading(&["Home", "Trash"]).matches(&names));
+    assert!(!leading(&["Trash", "Home"]).matches(&names));
+}
+
+#[test]
+fn buttons_alerts_passwords_and_list_rows_report_what_the_bridge_does() {
+    crate::test_support::gtk_test(
+        "qa::tests::buttons_alerts_passwords_and_list_rows_report_what_the_bridge_does",
+        || {
+            use gtk::prelude::*;
+            let name = |widget: &gtk::Widget| super::targets::accessible_name(widget);
+            // GTK's labelled-by relation to a button's text label comes first.
+            let labelled = gtk::Button::with_label("Home directory");
+            crate::ui::accessibility_qa::record(&labelled, |naming| {
+                naming.label = Some("Default directory".to_owned());
+            });
+            assert_eq!(name(labelled.upcast_ref()), "Home directory");
+            // With the relation reset, the button's own label names it.
+            let reset = gtk::Button::with_label("r");
+            crate::ui::accessibility_qa::record_labelled_by_reset(&reset);
+            crate::ui::accessibility_qa::record(&reset, |naming| {
+                naming.label = Some("Owner read".to_owned());
+            });
+            assert_eq!(name(reset.upcast_ref()), "Owner read");
+            // An icon button has no text label to be named by.
+            let icon = gtk::Button::from_icon_name("edit-find");
+            crate::ui::accessibility_qa::record(&icon, |naming| {
+                naming.label = Some("Search".to_owned());
+            });
+            assert_eq!(name(icon.upcast_ref()), "Search");
+
+            let alert = gtk::Label::builder()
+                .accessible_role(gtk::AccessibleRole::Alert)
+                .build();
+            assert_eq!(super::targets::role_name(alert.upcast_ref()), "alert");
+            let password = gtk::PasswordEntry::new();
+            assert_eq!(
+                super::targets::role_name(password.upcast_ref()),
+                "password text"
+            );
+
+            let row = gtk::Box::builder()
+                .accessible_role(gtk::AccessibleRole::ListItem)
+                .build();
+            assert!(!super::targets::states(row.upcast_ref()).selected);
+            row.set_state_flags(gtk::StateFlags::SELECTED, false);
+            assert!(super::targets::states(row.upcast_ref()).selected);
+            let plain = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            plain.set_state_flags(gtk::StateFlags::SELECTED, false);
+            assert!(!super::targets::states(plain.upcast_ref()).selected);
         },
     );
 }

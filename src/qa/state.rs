@@ -196,6 +196,22 @@ pub(crate) struct PaneState {
     pub(crate) focused: Option<String>,
 }
 
+/// The snapshot of no window at all, as AT-SPI reads a closed window's tree.
+pub(crate) fn empty_app_state() -> serde_json::Value {
+    serde_json::json!({
+        "view_mode": null,
+        "directory": null,
+        "panes": [],
+        "focused": null,
+        "focused_pane": null,
+        "dialog": null,
+        "menu": null,
+        "preview": null,
+        "field": null,
+        "matches": [],
+    })
+}
+
 impl Observation {
     /// Columns keeps parent panes on screen, so the pane holding keyboard focus
     /// is the current one; otherwise the deepest pane is.
@@ -379,7 +395,14 @@ impl Observation {
             | Check::LargestImage(_)
             | Check::Children(_)
             | Check::ListSections(_)
-            | Check::Text(_) => (false, json!("needs the live window")),
+            | Check::Text(_)
+            | Check::SomeWindow(_)
+            | Check::Windows(_)
+            | Check::ChildNames(_)
+            | Check::FocusOutside(_)
+            | Check::FocusedWidgetIs(_)
+            | Check::Alive(_)
+            | Check::SubtreeText(_) => (false, json!("needs the live window")),
             Check::Not(inner) => match self.evaluate(inner) {
                 Ok(()) => (false, json!("the negated predicate holds")),
                 Err(failure) => (true, failure.actual),
@@ -597,6 +620,14 @@ pub(crate) fn row_name(widget: &gtk::Widget) -> Option<String> {
             .then_some(naming.label)
             .flatten()
             .filter(|name| !name.is_empty())
+    })
+}
+
+/// The entry description of a row widget, which Strata gives its list item.
+pub(crate) fn row_description(widget: &gtk::Widget) -> Option<String> {
+    names::entries().into_iter().find_map(|(item, naming)| {
+        let row = item.child()?.parent()?;
+        (row == *widget).then_some(naming.description).flatten()
     })
 }
 

@@ -33,7 +33,7 @@ use self::{
     protocol::{
         Accessor, At, Check, Chord, Command, Direction, EntryTarget, Expr, Failure, FieldRef,
         Measure, Modifier, Orientation, PointAxis, Predicate, PressCheck, Query, Repeat, Reply,
-        Target,
+        StateName, Target,
     },
     state::FieldState,
     targets::{Aim, Boxes, Kept, LookupError, Memory, Rect},
@@ -42,7 +42,7 @@ use self::{
 /// Present in every `qa` build. The release workflow fails a binary containing its
 /// stable prefix `usage: strata --qa`, and the QA job checks a `qa` build does;
 /// `scripts/test_qa_parity.py` requires both checks' pattern to prefix this text.
-const USAGE: &str = "usage: strata --qa <directory>";
+const USAGE: &str = "usage: strata --qa <directory|--portal>";
 /// `ui::browser::peek::PEEK_LABEL`, whose module is private to the browser; the
 /// Python harness names it alike, and a peek test fails if the two drift apart.
 pub(crate) const PEEK_LABEL: &str = "Folder peek";
@@ -75,6 +75,9 @@ const MENU_RETRY_AFTER: Duration = Duration::from_secs(1);
 /// `Strata.KEYBOARD_SELECT_STEPS`: enough to cross any fixture directory.
 const KEYBOARD_SELECT_STEPS: usize = 40;
 const PANIC_EXIT: i32 = 70;
+/// `Strata.REVEAL_SCROLL_ATTEMPTS`, each three wheel clicks at the window's centre.
+const REVEAL_SCROLL_ATTEMPTS: usize = 12;
+const WHEEL_REVEAL_CLICKS: u32 = 3;
 const ARRIVAL_ATTEMPTS: usize = 5;
 /// Approach a point in two steps so GTK sees enter and motion, not a teleport.
 const APPROACH_OFFSET: i16 = 6;
@@ -94,6 +97,22 @@ const DROP_SAMPLE_RECOVERY: f64 = 1.25;
 pub(crate) struct Session {
     protocol: File,
     application_arguments: Vec<OsString>,
+    /// `strata --qa --portal`: the FileChooser portal backend, driven the
+    /// same way once a request opens its chooser.
+    portal: bool,
+}
+
+/// `strata --qa --portal` runs the portal backend instead of the browser.
+const PORTAL_ARGUMENT: &str = "--portal";
+/// Set by the runner for a launch whose standard output and error a twin
+/// leaves closed or discarded: `stdout=closed,stderr=null`.
+const STREAMS_VARIABLE: &str = "STRATA_QA_STREAMS";
+
+/// Where the controller finds its windows: the browser's application, or
+/// the portal backend's own main loop.
+enum Host {
+    Application(gtk::Application),
+    Portal(glib::MainLoop),
 }
 
 impl Session {
@@ -103,18 +122,33 @@ impl Session {
         let [program, _, directory] = arguments else {
             return Err(USAGE.to_owned());
         };
-        if !Path::new(directory).is_dir() {
+        let portal = directory == PORTAL_ARGUMENT;
+        if !portal && !Path::new(directory).is_dir() {
             return Err(format!("--qa needs a directory, not {directory:?}"));
         }
         let protocol = rustix::io::fcntl_dupfd_cloexec(std::io::stdout(), 3)
             .map_err(|error| format!("cannot keep stdout for replies: {error}"))?;
-        rustix::stdio::dup2_stdout(std::io::stderr())
-            .map_err(|error| format!("cannot move application output to stderr: {error}"))?;
+        match std::env::var(STREAMS_VARIABLE) {
+            Ok(streams) => replace_streams(&streams)?,
+            Err(_) => rustix::stdio::dup2_stdout(std::io::stderr())
+                .map_err(|error| format!("cannot move application output to stderr: {error}"))?,
+        }
         criticals::capture();
         Ok(Self {
             protocol: File::from(protocol),
             application_arguments: vec![program.clone(), directory.clone()],
+            portal,
         })
+    }
+
+    /// Whether this session drives the portal backend rather than the browser.
+    pub(crate) fn portal(&self) -> bool {
+        self.portal
+    }
+
+    /// Starts the controller once the portal backend's GTK is ready.
+    pub(crate) fn start_portal(self, main_loop: &glib::MainLoop) {
+        self.start(Host::Portal(main_loop.clone()));
     }
 
     /// The command line the application itself sees: an ordinary launch in the directory.
@@ -126,12 +160,12 @@ impl Session {
         let session = RefCell::new(Some(self));
         application.connect_startup(move |application| {
             if let Some(session) = session.take() {
-                session.start(application);
+                session.start(Host::Application(application.clone()));
             }
         });
     }
 
-    fn start(self, application: &gtk::Application) {
+    fn start(self, host: Host) {
         let (sender, receiver) = mpsc::unbounded();
         std::thread::spawn(move || {
             for line in std::io::stdin().lock().lines() {
@@ -146,7 +180,7 @@ impl Session {
         });
         let last_words = self.protocol.try_clone();
         let controller = Controller {
-            application: application.clone(),
+            host,
             protocol: self.protocol,
             injector: None,
             main: glib::WeakRef::new(),
@@ -192,7 +226,7 @@ impl Session {
 }
 
 struct Controller {
-    application: gtk::Application,
+    host: Host,
     protocol: File,
     injector: Option<Injector>,
     /// The browser window the run started with, `strata.window`: a floating
@@ -257,8 +291,15 @@ impl Outcome {
 
 impl Controller {
     async fn serve(mut self, mut commands: mpsc::UnboundedReceiver<String>) {
-        let _hold = self.application.hold();
-        let ready = self.await_ready().await;
+        let _hold = match &self.host {
+            Host::Application(application) => Some(application.hold()),
+            Host::Portal(_) => None,
+        };
+        // The portal has no window until a request opens one, which `adopt` awaits.
+        let ready = match self.host {
+            Host::Application(_) => self.await_ready().await,
+            Host::Portal(_) => Ok(()),
+        };
         let ready = match ready.and_then(|()| Injector::connect()) {
             Ok(injector) => {
                 self.injector = Some(injector);
@@ -280,15 +321,34 @@ impl Controller {
                 self.reply(outcome);
             }
         }
-        self.application.quit();
+        self.quit();
+    }
+
+    fn quit(&self) {
+        match &self.host {
+            Host::Application(application) => application.quit(),
+            Host::Portal(main_loop) => main_loop.quit(),
+        }
     }
 
     fn window(&self) -> Option<gtk::Window> {
-        self.main.upgrade().or_else(|| {
-            self.application
+        self.main.upgrade().or_else(|| match &self.host {
+            Host::Application(application) => application
                 .active_window()
-                .or_else(|| self.application.windows().into_iter().next())
+                .or_else(|| application.windows().into_iter().next()),
+            Host::Portal(_) => None,
         })
+    }
+
+    /// Every application window, for checks that read them all.
+    fn windows(&self) -> Vec<gtk::Window> {
+        match &self.host {
+            Host::Application(application) => application.windows(),
+            Host::Portal(_) => gtk::Window::list_toplevels()
+                .into_iter()
+                .filter_map(|window| window.downcast::<gtk::Window>().ok())
+                .collect(),
+        }
     }
 
     async fn await_ready(&self) -> Result<(), String> {
@@ -311,7 +371,11 @@ impl Controller {
             .window()
             .map(|window| state::scan(&window).observation.app_state())
             .and_then(|app| serde_json::to_value(app).ok())
-            .unwrap_or(Value::Null);
+            .unwrap_or_else(|| match self.host {
+                // A chooser that closed, or none yet: an empty tree, as AT-SPI reads one.
+                Host::Portal(_) => state::empty_app_state(),
+                Host::Application(_) => Value::Null,
+            });
         let changed = protocol::changed_keys(self.previous.as_ref(), &app);
         self.previous = Some(app.clone());
         let reply = Reply {
@@ -330,11 +394,19 @@ impl Controller {
             .and_then(|()| self.protocol.flush())
             .is_err()
         {
-            self.application.quit();
+            self.quit();
         }
     }
 
     async fn execute(&self, command: Command) -> Outcome {
+        if let Command::Adopt {
+            title,
+            timeout,
+            message,
+        } = &command
+        {
+            return self.adopt(title, *timeout, message.as_deref()).await;
+        }
         let Some(window) = self.window() else {
             return Outcome::error("the Strata window is gone".to_owned());
         };
@@ -386,7 +458,31 @@ impl Controller {
                 target,
                 until,
                 message,
-            } => self.open_menu(&input, &target, &until, message).await,
+                open_states,
+            } => {
+                self.open_menu(&input, &target, &until, message, &open_states)
+                    .await
+            }
+            Command::Adopt { .. } => Outcome::error("adopt runs before a window".to_owned()),
+            Command::Keep {
+                rect: [x, y, width, height],
+                name,
+            } => {
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "screen coordinates are far below 2^52"
+                )]
+                let rect = Rect {
+                    x: x as f64,
+                    y: y as f64,
+                    width: width as f64,
+                    height: height as f64,
+                };
+                self.settled.borrow_mut().insert(name, rect);
+                Outcome::default()
+            }
+            Command::RevealControl { target } => self.reveal_control(&input, &target).await,
+            Command::Reveal { target } => self.reveal(&input, &target).await,
             Command::Activate { target, message } => {
                 Outcome::from(input.activate(&target, message.as_deref()).await)
             }
@@ -397,6 +493,37 @@ impl Controller {
                 },
                 Err(error) => Outcome::error(error),
             },
+            Command::Remember {
+                target:
+                    target @ Target::Role {
+                        rendered: false, ..
+                    },
+                name,
+            } => {
+                // `find(..., rendered=False)` keeps a node that may be scrolled away.
+                let deadline = Instant::now() + LOCATE_TIMEOUT;
+                loop {
+                    match input.presented(&target) {
+                        Err(error) => return Outcome::error(error),
+                        Ok(Some(widget)) => {
+                            self.memory.borrow_mut().remove(&name);
+                            if let Ok(rect) = targets::screen_rect(&widget, injector) {
+                                self.settled.borrow_mut().insert(name.clone(), rect);
+                            }
+                            self.widgets.borrow_mut().insert(name, widget.downgrade());
+                            return Outcome::default();
+                        }
+                        Ok(None) if Instant::now() >= deadline => {
+                            return Outcome::error(format!(
+                                "no {} presented after {} s",
+                                target.to_json(),
+                                LOCATE_TIMEOUT.as_secs()
+                            ));
+                        }
+                        Ok(None) => glib::timeout_future(POLL_INTERVAL).await,
+                    }
+                }
+            }
             Command::Remember { target, name } => match input.find(&target, None, Aim::Point).await
             {
                 Ok(located) if matches!(target, Target::Field(None) | Target::FieldWithin(_)) => {
@@ -637,29 +764,57 @@ impl Controller {
                 keys,
                 times,
                 check_first,
+                await_focus_change,
+                exhausted,
             } => {
+                let mut last = None;
                 for _ in 0..times {
                     if check_first {
                         match self.check(&input, &predicate) {
                             Err(error) => return Outcome::error(error),
-                            Ok(Ok(())) => break,
-                            Ok(Err(_)) => {}
+                            Ok(Ok(())) => return Outcome::default(),
+                            Ok(Err(failure)) => last = Some(failure),
                         }
                     }
+                    let before = input.focused_widget();
                     for chord in &keys {
                         if let Err(error) = input.press(chord).await {
                             return Outcome::error(error);
                         }
                     }
+                    if let Some((timeout, message)) = &await_focus_change {
+                        let deadline = Instant::now() + *timeout;
+                        while input.focused_widget() == before {
+                            if Instant::now() >= deadline {
+                                let failure = Failure {
+                                    predicate: json!({ "await_focus_change": true }),
+                                    actual: json!(before.as_ref().map(targets::accessible_name)),
+                                    message: message.clone(),
+                                };
+                                return Outcome::timed_out(input.window, failure, *timeout);
+                            }
+                            glib::timeout_future(POLL_INTERVAL).await;
+                        }
+                    }
                     if !check_first {
                         match self.check(&input, &predicate) {
                             Err(error) => return Outcome::error(error),
-                            Ok(Ok(())) => break,
-                            Ok(Err(_)) => {}
+                            Ok(Ok(())) => return Outcome::default(),
+                            Ok(Err(failure)) => last = Some(failure),
                         }
                     }
                 }
-                Outcome::default()
+                match (exhausted, last) {
+                    (Some(message), Some(mut failure)) => {
+                        failure.message = Some(message);
+                        Outcome {
+                            result: json!({ "tree": state::dump(input.window) }),
+                            failures: vec![failure],
+                            error: None,
+                        }
+                    }
+                    _ => Outcome::default(),
+                }
             }
             Command::KeyDown(key) => Outcome::from(input.raw_key(&key, true).await),
             Command::KeyUp(key) => Outcome::from(input.raw_key(&key, false).await),
@@ -983,6 +1138,238 @@ impl Controller {
         }
     }
 
+    /// Waits for a showing application window titled `title`, as
+    /// `application.find(name=title)` returns the portal's chooser, and reads
+    /// state and resolves targets in it from then on.
+    async fn adopt(&self, title: &str, timeout: Duration, message: Option<&str>) -> Outcome {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if let Some(window) = targets::window_titled(title, None) {
+                self.main.set(Some(&window));
+                settle(Some(&window)).await;
+                return Outcome::default();
+            }
+            if Instant::now() >= deadline {
+                return Outcome {
+                    failures: vec![Failure {
+                        predicate: json!({ "adopt": title }),
+                        actual: json!(false),
+                        message: message.map(str::to_owned),
+                    }],
+                    error: Some(format!("timed out after {} ms", timeout.as_millis())),
+                    ..Outcome::default()
+                };
+            }
+            glib::timeout_future(POLL_INTERVAL).await;
+        }
+    }
+
+    /// A control presented anywhere, as `window.find(..., rendered=False)`,
+    /// waited for as `strata.wait` waits, with its scroll pane.
+    async fn presented_control(
+        &self,
+        input: &Input<'_>,
+        target: &Target,
+        message: String,
+    ) -> Result<(gtk::Widget, gtk::Widget), Outcome> {
+        let wanted = targets::Wanted::of(target)
+            .map_err(|error| Outcome::error(error.message().to_owned()))?;
+        let deadline = Instant::now() + protocol::DEFAULT_WAIT;
+        let node = loop {
+            if let Some(node) = wanted.find_presented(input.window.upcast_ref()) {
+                break node;
+            }
+            if Instant::now() >= deadline {
+                let failure = Failure {
+                    predicate: json!({ "presented": target }),
+                    actual: json!(false),
+                    message: Some(message),
+                };
+                return Err(Outcome::timed_out(
+                    input.window,
+                    failure,
+                    protocol::DEFAULT_WAIT,
+                ));
+            }
+            glib::timeout_future(POLL_INTERVAL).await;
+        };
+        let scroll = std::iter::successors(node.parent(), WidgetExt::parent)
+            .find(|widget| targets::role_name(widget) == "scroll pane")
+            .ok_or_else(|| Outcome::error("the control has no scroll pane around it".to_owned()))?;
+        // A page just shown can report a box before its layout lands, which the
+        // slower AT-SPI reads never see; aim only at one a painted frame keeps.
+        loop {
+            let before = targets::extents(&node, input.injector).map(|rect| rect.pixels());
+            settle(Some(input.window)).await;
+            let after = targets::extents(&node, input.injector).map(|rect| rect.pixels());
+            match (before, after) {
+                (Ok(before), Ok(after)) if before == after && after[2] > 0 && after[3] > 0 => break,
+                (_, Err(LookupError::Broken(error))) => return Err(Outcome::error(error)),
+                _ if Instant::now() >= deadline => {
+                    return Err(Outcome::error(format!(
+                        "{message}: the control never came to rest"
+                    )));
+                }
+                _ => glib::timeout_future(POLL_INTERVAL).await,
+            }
+        }
+        Ok((node, scroll))
+    }
+
+    /// `test_text_size._reveal_page_control`.
+    async fn reveal_control(&self, input: &Input<'_>, target: &Target) -> Outcome {
+        let name = control_name(target);
+        let (node, scroll) = match self
+            .presented_control(input, target, format!("{name} control"))
+            .await
+        {
+            Ok(found) => found,
+            Err(outcome) => return outcome,
+        };
+        let deadline = Instant::now() + protocol::DEFAULT_WAIT;
+        loop {
+            let (bounds, viewport) = match (
+                targets::extents(&node, input.injector),
+                targets::extents(&scroll, input.injector),
+            ) {
+                (Ok(bounds), Ok(viewport)) => (bounds.pixels(), viewport.pixels()),
+                (Err(LookupError::Broken(error)), _) | (_, Err(LookupError::Broken(error))) => {
+                    return Outcome::error(error);
+                }
+                _ => {
+                    if Instant::now() >= deadline {
+                        return Outcome::error(format!("{name} has no bounds"));
+                    }
+                    glib::timeout_future(POLL_INTERVAL).await;
+                    continue;
+                }
+            };
+            if state::inside(bounds, viewport, None) {
+                break;
+            }
+            if Instant::now() >= deadline {
+                let failure = Failure {
+                    predicate: json!({ "reveal_control": target }),
+                    actual: json!({ "bounds": bounds, "viewport": viewport }),
+                    message: Some(format!("reachable {name} control")),
+                };
+                return Outcome::timed_out(input.window, failure, protocol::DEFAULT_WAIT);
+            }
+            let [view_x, view_y, view_width, view_height] = viewport;
+            let at = (view_x + view_width - 16, view_y + view_height.div_euclid(2));
+            let below = bounds[1] + bounds[3] - (view_y + view_height);
+            let above = view_y - bounds[1];
+            let distance = below.max(above);
+            // `int(distance / viewport.height) * 3`, truncated toward zero.
+            #[expect(
+                clippy::cast_precision_loss,
+                clippy::cast_possible_truncation,
+                reason = "Python's int() of a true division of pixel counts"
+            )]
+            let steps = (distance as f64 / view_height as f64).trunc() as i64 * 3;
+            let clicks = steps.clamp(1, 12);
+            #[expect(clippy::cast_sign_loss, reason = "clamped to 1..=12")]
+            let wheeled = input.wheel_at(at, clicks as u32, below > 0, &[]).await;
+            if let Err(error) = wheeled {
+                return Outcome::error(error);
+            }
+            glib::timeout_future(POLL_INTERVAL).await;
+        }
+        self.settle_target(input, &presented(target), protocol::DEFAULT_WAIT, None)
+            .await
+    }
+
+    /// `Strata.reveal`, whose `scroll_into_view` GTK's bridge declines.
+    async fn reveal(&self, input: &Input<'_>, target: &Target) -> Outcome {
+        let criteria = match target {
+            Target::Role {
+                role,
+                name: Some(name),
+                ..
+            } => format!(
+                "{{'role': {}, 'name': {}}}",
+                python_repr(role),
+                python_repr(name)
+            ),
+            other => other.to_json().to_string(),
+        };
+        let (node, scroll) = match self
+            .presented_control(input, target, format!("a control matching {criteria}"))
+            .await
+        {
+            Ok(found) => found,
+            Err(outcome) => return outcome,
+        };
+        let visible = || -> Result<bool, String> {
+            let rect = |widget: &gtk::Widget| {
+                targets::extents(widget, input.injector).map(|rect| rect.pixels())
+            };
+            match (rect(&node), rect(&scroll), rect(input.window.upcast_ref())) {
+                (Ok(bounds), Ok(pane), Ok(window)) => Ok(state::on_screen(bounds, window)
+                    && bounds[1] >= pane[1]
+                    && bounds[1] + bounds[3] <= pane[1] + pane[3]),
+                (Err(LookupError::Broken(error)), _, _)
+                | (_, Err(LookupError::Broken(error)), _)
+                | (_, _, Err(LookupError::Broken(error))) => Err(error),
+                _ => Ok(false),
+            }
+        };
+        match visible() {
+            Err(error) => return Outcome::error(error),
+            Ok(true) => return Outcome::default(),
+            Ok(false) => {}
+        }
+        let window = match targets::screen_rect(input.window.upcast_ref(), input.injector) {
+            Ok(window) => window.pixels(),
+            Err(error) => return Outcome::error(error.message().to_owned()),
+        };
+        let centre = (
+            window[0] + window[2].div_euclid(2),
+            window[1] + window[3].div_euclid(2),
+        );
+        for _ in 0..REVEAL_SCROLL_ATTEMPTS {
+            match visible() {
+                Err(error) => return Outcome::error(error),
+                Ok(true) => {
+                    return self
+                        .settle_target(input, &presented(target), protocol::DEFAULT_WAIT, None)
+                        .await;
+                }
+                Ok(false) => {}
+            }
+            let below = match targets::extents(&node, input.injector) {
+                Ok(rect) => rect.pixels()[1] > centre.1,
+                Err(error) => return Outcome::error(error.message().to_owned()),
+            };
+            if let Err(error) = input
+                .wheel_at(centre, WHEEL_REVEAL_CLICKS, below, &[])
+                .await
+            {
+                return Outcome::error(error);
+            }
+        }
+        let on_screen = Predicate {
+            check: Check::OnScreen(presented(target)),
+            dir: None,
+        };
+        let deadline = Instant::now() + protocol::DEFAULT_WAIT;
+        loop {
+            match self.check(input, &on_screen) {
+                Err(error) => return Outcome::error(error),
+                Ok(Ok(())) => return Outcome::default(),
+                Ok(Err(mut failure)) if Instant::now() >= deadline => {
+                    failure.message = Some(format!(
+                        "<{} {}> to be scrolled into view",
+                        targets::role_name(&node),
+                        python_repr(&targets::accessible_name(&node))
+                    ));
+                    return Outcome::timed_out(input.window, failure, protocol::DEFAULT_WAIT);
+                }
+                Ok(Err(_)) => glib::timeout_future(POLL_INTERVAL).await,
+            }
+        }
+    }
+
     /// `open_appearance_menu`: a late startup focus change can close the
     /// menu as it opens, so an unchecked target is clicked again each second.
     async fn open_menu(
@@ -991,6 +1378,7 @@ impl Controller {
         target: &Target,
         until: &Predicate,
         message: Option<String>,
+        open_states: &[StateName],
     ) -> Outcome {
         let aim = Aimed::plain(target);
         if let Err(error) = input.click(&aim, 1, 1, &[]).await {
@@ -1011,10 +1399,14 @@ impl Controller {
             // The twin tests AT-SPI's `checked`, which GTK never reports for
             // a toggle button (an open menu's toggle is `pressed`), so it
             // re-clicks whenever the menu is still closed; so does this.
-            let checked = input
+            let open = input
                 .locate_now(target, None, Aim::Point)
-                .is_ok_and(|located| targets::states(&located.widget).checked);
-            if clicked.elapsed() > MENU_RETRY_AFTER && !checked {
+                .is_ok_and(|located| {
+                    open_states
+                        .iter()
+                        .any(|state| targets::has_state(&located.widget, *state))
+                });
+            if clicked.elapsed() > MENU_RETRY_AFTER && !open {
                 if let Err(error) = input.click(&aim, 1, 1, &[]).await {
                     return Outcome::error(error);
                 }
@@ -1319,10 +1711,10 @@ impl Controller {
                     _ => Err(mismatch(json!("the field or the pane has no bounds"))),
                 }
             }
-            Check::State(check) => match locate(&check.target)? {
+            Check::State(check) => match input.resolve(&check.target)? {
                 None => Err(mismatch(json!("not on screen"))),
-                Some(located) => {
-                    let states = targets::states(&located.widget);
+                Some(widget) => {
+                    let states = targets::states(&widget);
                     let wanted = [
                         (check.selected, states.selected),
                         (check.focused, states.focused),
@@ -1331,6 +1723,7 @@ impl Controller {
                         (check.sensitive, states.sensitive),
                         (check.selectable, states.selectable),
                         (check.editable, states.editable),
+                        (check.focusable, states.focusable),
                     ];
                     verdict(
                         wanted
@@ -1344,6 +1737,7 @@ impl Controller {
                             "sensitive": states.sensitive,
                             "selectable": states.selectable,
                             "editable": states.editable,
+                            "focusable": states.focusable,
                         }),
                     )
                 }
@@ -1548,7 +1942,7 @@ impl Controller {
             },
             Check::DiagnosticsMention(words) => {
                 let words: Vec<String> = words.iter().map(|word| word.to_lowercase()).collect();
-                let mentioned = self.application.windows().iter().any(|window| {
+                let mentioned = self.windows().iter().any(|window| {
                     targets::presented(window.upcast_ref())
                         .iter()
                         .any(|widget| {
@@ -1582,10 +1976,10 @@ impl Controller {
                 let count = targets::editable_fields(input.window);
                 verdict(count == *expected, json!(count))
             }
-            Check::Description(check) => match locate(&check.target)? {
+            Check::Description(check) => match input.resolve(&check.target)? {
                 None => Err(mismatch(json!("not on screen"))),
-                Some(located) => {
-                    let description = targets::accessible_description(&located.widget);
+                Some(widget) => {
+                    let description = targets::accessible_description(&widget);
                     verdict(check.text.matches(&description), json!(description))
                 }
             },
@@ -1648,10 +2042,24 @@ impl Controller {
                 .map_err(|error| error.message().to_owned())?;
                 verdict(found.is_some(), json!(false))
             }
-            Check::File(file) => {
-                let exists = Path::new(&file.path).symlink_metadata().is_ok();
-                verdict(exists == file.exists, json!(exists))
-            }
+            Check::File(file) => match (&file.exists, &file.mode_bits) {
+                (_, Some(bits)) => {
+                    use std::os::unix::fs::PermissionsExt as _;
+                    let mask =
+                        u32::from_str_radix(&bits.mask, 8).map_err(|error| error.to_string())?;
+                    match std::fs::metadata(&file.path) {
+                        Ok(metadata) => {
+                            let mode = metadata.permissions().mode();
+                            verdict((mode & mask != 0) == bits.set, json!(format!("{mode:o}")))
+                        }
+                        Err(error) => Err(mismatch(json!(error.to_string()))),
+                    }
+                }
+                (exists, None) => {
+                    let found = Path::new(&file.path).symlink_metadata().is_ok();
+                    verdict(Some(found) == *exists, json!(found))
+                }
+            },
             Check::FocusedWidget(expected) => {
                 let focused = targets::presented(input.window.upcast_ref())
                     .into_iter()
@@ -1796,31 +2204,8 @@ impl Controller {
                 }
             }
             Check::PanesWith(panes) => {
-                let Target::Role {
-                    role,
-                    other_roles,
-                    name,
-                    description,
-                    name_ends_with,
-                    nth,
-                    states,
-                    name_matches,
-                    ..
-                } = &panes.target
-                else {
-                    return Err("panes_with takes a role target".to_owned());
-                };
-                let wanted = targets::Wanted {
-                    role,
-                    other_roles,
-                    name: name.as_deref(),
-                    description: description.as_deref(),
-                    name_ends_with,
-                    nth: *nth,
-                    states,
-                    name_matches: targets::pattern(name_matches.as_deref())
-                        .map_err(|error| error.message().to_owned())?,
-                };
+                let wanted = targets::Wanted::of(&panes.target)
+                    .map_err(|error| error.message().to_owned())?;
                 let scene = state::scan(input.window);
                 let mut owners = Vec::new();
                 for (index, pane) in scene.observation.panes.iter().enumerate() {
@@ -1923,6 +2308,84 @@ impl Controller {
                 let visible = visible_top(input)?;
                 verdict(names.matches(&visible), json!(visible))
             }
+            Check::SomeWindow(some) => {
+                let mut actual = Vec::new();
+                for window in targets::windows_titled(&some.title) {
+                    let inside = Input {
+                        window: &window,
+                        ..*input
+                    };
+                    match self.check(&inside, &some.holds)? {
+                        Ok(()) => return Ok(Ok(())),
+                        Err(failure) => actual.push(failure.actual),
+                    }
+                }
+                Err(mismatch(json!(actual)))
+            }
+            Check::Windows(count) => {
+                let found = targets::windows_titled(&count.title).len();
+                verdict(found == count.count, json!(found))
+            }
+            Check::ChildNames(check) => match input.resolve(&check.of)? {
+                None => Err(mismatch(json!("not on screen"))),
+                Some(parent) => {
+                    let mut names = Vec::new();
+                    let mut child = parent.first_child();
+                    while let Some(current) = child {
+                        child = current.next_sibling();
+                        if current.is_visible() && targets::role_name(&current) == check.role {
+                            names.push(targets::accessible_name(&current));
+                        }
+                    }
+                    verdict(check.names.matches(&names), json!(names))
+                }
+            },
+            Check::FocusOutside(target) => {
+                let surface = input.resolve(target)?;
+                let focused = input.focused_widget();
+                let outside = focused.as_ref().is_some_and(|node| {
+                    !targets::accessible_name(node).is_empty()
+                        && surface
+                            .as_ref()
+                            .is_none_or(|surface| node != surface && !node.is_ancestor(surface))
+                });
+                verdict(
+                    outside,
+                    json!(focused.as_ref().map(targets::accessible_name)),
+                )
+            }
+            Check::FocusedWidgetIs(target) => {
+                let wanted = input.resolve(target)?;
+                let focused = input.focused_widget();
+                verdict(
+                    focused.is_some() && focused == wanted,
+                    json!(focused.as_ref().map(targets::accessible_name)),
+                )
+            }
+            Check::Alive(name) => {
+                let widget = input.widgets.borrow().get(name).cloned();
+                let field = input.memory.borrow().get(name).cloned();
+                let kept = widget
+                    .or(field)
+                    .ok_or_else(|| format!("no widget was remembered as {name:?}"))?;
+                let alive = kept.upgrade().is_some_and(|widget| widget.root().is_some());
+                verdict(alive, json!(alive))
+            }
+            Check::SubtreeText(check) => match input.resolve(&check.target)? {
+                None => Err(mismatch(json!("not on screen"))),
+                Some(root) => {
+                    let mut text = targets::presented(&root)
+                        .iter()
+                        .filter_map(targets::text_content)
+                        .filter(|text| !text.is_empty())
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    if check.strip_newlines {
+                        text = text.replace('\n', "");
+                    }
+                    verdict(text.contains(&check.contains), json!(text))
+                }
+            },
             _ => state::scan(input.window).observation.evaluate(predicate),
         })
     }
@@ -2029,6 +2492,81 @@ fn abridged(text: &str) -> String {
         Some((end, _)) => format!("{}… ({} characters)", &text[..end], text.chars().count()),
         None => text.to_owned(),
     }
+}
+
+/// Points standard output and error where a twin's `Popen` would have:
+/// `closed` is a pipe whose reading end is already closed, as a twin closes
+/// `process.stdout` right after starting it, and `null` is `/dev/null`.
+fn replace_streams(spec: &str) -> Result<(), String> {
+    for part in spec.split(',') {
+        let (stream, kind) = part
+            .split_once('=')
+            .ok_or_else(|| format!("{STREAMS_VARIABLE} has no stream=kind in {part:?}"))?;
+        let replacement: rustix::fd::OwnedFd = match kind {
+            "closed" => {
+                let (reader, writer) =
+                    rustix::pipe::pipe().map_err(|error| format!("cannot open a pipe: {error}"))?;
+                drop(reader);
+                writer
+            }
+            "null" => File::options()
+                .write(true)
+                .open("/dev/null")
+                .map_err(|error| format!("cannot open /dev/null: {error}"))?
+                .into(),
+            other => return Err(format!("{STREAMS_VARIABLE}: unknown kind {other:?}")),
+        };
+        match stream {
+            "stdout" => rustix::stdio::dup2_stdout(&replacement),
+            "stderr" => rustix::stdio::dup2_stderr(&replacement),
+            other => return Err(format!("{STREAMS_VARIABLE}: unknown stream {other:?}")),
+        }
+        .map_err(|error| format!("cannot replace {stream}: {error}"))?;
+    }
+    Ok(())
+}
+
+/// A role target looked up presented, as `find(..., rendered=False)`.
+fn presented(target: &Target) -> Target {
+    let mut target = target.clone();
+    if let Target::Role { rendered, .. } = &mut target {
+        *rendered = false;
+    }
+    target
+}
+
+/// The name a role target looks for, as a twin's helper names its control.
+fn control_name(target: &Target) -> String {
+    match target {
+        Target::Role {
+            name: Some(name), ..
+        } => name.clone(),
+        other => other.to_json().to_string(),
+    }
+}
+
+/// A string as Python's `repr` prints it, for messages a twin formats with `!r`.
+fn python_repr(text: &str) -> String {
+    let quote = if text.contains('\'') && !text.contains('"') {
+        '"'
+    } else {
+        '\''
+    };
+    let mut printed = String::from(quote);
+    for character in text.chars() {
+        match character {
+            '\\' => printed.push_str("\\\\"),
+            '\n' => printed.push_str("\\n"),
+            '\t' => printed.push_str("\\t"),
+            character if character == quote => {
+                printed.push('\\');
+                printed.push(character);
+            }
+            character => printed.push(character),
+        }
+    }
+    printed.push(quote);
+    printed
 }
 
 /// A whole number as an integer, as Python prints `int`s, else a float.
@@ -2882,6 +3420,41 @@ impl Input<'_> {
         )
     }
 
+    /// The target presented anywhere, perhaps scrolled away: a role target
+    /// as `find(..., rendered=False)`, any other as it resolves on screen.
+    fn presented(&self, target: &Target) -> Result<Option<gtk::Widget>, String> {
+        targets::presented_target(
+            self.window,
+            self.injector,
+            Kept {
+                memory: &self.memory.borrow(),
+                widgets: &self.widgets.borrow(),
+                boxes: &self.boxes.borrow(),
+            },
+            target,
+        )
+        .map_err(|error| error.message().to_owned())
+    }
+
+    /// A check's widget: a role target with `rendered` false as it is
+    /// presented, any other on screen; `None` when it is not there.
+    fn resolve(&self, target: &Target) -> Result<Option<gtk::Widget>, String> {
+        if matches!(
+            target,
+            Target::Role {
+                rendered: false,
+                ..
+            }
+        ) {
+            return self.presented(target);
+        }
+        match self.locate_now(target, None, Aim::Point) {
+            Ok(located) => Ok(Some(located.widget)),
+            Err(LookupError::Missing(_)) => Ok(None),
+            Err(LookupError::Broken(error)) => Err(error),
+        }
+    }
+
     /// The field a check names; a remembered one that is gone is no field.
     fn field(&self, field: &FieldRef) -> Result<Option<gtk::Widget>, String> {
         targets::field(self.window, &self.memory.borrow(), field).map_err(|error| match error {
@@ -2897,6 +3470,27 @@ impl Input<'_> {
     /// looked up on screen, as `dialog.find(role="button", name=...)` is.
     async fn activate(&self, target: &Target, message: Option<&str>) -> Result<(), String> {
         let widget = if let Target::Role {
+            rendered: false, ..
+        } = target
+        {
+            let deadline = Instant::now() + LOCATE_TIMEOUT;
+            loop {
+                if let Some(widget) = self.presented(target)? {
+                    break widget;
+                }
+                if Instant::now() >= deadline {
+                    let waiting = message.map_or_else(String::new, |message| {
+                        format!("timed out waiting for {message}: ")
+                    });
+                    return Err(format!(
+                        "{waiting}no {} presented after {} s",
+                        target.to_json(),
+                        LOCATE_TIMEOUT.as_secs()
+                    ));
+                }
+                glib::timeout_future(POLL_INTERVAL).await;
+            }
+        } else if let Target::Role {
             role,
             other_roles,
             name: Some(name),
@@ -2906,6 +3500,8 @@ impl Input<'_> {
             nth: None,
             states,
             name_matches: None,
+            has: None,
+            rendered: true,
         } = target
             && name_ends_with.is_empty()
             && states.is_empty()
@@ -3263,6 +3859,15 @@ impl Input<'_> {
             .await
     }
 
+    /// `strata.focused_node()`: the first focused widget on screen.
+    fn focused_widget(&self) -> Option<gtk::Widget> {
+        targets::presented(self.window.upcast_ref())
+            .into_iter()
+            .find(|widget| {
+                targets::states(widget).focused && state::rendered_bounds(widget).is_some()
+            })
+    }
+
     /// `Pointer.scroll`: buttons 4 and 5 are the wheel turning up and down.
     async fn wheel(
         &self,
@@ -3272,7 +3877,26 @@ impl Input<'_> {
         down: bool,
         modifiers: &[Modifier],
     ) -> Result<(), String> {
-        let (x, y) = self.locate(target, at, Aim::Point).await?;
+        let point = self.locate(target, at, Aim::Point).await?;
+        self.wheel_at(
+            (i64::from(point.0), i64::from(point.1)),
+            clicks,
+            down,
+            modifiers,
+        )
+        .await
+    }
+
+    /// `Pointer.scroll` over a screen point the scenario worked out.
+    async fn wheel_at(
+        &self,
+        (x, y): (i64, i64),
+        clicks: u32,
+        down: bool,
+        modifiers: &[Modifier],
+    ) -> Result<(), String> {
+        let x = i16::try_from(x).map_err(|error| format!("{x} is off the screen: {error}"))?;
+        let y = i16::try_from(y).map_err(|error| format!("{y} is off the screen: {error}"))?;
         self.move_to(x, y).await?;
         let held = self.hold(modifiers).await?;
         let mut result = Ok(());

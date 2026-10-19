@@ -38,6 +38,9 @@ struct Record {
     naming: Naming,
     /// The widgets a `labelled-by` relation names, in order.
     labelled_by: Vec<glib::WeakRef<gtk::Widget>>,
+    /// Whether the widget's own `labelled-by` relation was reset, as
+    /// [`super::clear_labelled_by`] does, so its label child does not name it.
+    labelled_by_reset: bool,
 }
 
 const PRUNE_EVERY: usize = 1024;
@@ -58,6 +61,27 @@ fn address(object: &glib::Object) -> usize {
 
 pub(crate) fn record(object: &impl ObjectType, update: impl FnOnce(&mut Naming)) {
     with_record(object, |record| update(&mut record.naming));
+}
+
+pub(crate) fn record_labelled_by_reset(object: &impl ObjectType) {
+    with_record(object, |record| {
+        record.labelled_by.clear();
+        record.labelled_by_reset = true;
+    });
+}
+
+/// Whether the widget's `labelled-by` relation was reset.
+pub(crate) fn labelled_by_reset(object: &impl ObjectType) -> bool {
+    let Some(object) = object.dynamic_cast_ref::<glib::Object>() else {
+        return false;
+    };
+    RECORDS.with_borrow(|records| {
+        records
+            .by_address
+            .get(&address(object))
+            .filter(|record| record.object.upgrade().as_ref() == Some(object))
+            .is_some_and(|record| record.labelled_by_reset)
+    })
 }
 
 pub(crate) fn record_labelled_by(object: &impl ObjectType, labels: &[&gtk::Widget]) {
@@ -84,6 +108,7 @@ fn with_record(object: &impl ObjectType, update: impl FnOnce(&mut Record)) {
             object: object.downgrade(),
             naming: Naming::default(),
             labelled_by: Vec::new(),
+            labelled_by_reset: false,
         });
         update(record);
         records.inserted += 1;

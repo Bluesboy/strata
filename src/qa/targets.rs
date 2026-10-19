@@ -165,34 +165,25 @@ pub(crate) fn locate(
             result
         }
         Target::Role {
-            role,
-            other_roles,
-            name,
-            description,
-            within,
-            name_ends_with,
-            nth,
-            states,
-            name_matches,
+            within, rendered, ..
         } => {
-            let wanted = Wanted {
-                role,
-                other_roles,
-                name: name.as_deref(),
-                description: description.as_deref(),
-                name_ends_with,
-                nth: *nth,
-                states,
-                name_matches: pattern(name_matches.as_deref())?,
+            let wanted = Wanted::of(target)?;
+            let scope = match within {
+                None => root.clone(),
+                Some(within) => locate(window, injector, kept, within, None, Aim::Point)?.widget,
             };
-            match within {
-                None => wanted.find(root)?,
-                Some(within) => {
-                    let scope = locate(window, injector, kept, within, None, Aim::Point)?.widget;
-                    wanted.find(&scope)?
-                }
+            if *rendered {
+                wanted.find(&scope)?
+            } else {
+                wanted
+                    .find_presented(&scope)
+                    .ok_or_else(|| missing(format!("no {} presented", wanted.role)))?
             }
         }
+        Target::Row(name) => ["list item", "table cell"]
+            .into_iter()
+            .find_map(|role| find(root, role, name).ok())
+            .ok_or_else(|| missing(format!("no row named {name:?} on screen")))?,
         Target::FieldWithin(within) => {
             let scope = locate(window, injector, kept, within, None, Aim::Point)?.widget;
             focused_field(&presented(&scope))
@@ -475,8 +466,9 @@ fn background(
     })
 }
 
-/// What a role target asks for: the role, and the name, its ending or a
-/// pattern in it, the description, and states when given, and which match.
+/// What a role target asks for: the role (`*` for any), and the name, its
+/// ending or a pattern in it, the description, states, and a widget at or
+/// below it when given, and which match.
 pub(crate) struct Wanted<'a> {
     pub(crate) role: &'a str,
     pub(crate) other_roles: &'a [String],
@@ -486,6 +478,7 @@ pub(crate) struct Wanted<'a> {
     pub(crate) nth: Option<i64>,
     pub(crate) states: &'a [StateName],
     pub(crate) name_matches: Option<regex::Regex>,
+    pub(crate) has: Option<Box<Wanted<'a>>>,
 }
 
 /// A role target's `name_matches`, which the protocol already checked compiles.
@@ -515,10 +508,53 @@ pub(crate) fn has_state(widget: &gtk::Widget, state: StateName) -> bool {
     }
 }
 
-impl Wanted<'_> {
+impl<'a> Wanted<'a> {
+    /// A role target's criteria; any other target is a broken scenario.
+    pub(crate) fn of(target: &'a Target) -> Result<Self, LookupError> {
+        let Target::Role {
+            role,
+            other_roles,
+            name,
+            description,
+            name_ends_with,
+            nth,
+            states,
+            name_matches,
+            has,
+            ..
+        } = target
+        else {
+            return Err(LookupError::Broken(format!(
+                "{} is not a role target",
+                target.to_json()
+            )));
+        };
+        Ok(Self {
+            role,
+            other_roles,
+            name: name.as_deref(),
+            description: description.as_deref(),
+            name_ends_with,
+            nth: *nth,
+            states,
+            name_matches: pattern(name_matches.as_deref())?,
+            has: has
+                .as_deref()
+                .map(|has| Self::of(has).map(Box::new))
+                .transpose()?,
+        })
+    }
+
     pub(crate) fn matches(&self, widget: &gtk::Widget) -> bool {
         let role = role_name(widget);
-        (role == self.role || self.other_roles.iter().any(|other| other == role))
+        (self.role == "*"
+            || role == self.role
+            || self.other_roles.iter().any(|other| other == role))
+            && self.has.as_ref().is_none_or(|has| {
+                presented(widget)
+                    .iter()
+                    .any(|inner| has.matches(inner) && state::rendered_bounds(inner).is_some())
+            })
             && self.name.is_none_or(|name| accessible_name(widget) == name)
             && self
                 .name_matches
@@ -565,7 +601,7 @@ impl Wanted<'_> {
     }
 
     /// `find(..., rendered=False)`: presented, but perhaps scrolled away.
-    fn find_presented(&self, root: &gtk::Widget) -> Option<gtk::Widget> {
+    pub(crate) fn find_presented(&self, root: &gtk::Widget) -> Option<gtk::Widget> {
         let found = presented(root)
             .into_iter()
             .filter(|widget| self.matches(widget));
@@ -591,6 +627,26 @@ pub(crate) fn result_rows(root: &gtk::Widget) -> Vec<gtk::Widget> {
         .into_iter()
         .filter(|row| role_name(row) == row_role && state::rendered_bounds(row).is_some())
         .collect()
+}
+
+/// The showing application windows with this title, in GTK's toplevel
+/// order, as `application.find_all(role="frame", name=title)` lists them.
+pub(crate) fn windows_titled(title: &str) -> Vec<gtk::Window> {
+    gtk::Window::list_toplevels()
+        .into_iter()
+        .filter_map(|window| window.downcast::<gtk::Window>().ok())
+        .filter(|window| {
+            window.title().as_deref() == Some(title)
+                && state::rendered_bounds(window.upcast_ref()).is_some()
+        })
+        .collect()
+}
+
+/// The first showing application window with this title other than `but`.
+pub(crate) fn window_titled(title: &str, but: Option<&gtk::Window>) -> Option<gtk::Window> {
+    windows_titled(title)
+        .into_iter()
+        .find(|window| Some(window) != but)
 }
 
 /// A showing application window with this title, as `application.find(name=title)`
@@ -630,27 +686,8 @@ pub(crate) fn presented_target(
     target: &Target,
 ) -> Result<Option<gtk::Widget>, LookupError> {
     match target {
-        Target::Role {
-            role,
-            other_roles,
-            name,
-            description,
-            within,
-            name_ends_with,
-            nth,
-            states,
-            name_matches,
-        } => {
-            let wanted = Wanted {
-                role,
-                other_roles,
-                name: name.as_deref(),
-                description: description.as_deref(),
-                name_ends_with,
-                nth: *nth,
-                states,
-                name_matches: pattern(name_matches.as_deref())?,
-            };
+        Target::Role { within, .. } => {
+            let wanted = Wanted::of(target)?;
             let scope = match within {
                 None => window.clone().upcast::<gtk::Widget>(),
                 Some(within) => match locate(window, injector, kept, within, None, Aim::Point) {
@@ -676,10 +713,30 @@ pub(crate) fn accessible_description(widget: &gtk::Widget) -> String {
     names::naming(widget)
         .and_then(|naming| naming.description)
         .or_else(|| {
+            // An entry row is described by its list item, as it is named.
+            matches!(
+                widget.accessible_role(),
+                gtk::AccessibleRole::ListItem
+                    | gtk::AccessibleRole::GridCell
+                    | gtk::AccessibleRole::Cell
+            )
+            .then(|| state::row_description(widget))
+            .flatten()
+        })
+        .or_else(|| {
             widget
                 .downcast_ref::<gtk::Picture>()
                 .and_then(gtk::Picture::alternative_text)
                 .map(|text| text.to_string())
+        })
+        .or_else(|| {
+            // GtkMenuButton describes its inner toggle button by its own
+            // description, as it names it by its own name.
+            widget
+                .is::<gtk::ToggleButton>()
+                .then(|| widget.parent().and_downcast::<gtk::MenuButton>())
+                .flatten()
+                .map(|menu_button| accessible_description(menu_button.upcast_ref()))
         })
         .unwrap_or_default()
 }
@@ -851,6 +908,8 @@ pub(crate) struct States {
     pub(crate) selectable: bool,
     /// Text the user may edit, as an editable entry or text view.
     pub(crate) editable: bool,
+    /// A widget that can take keyboard focus.
+    pub(crate) focusable: bool,
 }
 
 pub(crate) fn states(widget: &gtk::Widget) -> States {
@@ -886,7 +945,7 @@ pub(crate) fn states(widget: &gtk::Widget) -> States {
                     .as_ref()
                     .and_then(|naming| naming.selected)
                     .or_else(|| notebook_tab_selected(widget))
-                    .unwrap_or_else(|| state::row_selected(widget))
+                    .unwrap_or_else(|| state::row_selected(widget) || list_row_selected(widget))
             },
             gtk::ListBoxRow::is_selected,
         ),
@@ -915,7 +974,17 @@ pub(crate) fn states(widget: &gtk::Widget) -> States {
                     .map(gtk::TextView::is_editable)
             })
             .unwrap_or(false),
+        focusable: widget.is_focusable(),
     }
+}
+
+/// Whether a list view's row is selected, which GTK records as the row's
+/// selected state flag and reports as its selected state.
+fn list_row_selected(widget: &gtk::Widget) -> bool {
+    matches!(
+        widget.accessible_role(),
+        gtk::AccessibleRole::ListItem | gtk::AccessibleRole::GridCell | gtk::AccessibleRole::Row
+    ) && widget.state_flags().contains(gtk::StateFlags::SELECTED)
 }
 
 /// Whether a `GtkNotebook` tab is the current page's, which GTK records as
@@ -979,6 +1048,31 @@ pub(crate) fn screen_rect(widget: &gtk::Widget, injector: &Injector) -> Result<R
     })
 }
 
+/// A widget's box on the X screen whether or not it is showing yet, as
+/// AT-SPI reports a node's extents for a widget scrolled away or not mapped.
+pub(crate) fn extents(widget: &gtk::Widget, injector: &Injector) -> Result<Rect, LookupError> {
+    let broken = |message: &str| LookupError::Broken(message.to_owned());
+    let native = widget
+        .native()
+        .ok_or_else(|| broken("the target has no native surface"))?;
+    let bounds = widget
+        .compute_bounds(&native)
+        .ok_or_else(|| missing("the target has no bounds"))?;
+    let surface = native
+        .surface()
+        .ok_or_else(|| broken("the target's surface is not realized"))?;
+    let (offset_x, offset_y) = native.surface_transform();
+    let (origin_x, origin_y) = injector
+        .surface_origin(&surface)
+        .map_err(LookupError::Broken)?;
+    Ok(Rect {
+        x: f64::from(origin_x) + offset_x + f64::from(bounds.x()),
+        y: f64::from(origin_y) + offset_y + f64::from(bounds.y()),
+        width: f64::from(bounds.width()),
+        height: f64::from(bounds.height()),
+    })
+}
+
 /// The widgets AT-SPI presents under `root`, `root` first, in DFS order:
 /// hidden widgets and everything inside them are left out.
 pub(crate) fn presented(root: &gtk::Widget) -> Vec<gtk::Widget> {
@@ -1011,9 +1105,12 @@ pub(crate) fn role_name(widget: &gtk::Widget) -> &'static str {
     if widget.is::<gtk::Scale>() {
         return "slider";
     }
+    // And a password entry as password text.
+    if widget.is::<gtk::PasswordEntry>() {
+        return "password text";
+    }
     match widget.accessible_role() {
-        Role::AlertDialog => "alert",
-        Role::Alert => "notification",
+        Role::AlertDialog | Role::Alert => "alert",
         Role::Button => "button",
         Role::Caption => "caption",
         Role::Cell | Role::GridCell => "table cell",
@@ -1115,6 +1212,17 @@ fn own_name(widget: &gtk::Widget, naming: &mut Vec<gtk::Widget>) -> Option<Strin
     // it scrolls, and the scrolled window itself unnamed.
     if widget.is::<gtk::ScrolledWindow>() && recorded(widget).is_some() {
         return Some(String::new());
+    }
+    // A button's text label names it through the `labelled-by` relation GTK
+    // gives it, which comes before a label set on the button itself, unless
+    // the relation was replaced or reset.
+    if let Some(button) = widget.downcast_ref::<gtk::Button>()
+        && button.label().is_some()
+        && names::labelled_by(widget).is_empty()
+        && !names::labelled_by_reset(widget)
+        && let Some(label) = button.child().and_downcast::<gtk::Label>()
+    {
+        return Some(label.text().to_string());
     }
     if let Some(label) = recorded(widget) {
         return Some(label);

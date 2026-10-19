@@ -26,6 +26,7 @@ from qa_parity import (
     qa_signature,
     shard_units,
     signature_parity,
+    skip_reason,
     state_parity_ignore,
     touches_parity,
 )
@@ -275,6 +276,75 @@ class StateParityIgnoreTests(unittest.TestCase):
         everything = ((1, "button 1 down"), (2, "button 1 down"), (3, "button 1 up"), (4, "button 1 up"))
         self.assertFalse(compare_input(python, python, positions=everything).agree)
 
+    def test_input_parity_may_ignore_named_key_events_and_typed_digits(self):
+        header = {"modes": ["list"], "input_parity_ignore": [{"run": "list", "events": [
+            {"position": 3, "event": "key down"},
+            {"position": 4, "event": "key up"},
+            {"position": 9, "event": "typed digits"},
+        ]}]}
+        self.assertEqual(
+            input_parity_ignore(header),
+            (("list", ((3, "key down"), (4, "key up"), (9, "typed digits"))),),
+        )
+        for bad in ["key", "key 12 down", "typed", "typed digits down"]:
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    input_parity_ignore({**header, "input_parity_ignore": [
+                        {"run": "list", "events": [{"position": 1, "event": bad}]}]})
+
+    def test_ignored_keys_compare_only_their_direction(self):
+        python = "key 36 down\nkey 36 up\nkey 12 down\nkey 12 up\nkey 61 down\nkey 61 up\n"
+        qa = "key 36 down\nkey 36 up\nkey 15 down\nkey 15 up\nkey 61 down\nkey 61 up\n"
+        port = ((3, "key down"), (4, "key up"))
+        self.assertFalse(compare_input(python, qa).agree)
+        self.assertTrue(compare_input(python, qa, positions=port).agree)
+        self.assertFalse(compare_input(python, qa, positions=port[:1]).agree)
+        self.assertFalse(
+            compare_input(python, qa, positions=((3, "key up"), (4, "key up"))).agree,
+            "the direction is still compared",
+        )
+        clicked = qa.replace("key 15 down", "pointer 1 1 button 1 down")
+        self.assertFalse(compare_input(python, clicked, positions=port).agree)
+
+    def test_typed_digits_may_differ_in_length_and_the_rest_still_compare(self):
+        before = "key 36 down\nkey 36 up\n"
+        after = "pointer 40 50 button 1 down\npointer 40 50 button 1 up\nkey 36 down\nkey 36 up\n"
+        python = before + "key 12 down\nkey 12 up\n" + after
+        qa = before + "key 14 down\nkey 14 up\nkey 19 down\nkey 19 up\nkey 11 down\nkey 11 up\n" + after
+        typed = ((3, "typed digits"),)
+        self.assertFalse(compare_input(python, qa).agree)
+        self.assertTrue(compare_input(python, qa, positions=typed).agree)
+        self.assertFalse(
+            compare_input(python, qa.replace("pointer 40 50", "pointer 90 50"), positions=typed).agree,
+            "events after the digits are still compared",
+        )
+        lettered = before + "key 38 down\nkey 38 up\n" + after
+        self.assertFalse(compare_input(python, lettered, positions=typed).agree, "a letter is no digit")
+        self.assertFalse(compare_input(python, qa, positions=((1, "typed digits"),)).agree)
+        d = lambda *codes: "".join(f"key {code} down\nkey {code} up\n" for code in codes)  # noqa: E731
+        self.assertFalse(
+            compare_input(d(12, 13) + d(36), d(14) + d(36), positions=((1, "typed digits"), (2, "button 1 down"))).agree,
+            "a named position inside the digits is never skipped unchecked",
+        )
+        self.assertFalse(
+            compare_input(d(12, 13), d(14), positions=((1, "typed digits"),)).agree,
+            "typed digits over every event leave nothing compared",
+        )
+        self.assertTrue(compare_input(d(12, 13) + d(36), d(14) + d(36), positions=((1, "typed digits"),)).agree)
+
+    def test_a_skipped_scenario_gives_a_reason_and_leaves_parity(self):
+        self.assertIsNone(skip_reason({"modes": ["columns"]}))
+        self.assertEqual(skip_reason({"modes": ["columns"], "skip": "issue 9"}), "issue 9")
+        for bad in [{"skip": ""}, {"skip": 3}, {"skip": "x", "mutation": "clipboard"}, {"skip": "x", "known_bug": "y"}]:
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    skip_reason({"modes": ["columns"], **bad})
+        skipped = [scenario for scenario in qa_parity.scenarios() if scenario.skip]
+        self.assertTrue(skipped, "the text-size scenario is skipped until issue 9 is fixed")
+        self.assertFalse({scenario.name for scenario in skipped} & set(qa_parity.ci_units()))
+        self.assertFalse({scenario.name for scenario in skipped} & {s.name for s in qa_parity.chosen_scenarios([])})
+        self.assertTrue(all(line.startswith("Skipped, not compared: ") for line in qa_parity.skipped_lines([])))
+
     def test_a_mutation_scenario_or_ignoring_every_key_is_rejected(self):
         self.assertEqual(state_parity_ignore({"mutation": "clipboard"}), ())
         with self.assertRaises(ValueError):
@@ -288,6 +358,17 @@ class StateParityIgnoreTests(unittest.TestCase):
             state_parity_ignore({"state_parity_ignore": everything_but_pane_names}),
             tuple(everything_but_pane_names),
         )
+
+    def test_the_whole_state_may_be_left_out_alone_and_only_without_a_mutation(self):
+        header = {"modes": ["columns"], "state_parity_ignore": ["*"]}
+        self.assertEqual(state_parity_ignore(header), ("*",))
+        with self.assertRaises(ValueError):
+            state_parity_ignore({**header, "state_parity_ignore": ["*", "focused"]})
+        with self.assertRaises(ValueError):
+            state_parity_ignore({**header, "mutation": "clipboard"})
+        gone = {"error": "AssertionError('the Strata application is not on the a11y bus')"}
+        self.assertTrue(compare_state(gone, {"directory": "x"}, ("*",)).agree)
+        self.assertFalse(compare_state(gone, {"directory": "x"}).agree)
 
     def test_the_note_names_the_ignored_keys(self):
         qa = {**self.PYTHON, "focused": "readme.md"}
@@ -318,7 +399,10 @@ class CiShardingTests(unittest.TestCase):
     def test_every_scenario_lands_in_exactly_one_shard_by_its_patch_or_name(self):
         units = qa_parity.ci_units()
         found = qa_parity.scenarios()
-        self.assertEqual(sorted(units), sorted(scenario.mutation or scenario.name for scenario in found))
+        self.assertEqual(
+            sorted(units),
+            sorted(scenario.mutation or scenario.name for scenario in found if scenario.skip is None),
+        )
         for shards in (1, 3, qa_parity.CI_SHARDS, len(units) + 5):
             with self.subTest(shards=shards):
                 assigned = shard_units(units, shards)

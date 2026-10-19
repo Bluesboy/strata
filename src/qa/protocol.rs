@@ -64,6 +64,38 @@ pub(crate) enum Command {
         target: Target,
         until: Predicate,
         message: Option<String>,
+        /// The target's states that count as open, so no second click comes:
+        /// `checked`, as `open_appearance_menu`, or also `pressed`, as
+        /// `test_accessibility._open_choice` asks.
+        open_states: Vec<StateName>,
+    },
+    /// Waits for a showing application window with this title and drives it
+    /// from then on, as `open_file_request` finds the portal's chooser by
+    /// `application.find(name=title)`; for a run with no browser window.
+    Adopt {
+        title: String,
+        timeout: Duration,
+        message: Option<String>,
+    },
+    /// Keeps a box on the X screen under a name, for `kept` targets: what
+    /// the runner read of another process's window, as a twin reads a
+    /// foreign drag source's `screen_bounds()`.
+    Keep {
+        rect: [i64; 4],
+        name: String,
+    },
+    /// `test_text_size._reveal_page_control`: finds the control presented,
+    /// then turns the wheel in its scroll pane's right gutter, in bigger
+    /// steps while it is far away, until the pane shows all of it, and
+    /// settles it.
+    RevealControl {
+        target: Target,
+    },
+    /// `Strata.reveal`: finds the control presented and, unless the window
+    /// and its scroll pane show all of it, turns the wheel at the window's
+    /// centre up to twelve times, then waits for it to be on screen.
+    Reveal {
+        target: Target,
     },
     /// The control's default accessible action, without pointer input, as
     /// `Node.activate` invokes it; the control need not be on screen.
@@ -147,6 +179,13 @@ pub(crate) enum Command {
         /// Checks before each round instead, as `for _ in range(30): if
         /// node.has_state(...): break; press(...)` checks before pressing.
         check_first: bool,
+        /// After each round, waits this long for the focused widget to change,
+        /// failing with the message, as `_tab_to` waits for `focused_node()`
+        /// to differ from the one before its Tab.
+        await_focus_change: Option<(Duration, Option<String>)>,
+        /// Fails with this message when every round ran and the predicate
+        /// never held, as a loop's `else: raise AssertionError(...)`.
+        exhausted: Option<String>,
     },
     /// Presses or releases one key with no pause, as `connection.key(keysym,
     /// True)` does: a modifier name (`ctrl`) or a key name (`Escape`).
@@ -262,8 +301,12 @@ pub(crate) enum Command {
     Query(Query),
 }
 
-pub(crate) const COMMANDS: [&str; 33] = [
+pub(crate) const COMMANDS: [&str; 37] = [
     "key",
+    "adopt",
+    "keep",
+    "reveal_control",
+    "reveal",
     "clipboard_set",
     "clipboard",
     "click_result_rows",
@@ -336,6 +379,43 @@ struct KeysUntilFields {
     times: Value,
     #[serde(default)]
     check_first: bool,
+    await_focus_change: Option<AwaitChange>,
+    exhausted: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AwaitChange {
+    timeout_ms: u64,
+    message: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AdoptFields {
+    adopt: String,
+    timeout_ms: Option<u64>,
+    message: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KeepFields {
+    keep: [i64; 4],
+    #[serde(rename = "as")]
+    name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RevealControlFields {
+    reveal_control: Target,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RevealFields {
+    reveal: Target,
 }
 
 #[derive(Deserialize)]
@@ -419,6 +499,7 @@ struct OpenMenuFields {
     open_menu: Target,
     until: Predicate,
     message: Option<String>,
+    open_states: Option<Vec<StateName>>,
 }
 
 #[derive(Deserialize)]
@@ -799,6 +880,57 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
                     .collect::<Result<_, _>>()?,
                 times,
                 check_first: fields.check_first,
+                await_focus_change: fields
+                    .await_focus_change
+                    .map(|change| (Duration::from_millis(change.timeout_ms), change.message)),
+                exhausted: fields.exhausted,
+            })
+        }
+        "adopt" => {
+            let fields: AdoptFields = serde_json::from_value(fields).map_err(invalid)?;
+            if fields.adopt.is_empty() {
+                return Err("adopt needs a window title".to_owned());
+            }
+            Ok(Command::Adopt {
+                title: fields.adopt,
+                timeout: fields
+                    .timeout_ms
+                    .map_or(DEFAULT_WAIT, Duration::from_millis),
+                message: fields.message,
+            })
+        }
+        "keep" => {
+            let fields: KeepFields = serde_json::from_value(fields).map_err(invalid)?;
+            if fields.name.is_empty() {
+                return Err("keep needs a name in as".to_owned());
+            }
+            Ok(Command::Keep {
+                rect: fields.keep,
+                name: fields.name,
+            })
+        }
+        "reveal_control" | "reveal" => {
+            let target = if *name == "reveal" {
+                serde_json::from_value::<RevealFields>(fields)
+                    .map_err(invalid)?
+                    .reveal
+            } else {
+                serde_json::from_value::<RevealControlFields>(fields)
+                    .map_err(invalid)?
+                    .reveal_control
+            };
+            let Target::Role {
+                name: Some(_),
+                within: None,
+                ..
+            } = &target
+            else {
+                return Err(format!("{name} takes a named role target without within"));
+            };
+            Ok(if *name == "reveal" {
+                Command::Reveal { target }
+            } else {
+                Command::RevealControl { target }
             })
         }
         "during" => {
@@ -892,10 +1024,17 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
         "open_menu" => {
             let fields: OpenMenuFields = serde_json::from_value(fields).map_err(invalid)?;
             fields.open_menu.accepts(None)?;
+            let open_states = fields
+                .open_states
+                .unwrap_or_else(|| vec![StateName::Checked]);
+            if open_states.is_empty() {
+                return Err("open_states needs a state".to_owned());
+            }
             Ok(Command::OpenMenu {
                 target: fields.open_menu,
                 until: fields.until,
                 message: fields.message,
+                open_states,
             })
         }
         "activate" => {
@@ -1394,8 +1533,9 @@ impl<'de> Deserialize<'de> for At {
 }
 
 /// The target kinds, each named by the one key that selects it.
-pub(crate) const TARGET_KINDS: [&str; 26] = [
+pub(crate) const TARGET_KINDS: [&str; 27] = [
     "entry",
+    "row",
     "result",
     "result_row",
     "focused_widget",
@@ -1451,7 +1591,16 @@ pub(crate) enum Target {
         /// A regular expression the name must contain a match of, as
         /// `find_all(..., name_matches=CLOCK.pattern)`.
         name_matches: Option<String>,
+        /// A role target that must find a rendered widget at or below the
+        /// match, as `any(label.name == text for label in row.find_all(role="label"))`.
+        has: Option<Box<Target>>,
+        /// False finds the match presented, perhaps scrolled away or not
+        /// yet allocated, as `find(..., rendered=False)` does.
+        rendered: bool,
     },
+    /// `_find_row` in `test_chooser_selection.py`: the first rendered list
+    /// item with this name, else the first rendered table cell with it.
+    Row(String),
     /// The entry list below its last entry; `background_point(directory)`.
     Background { dir: Option<String> },
     /// A browser pane; points at `empty_point(directory)` unless `at` is given.
@@ -1680,6 +1829,9 @@ impl Target {
             #[serde(default)]
             states: Vec<StateName>,
             name_matches: Option<String>,
+            has: Option<Target>,
+            #[serde(default = "yes")]
+            rendered: bool,
         }
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
@@ -1760,6 +1912,26 @@ impl Target {
                         format!("invalid role target: name_matches {pattern:?}: {error}")
                     })?;
                 }
+                if let Some(has) = &fields.has
+                    && !matches!(
+                        has,
+                        Self::Role {
+                            within: None,
+                            has: None,
+                            rendered: true,
+                            ..
+                        }
+                    )
+                {
+                    return Err(
+                        "invalid role target: has takes a rendered role target without within \
+                         or has"
+                            .to_owned(),
+                    );
+                }
+                if role == "*" && !other_roles.is_empty() {
+                    return Err("invalid role target: \"*\" stands alone".to_owned());
+                }
                 Ok(Self::Role {
                     role: role.clone(),
                     other_roles: other_roles.to_vec(),
@@ -1770,6 +1942,8 @@ impl Target {
                     nth: fields.nth,
                     states: fields.states,
                     name_matches: fields.name_matches,
+                    has: fields.has.map(Box::new),
+                    rendered: fields.rendered,
                 })
             }
             "background" => {
@@ -1799,6 +1973,7 @@ impl Target {
                 }
             }
             "toplevel" => label(value).map(Self::Toplevel),
+            "row" => label(value).map(Self::Row),
             "other_window" => label(value).map(Self::OtherWindow),
             "result" => label(value).map(Self::Result),
             "result_row" => {
@@ -1910,8 +2085,16 @@ impl Target {
                 nth,
                 states,
                 name_matches,
+                has,
+                rendered,
             } => {
                 let mut object = Map::new();
+                if let Some(has) = has {
+                    object.insert("has".to_owned(), has.to_json());
+                }
+                if !rendered {
+                    object.insert("rendered".to_owned(), json!(false));
+                }
                 if other_roles.is_empty() {
                     object.insert("role".to_owned(), json!(role));
                 } else {
@@ -1950,6 +2133,7 @@ impl Target {
             Self::Field(Some(name)) => json!({ "field": name }),
             Self::FieldWithin(within) => json!({ "field": true, "within": within.to_json() }),
             Self::Toplevel(title) => json!({ "toplevel": title }),
+            Self::Row(name) => json!({ "row": name }),
             Self::OtherWindow(title) => json!({ "other_window": title }),
             Self::Result(path) => json!({ "result": path }),
             Self::ResultRow {
@@ -2294,6 +2478,24 @@ pub(crate) enum Check {
     ListSections(SectionsCheck),
     /// A target's text, as AT-SPI's text interface reads `node.text`.
     Text(NameCheck),
+    /// Holds when the predicate holds in some showing application window
+    /// with the title, each read as that window's own tree.
+    SomeWindow(SomeWindow),
+    /// How many showing application windows have the title.
+    Windows(WindowCount),
+    /// The names of a target's presented children with a role.
+    ChildNames(ChildNames),
+    /// Focus sits on a named widget that is neither the target nor inside
+    /// it, as `test_accessibility._focus_outside` decides.
+    FocusOutside(Target),
+    /// The first focused widget on screen is the target, as
+    /// `strata.focused_node() == surface`.
+    FocusedWidgetIs(Target),
+    /// The widget `remember` kept under the name still belongs to a
+    /// window, as `node.alive` answers for an accessible that still exists.
+    Alive(String),
+    /// The joined text of a target's subtree contains a part.
+    SubtreeText(SubtreeText),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -2628,7 +2830,60 @@ pub(crate) struct MentionCheck {
 #[serde(deny_unknown_fields)]
 pub(crate) struct FileCheck {
     pub(crate) path: String,
-    pub(crate) exists: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) exists: Option<bool>,
+    /// Whether the mode has any bit of this octal mask set, as
+    /// `bool(path.stat().st_mode & 0o100)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) mode_bits: Option<ModeBits>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ModeBits {
+    pub(crate) mask: String,
+    pub(crate) set: bool,
+}
+
+/// A predicate checked in each showing application window with this title,
+/// as `any(... for window in application.find_all(role="frame", name=title))`.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SomeWindow {
+    pub(crate) title: String,
+    pub(crate) holds: Box<Predicate>,
+}
+
+/// How many showing application windows have this title, as
+/// `len(application.find_all(role="frame", name=title))`.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct WindowCount {
+    pub(crate) title: String,
+    pub(crate) count: usize,
+}
+
+/// The names of a target's presented children with a role, in order, as
+/// `[row.name for row in node.children if row.role == "button"]`.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ChildNames {
+    pub(crate) of: Target,
+    pub(crate) role: String,
+    pub(crate) names: Names,
+}
+
+/// The text of every presented widget in a target's subtree that has
+/// some, joined by spaces, as `" ".join(node.text for _, node in dialog.walk()
+/// if node.text)`, contains `contains`; with `strip_newlines`, after
+/// `.replace("\n", "")`.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SubtreeText {
+    pub(crate) target: Target,
+    pub(crate) contains: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) strip_newlines: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -2800,7 +3055,14 @@ impl Check {
             | Self::LargestImage(_)
             | Self::Children(_)
             | Self::ListSections(_)
-            | Self::Text(_) => true,
+            | Self::Text(_)
+            | Self::SomeWindow(_)
+            | Self::Windows(_)
+            | Self::ChildNames(_)
+            | Self::FocusOutside(_)
+            | Self::FocusedWidgetIs(_)
+            | Self::Alive(_)
+            | Self::SubtreeText(_) => true,
             Self::Any(predicates) | Self::All(predicates) => {
                 predicates.iter().any(|predicate| predicate.check.is_live())
             }
@@ -3030,6 +3292,9 @@ pub(crate) struct StateCheck {
     pub(crate) selectable: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) editable: Option<bool>,
+    /// AT-SPI's `focusable`, which GTK's bridge reports for a focusable widget.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) focusable: Option<bool>,
 }
 
 /// Where the target is against the box a `settle` kept for it, or the one
@@ -3095,6 +3360,9 @@ pub(crate) struct NameFilter {
     /// The last names, in order, as `pane_names()[-2:] == [...]`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) ends_with: Vec<String>,
+    /// The first names, in order, as `names[:2] == [...]`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) starts_with: Vec<String>,
     /// The first name, as `names[0] == ...`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) first: Option<String>,
@@ -3141,6 +3409,7 @@ impl Names {
                     && filter.count.is_none_or(|count| count == actual.len())
                     && filter.at_least.is_none_or(|least| actual.len() >= least)
                     && actual.ends_with(&filter.ends_with)
+                    && actual.starts_with(&filter.starts_with)
                     && filter
                         .first
                         .as_ref()
@@ -3262,12 +3531,24 @@ impl<'de> Deserialize<'de> for Predicate {
                 "largest_image takes size or exceeds, not both",
             ));
         }
-        if let Check::File(file) = &check
-            && !file.path.starts_with('/')
-        {
-            return Err(serde::de::Error::custom(
-                "file takes an absolute path, such as $fixture/todo.txt",
-            ));
+        if let Check::File(file) = &check {
+            if !file.path.starts_with('/') {
+                return Err(serde::de::Error::custom(
+                    "file takes an absolute path, such as $fixture/todo.txt",
+                ));
+            }
+            if file.exists.is_some() == file.mode_bits.is_some() {
+                return Err(serde::de::Error::custom(
+                    "file takes exactly one of exists and mode_bits",
+                ));
+            }
+            if let Some(bits) = &file.mode_bits
+                && u32::from_str_radix(&bits.mask, 8).is_err()
+            {
+                return Err(serde::de::Error::custom(
+                    "mode_bits takes an octal mask such as \"100\"",
+                ));
+            }
         }
         if field.is_some_and(|field| field.of.is_some() && field.name.is_some()) {
             return Err(serde::de::Error::custom(

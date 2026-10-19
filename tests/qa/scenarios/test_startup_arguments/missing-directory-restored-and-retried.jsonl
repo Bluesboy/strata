@@ -1,0 +1,8 @@
+{"scenario":"missing-directory-restored-and-retried","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_startup_arguments.py::test_missing_directory_can_be_restored_and_retried","mutation":null,"known_bug":null,"session_bus":true}
+{"launch":["$fixture/requested-missing"]}
+{"wait":{"present":{"role":"label","name_matches":"(?s)The requested location is unavailable.*$fixture/requested-missing|$fixture/requested-missing.*The requested location is unavailable","within":{"other_window":"Strata"}}},"message":"the unavailable-location error"}
+{"expect":{"present":{"role":"button","name":"Retry","within":{"other_window":"Strata"}}}}
+{"fs":{"path":"requested-missing","mkdir":true}}
+{"fs":{"path":"requested-missing/restored.txt","write":"restored\n"}}
+{"click":{"role":"button","name":"Retry","within":{"other_window":"Strata"}}}
+{"wait":{"present":{"named":"restored.txt","within":{"other_window":"Strata"}}},"message":"Retry to open the restored directory"}

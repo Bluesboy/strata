@@ -634,14 +634,22 @@ it fail, and `known_bug` an issue that makes a failure the expected result.
 does not fit the pattern sets its own `twin`. Every run must resolve to a
 distinct node id, and the runner prints it beside each result, as in
 `PASS copy-leaves-source/columns-ru (twin tests/e2e/scenarios/test_clipboard.py::test_copy_leaves_the_source_in_place[columns-ru])`.
+A `skip` (`"skip":"<reason>"`) keeps a scenario without a `mutation` or
+`known_bug` out of the default `./scripts/qa.sh` run, which prints
+`SKIPPED <scenario> (run it by name): <reason>` in its place, and out of
+parity, whose summary lists it with the reason; naming it,
+`./scripts/qa.sh <scenario>`, still runs it (see "Skipped scenarios").
 A `known_bug` needs `known_bug_step`, the file
 line (the header is line 1) of the step expected to fail, never a `layout`,
-`flag`, `note`, `slice`, `increment`, `stem`, or `screenshot` step; a failure at any other
+`flag`, `note`, `slice`, `increment`, `stem`, `parent`, `screenshot`, `restart`,
+`http`, or `foreign_stop` step; a failure at any other
 step, or an error, still fails the run. The header `layout` is switched to once the
 process is ready, so key names always mean US key positions. Optional `variants`
 run the file again with their own `prefs`, `layout`, `modes`, `vars`, and
 `twin`, and their own `tree` and extra `setup` actions, as an indirect
-`fixture_tree` parametrization gives each case its own files. In a step, `$name` is replaced by a variable (`$$` is a literal `$`); the built-ins are `$root`
+`fixture_tree` parametrization gives each case its own files, and extra
+`teardown` actions taken after the header's, as such a case's `finally:`
+restores its own directory. In a step, `$name` is replaced by a variable (`$$` is a literal `$`); the built-ins are `$root`
 (the fixture directory's name, which is also its pane's), `$fixture` (its
 absolute path), `$fixture_quoted` (that path as `pathlib.Path.as_uri` escapes
 it, without `file://`, for a trash file's `Path=` or a URI a twin builds with
@@ -670,19 +678,29 @@ in the application's environment, with `$variables` replaced, as a twin's
 display, buses, runtime, HOME and XDG directories, input log, and parity
 and state-dump variables), and `"session_bus":true` gives
 the run a private session bus with the Python harness's configuration (no
-service directories), which the application and `dbus_send` steps share;
-without it the application gets a bus address that cannot connect.
+service directories), which the application and `dbus_send`, `launch`, and
+`foreign` steps share; without it the application gets a bus address that
+cannot connect. `"portal":true` (with `session_bus`) starts
+`strata --qa --portal`, the FileChooser portal backend, in place of the
+browser, as `open_file_request` starts `strata --portal`: it has no window
+until a `portal_open` request opens a chooser, which `adopt` then drives, and
+while no chooser is open its state snapshot is the empty one AT-SPI reads.
 `state_parity_ignore` (`["focused","panes.focused"]`) leaves compared keys,
 or a compared key of each pane, out of the scenario's final-state parity; it
 is only for a scenario whose app state ends nondeterministically under both
 harnesses (see "QA parity"), and `tests/qa.rs` and `scripts/qa_parity.py`
-both reject any other key. `input_parity_ignore`
+both reject any other key. `["*"]`, alone, leaves the whole final state out,
+for a twin that ends its own application before its state can be read. `input_parity_ignore`
 (`[{"run":"columns-wheel","events":[{"position":19,"event":"button 1 down"}]}]`)
 likewise leaves the pointer position of each named event of one run out of
-input parity: `position` counts the run's `key` and `pointer` lines from 1, and
-`event` (`button <n> down|up`) is what must stand there on both sides, so a
-step added before it fails parity instead of moving the exemption; the event's
-button and direction, and every other event, are still compared. It needs an
+input parity: `position` counts the run's `key` and `pointer` lines from 1
+(on the Python side), and `event` is what must stand there on both sides, so a
+step added before it fails parity instead of moving the exemption:
+`button <n> down|up` is compared without its position, `key down|up` without
+its keycode, and `typed digits` starts a run of digit key presses that may be
+of different lengths on the two sides, after which both logs are compared
+again from the ends of their runs. The event's button or direction, and every
+other event, are still compared. It needs an
 owner decision, is only for a scenario without a `mutation`, and may not cover
 every event; a position past either log disagrees (see "Nondeterministic input").
 Every later line is one step; a step with `"modes":["icons","list"]` runs only
@@ -694,7 +712,10 @@ predicate holds just before it (the runner asks the process with
 step with `"if":"returned"` or `"unless":"returned"` runs only if an earlier
 `expect` (or `flag`) kept as `"as":"returned"` held, or did not, which mirrors a twin that
 collects failures and recovers, as `if _focus_returned(...)` and
-`except TreeTimeout: failures.append(...)` do.
+`except TreeTimeout: failures.append(...)` do. A list (`"if":["a","b"]`) needs
+every one to have held, and `"unless":["a","b"]` skips the step if any did; an
+`expect` or `flag` that keeps a flag and is itself skipped this way keeps it
+false, so a twin's retry loop unrolls into guarded attempts.
 A `note` keeps what an accessor reads, as a twin keeps
 `names = strata.entry_names()`: later steps say `$names`, which becomes the
 value itself where a string is exactly `$names` (so a list stays a list) and
@@ -709,7 +730,11 @@ fails the scenario before it runs.
 | `{"click":TARGET,"button":1,"count":1,"mods":["shift"],"at":[4,"50%"]}` | process | `pointer.click`, `right_click` (`button` 3), `double_click` (`count` 2), `click_entry_with`; `"release_mods_first":true` is `click_releasing_modifiers_before_up`; `"left_bound":"browser"` (also on `move`) keeps the aim's left edge right of a remembered box, as `max(bounds.x, browser_left) + 12` |
 | `{"select":{"entry":"readme.md"}}` | process | clicks until the entry is selected, as `select_entry` does |
 | `{"select_with_keyboard":"todo.txt","message":"..."}` | process | `select_entry_with_keyboard`: Home, then Down (Right in Icons) until the entry has focus |
-| `{"open_menu":TARGET,"until":PREDICATE,"message":"..."}` | process | `open_appearance_menu`: clicks, and clicks again each second the menu stays closed while the target is not checked |
+| `{"open_menu":TARGET,"until":PREDICATE,"message":"..."}` | process | `open_appearance_menu`: clicks, and clicks again each second the menu stays closed while the target is not checked; `"open_states":["checked","pressed"]` counts either state as open, as `test_accessibility._open_choice` does |
+| `{"adopt":"PNG conversion test","timeout_ms":20000,"message":"..."}` | process | a portal run's chooser: waits for a showing application window with this title, as `application.find(name=title)`, and reads state, resolves targets, and logs input relative to it from then on |
+| `{"reveal_control":{"role":"spin button","name":"Text size in pixels"}}` | process | `test_text_size._reveal_page_control`: finds the control presented (`"{name} control"`), then while its scroll pane does not show all of it turns the wheel 16 pixels inside the pane's right edge at its middle height, `min(12, max(1, int(distance / height) * 3))` clicks toward it (`"reachable {name} control"`), and settles it |
+| `{"reveal":{"role":"button","name":"Modified date format"}}` | process | `Strata.reveal`: finds the control presented; unless the window and its scroll pane show it, turns the wheel three clicks at the window's centre up to twelve times, toward it, settling it once shown, then waits for it to be on screen (GTK's bridge declines the `scroll_into_view` before the loop) |
+| `{"keep":[0,0,240,80],"as":"foreign"}` | process | keeps a box on the X screen for `kept` targets; the runner sends it for a `foreign` drag source's button |
 | `{"activate":{"role":"toggle button","name":"..."},"message":"..."}` | process | `Node.activate`: the default action, no pointer input; a role target without `within` may be scrolled away; one with `within`, or a `{"dialog_button":"Close dialog"}`, is looked up on screen first |
 | `{"holds":PREDICATE}` | process | `true` or `false` in `result`, never a failure |
 | `{"remember":{"field":true},"as":"filter"}` | process | keeps the focused field, as a twin keeps `field = strata.editable_field()`; any other target keeps its box, for `left_bound` and `moved`, and its widget, for `replaced` and a `remembered` target, apart from the fields, so a field lookup never resolves it |
@@ -718,7 +743,7 @@ fails the scenario before it runs.
 | `{"increment":"first","as":"next"}`, `{"stem":"source","as":"stem"}` | runner | a noted name with its trailing number one higher, `f"folder-{n + 1:03}"`; a noted name's `Path(name).stem` |
 | `{"clipboard_set":"selection-cleared"}`, `{"clipboard":"999","message":"..."}` | process | `table_clipboard_text`: opens a second connection to the display and owns the clipboard with the text, as `before_read` sets it (kept for the large-table twin listed under "Python-only tests", should it return); reads the clipboard through that connection (or a new one), closes it, and fails unless the text matches, exactly or as `{"starts_with":...,"contains":...,"longer_than":5}` |
 | `{"slice":"rows","middle":3,"pick":-1,"as":"last"}` | runner | part of a noted list, so one snapshot serves several values as a twin reuses `rows`: `middle` then `pick`, as a note shapes a list |
-| `{"keys_until":PREDICATE,"keys":["Home","Left"],"times":2}` | process | presses the keys in turn for at most `times` rounds, stopping once the predicate holds right after a round, as `for _ in range(2): ...; if node.has_state(...): break`; `"check_first":true` checks before each round instead, as `for _ in range(30): if ...: break; press(...)`, and `times` may be a noted list, whose length it then is, as `for _ in strata.menu_items():` |
+| `{"keys_until":PREDICATE,"keys":["Home","Left"],"times":2}` | process | presses the keys in turn for at most `times` rounds, stopping once the predicate holds right after a round, as `for _ in range(2): ...; if node.has_state(...): break`; `"check_first":true` checks before each round instead, as `for _ in range(30): if ...: break; press(...)`, and `times` may be a noted list, whose length it then is, as `for _ in strata.menu_items():`; `"await_focus_change":{"timeout_ms":5000,"message":"..."}` waits after each round for the focused widget to change, as `_tab_to` waits for `focused_node()` to differ, and `"exhausted":"..."` fails with that message when every round ran without the predicate holding, as a loop's `else: raise AssertionError(...)` |
 | `{"move":TARGET,"at":[...]}` | process | `pointer.move_to` |
 | `{"move_by":[2,0]}` | process | `pointer.move_to` the pointer's own position plus an offset |
 | `{"wheel":TARGET,"clicks":3,"direction":"down","at":[...]}` | process | `pointer.scroll` |
@@ -744,11 +769,20 @@ fails the scenario before it runs.
 | `{"note":"entries","until_found":true,"until_names":NAMES,"as":"names"}` | process | polls until the list matches and keeps the list that poll read, as `strata.wait(lambda: names if len(names := strata.entry_names()) > 16 else None)` |
 | `{"each":"names","as":"name","derive":{"caption":{"number_plus":320,"suffix":"×180"}},"step":STEP}` | runner | the process step once per item of a noted list, `$name` the item and each `derive` variable the last number in the item's stem plus `number_plus` between an optional `prefix` and `suffix`, as `for name in names: strata.wait(..., f"... {name}")` |
 | `{"restart":true}` | runner | `application.stop()` then `start()`: SIGTERM to the application's process group, 5 s, then SIGKILL, as `harness.process.terminate` does; it starts again with the same environment, fixture, display, and input log, under the US layout, and a fresh log, as `ManagedProcess.spawn` opens it |
+| `{"restart":{"directory":"$fixture/target","env":{"RUST_LOG":"trace"},"stdout":"closed","stderr":"null"}}` | runner | as a twin stops the application and starts `strata <directory>` itself: in that directory, with those variables added, and with standard output and error a pipe whose reading end is closed or `/dev/null`, as `Popen(stdout=PIPE)` closed at once or `DEVNULL`; the process sets them up itself (`STRATA_QA_STREAMS`) before anything writes, keeping its replies on their own descriptor |
+| `{"launch":["$fixture/requested-missing"],"percent_path":true}` | runner | `subprocess.run([strata, *arguments], cwd=fixture, check=True, timeout=30)` with a twin helper's environment: another `strata`, which hands its arguments to the running one over the session bus and exits; `percent_path` makes `%XX` raw bytes |
+| `{"portal_open":"Multiple selection test","options":{"current_folder":"$fixture","multiple":true,"filters":[["PNG images",[[1,"image/png"]]]]}}` | runner | `open_file_request`: waits up to 20 s for the backend's bus name, then sends `OpenFile` (60 s D-Bus timeout) from a worker thread without waiting for the answer; a request still unanswered when the run ends gets `Request.Close` once the final state is read |
+| `{"portal_response":{"done":false},"message":"..."}`, `{"portal_response":{"done":true,"status":0,"names":[...],"paths":[...],"keep":"output","png":{...},"discard":true},"timeout_ms":20000,"message":"..."}` | runner | `assert not response.done()`; or waits for the answer and checks its status, the chosen files' names as a set or paths in order, keeps the first path as a note, checks it as `png` checks a file, and then (`discard`) removes its download directory however that went, as `finally: shutil.rmtree(output.parent)` |
+| `{"http":"<base64>","as":"url"}`, `{"http_requests":1,"message":"..."}` | runner | `image_server(body)`: an HTTP/1.0 server on 127.0.0.1 answering every GET with the body as `image/png`, its URL kept as a note, until the run's final state is read; `assert len(requests) == 1, message` |
+| `{"foreign":{"paths":["$fixture/a"],"move_only":true},"as":"foreign","message":"..."}`, `{"foreign_label":"Foreign drag finished","message":"..."}`, `{"foreign_stop":true}` | runner | `tests/e2e/fixtures/file_drag_source.py` run unchanged through `tests/qa/foreign_drag_source.py`, which prints its button's screen box and each new label on stdout: waits for the box, as the twin waits for `"Foreign file selection"` on the desktop, and keeps it in the process under `as` for a `kept` drag source; waits for the label; `terminate(source.popen)` |
+| `{"zipcrypto":{"path":"password.zip","password":"zipsecret","member":"some.txt","contents":"...","deflated":true},"as":"collision"}` | runner | `_write_zipcrypto` (a random 11-byte header, raw deflate at level 9) and `_zipcrypto_crc_collision`: the first numeric password below 4096 whose decrypted header passes `zipfile`'s check, kept as a note; `contents` may be `{"repeat":"text","count":64}` |
+| `{"fail":"the compress dialog never accepted the archive name"}` | runner | fails with the twin's message, as a retry loop's final `raise AssertionError(...)` |
+| `{"parent":"output","as":"output_dir"}` | runner | a noted path's `Path(name).parent` |
 | `{"dbus_send":["--print-reply","--dest=...","/path","iface.Method","array:string:file://..."]}` | runner | `dbus-send --session ...` on the run's private bus (`session_bus`), with the environment a twin's helper gets, failing as `subprocess.run(..., check=True, timeout=30)` |
 | `{"log":{"count":"browser sandbox started"},"as":"initial"}`, `{"log":{"count":"...","at_most":2},"timeout_ms":0}` | runner | reads the application's log with its colour codes stripped, as `strata.application.log()`: `count` occurrences of a text, `matches` (the numbers a pattern's first group finds, `re.findall`; `pick` keeps one), or `contains` (kept as a flag); with `as` it keeps the value as a note, without it waits until the count (or how many numbers) is `equals`, `at_least`, or `at_most` a number or a noted list's length, plus `plus` |
 | `{"proc":{"gone":"$original"}}`, `{"proc":{"parent_is_app":"$pid"},"timeout_ms":0}`, `{"proc":{"kill":"$pid"}}` | runner | waits until none of the noted pids runs (`/proc/<pid>` is gone); checks `PPid:` in a pid's `/proc/<pid>/status` is the application's; sends it SIGKILL at once, refusing any pid that is not the application's child |
 | `{"layout":"ru"}` | runner | `setxkbmap` and a group lock on the run's Xvfb |
-| `{"flag":PREDICATE,"as":"enabled"}` | runner | keeps whether the predicate holds now, never a failure, for later steps' `if` and `unless`, as a twin reads `enabled = "pressed" in node.states` and branches on it |
+| `{"flag":PREDICATE,"as":"enabled"}` | runner | keeps whether the predicate holds now, never a failure, for later steps' `if` and `unless`, as a twin reads `enabled = "pressed" in node.states` and branches on it; with `timeout_ms` it polls until the predicate holds or time runs out, as `try: strata.wait(..., timeout=5) except TreeTimeout: pass` |
 | `{"fs":{"path":"archive/todo.txt","exists":true},"timeout_ms":15000,"message":"..."}` | runner | waits for `exists`, `text`, `names`, `is` (`file`, `dir`, `symlink`), `empty`, or `unchanged` (equal to a remembered listing); `timeout_ms` 0 is a plain assertion |
 | `{"fs":{"path":"archive/todo.txt","write":"existing\n"}}`, `{"fs":{"path":".","remember":"original"}}` | runner | acts at once: writes a file, or keeps `fixture.listing()` under a name |
 | `{"fs":{"path":"archive/folder-{000..159}","mkdir":true}}`, `{"fs":{"path":".","populate":TREE}}` | runner | `Path.mkdir()` (`"parents":true` for `mkdir(parents=True)`), once per number of a range in the last component; `FixtureTree.populate`, which also pins the times below `path` |
@@ -771,6 +805,11 @@ fails the scenario before it runs.
 | `{"fs":{"path":"action.toml","toml":{"run.args":["a"]}}}`, `"toml_like":"saved"`, `{"fs":{"path":"record","json":{"action":"keep"}}}`, `"json_set":{"paths":[...]}` | runner | values at dotted keys of the parsed TOML; the parsed TOML equals that of bytes `keep_bytes` kept; values at top-level JSON keys, or each list compared as a set |
 | `{"fs":{"path":"$environment/terminal-launches.log","launches":{"count":3,"within":"$fixture"}}}`, `{"launches":{"first_dir":"$fixture/documents"}}`, `{"fs":{"path":"$data/Trash/info","replace_lines":{"suffix":".trashinfo","prefix":"DeletionDate=","with":"..."}}}` | runner | the stub terminal launcher's `cwd<TAB>--dir=...` lines as `test_terminal` asserts on them; rewrites matching lines of every file with the suffix |
 | `{"fs":{"path":"documents/bad%E8name.txt","write":"x","percent_path":true}}` | runner | the path's `%XX` escapes stand for raw bytes, for names that are not UTF-8 |
+| `{"fs":{"path":"payload.bin","random":67108864}}`, `"size":67108864`, `{"fs":{"path":".","glob_none":".strata-compression-*"}}` | runner | `write_bytes(os.urandom(size))` in one write; `st_size == size`; no name in the directory matches the pattern, `*` any run of characters, as `not list(root.glob(pattern))` |
+| `{"fs":{"path":"$config/gtk-3.0/bookmarks","lines_equal":[...]}}`, `"last_line":"..."` | runner | `path.read_text().splitlines()` equals the list, a missing file having none, as `test_sidebar_pinning.bookmarks`; its last line is that, as `bookmarks(strata)[-1]` |
+| `{"fs":{"path":"settings.toml","toml_prefix":{"sidebar_order":["desktop","home"]}}}`, `"toml_like":"original","toml_keys":[...]` | runner | the list at the dotted key starts with these, as `tomllib.loads(...)["sidebar_order"][:2] == [...]`; only those keys of the TOML kept by `keep_bytes` and now compare equal |
+| `{"fs":{"path":"todo.txt.zip","zip_member":["todo.txt","todo.txt"]}}`, `"png":{"size":[23,17],"at":[5,5],"min":[241,0,0],"max":[255,9,9]}` | runner | the zip's member holds the fixture file's bytes, as `archive.read(name) == path.read_bytes()`; the path ends in `.png`, is a PNG of that size, and the RGB pixel's channels lie within bounds |
+| `"tar_gz":{"mode":"644","mtime":0,"members":[["a.txt",{"repeat":"x","count":50000}]],"flip_from_end":8}` | runner | a member's text repeated, and the compressed byte that far from the end flipped, as `damaged[-8] ^= 0xFF` breaks the gzip trailer's CRC |
 | `{"fs":{"path":"a.3mf","zip":[["3D/3dmodel.model","text"],["thumb.png",{"image":{...}}]]}}`, `{"fs":{"path":"big.stl","truncate":134217729}}`, `{"fs":{"path":"page.pdf","from_repository":"tests/fixtures/documents/text.pdf"}}` | runner | a stored zip of the entries in order, as `zipfile.ZipFile(path, "w").writestr` (an entry may be `{"text":...,"date_time":[2001,9,9,1,46,40],"mode":"100755"}`, a `ZipInfo` with that time and `external_attr`); an `image` with a range in its name (`photo-{0..5}.png`) writes one file per number, `width_step` wider each, each followed by its `thumbnail` when given; `path.open("wb").truncate(size)`; the repository file's bytes in one write, as `write_bytes(... .read_bytes())` |
 
 The thumbnail, archive, byte, append, line-rewriting, generated-file, and
@@ -808,6 +847,8 @@ that long after a press that started a navigation.
 | `{"role":"check menu item","name":"Folders first"}` | `window.find(role=..., name=...)` |
 | `{"role":"button","name":"Next video","within":{"preview":true}}` | `strata.preview().find(role=..., name=...)`: the search starts at another target; without `name` any name matches, as `entry.find(role="panel")`, and `description` must match too when given; `"states":["selected"]` (also `focused`, `checked`, `pressed`, `sensitive`, `horizontal`, `vertical`) as `find(..., states={...})`, and `"name_matches":"^\\d+:\\d\\d$"` as `find_all(name_matches=...)`, a regular expression searched in the name |
 | `{"role":["check box","toggle button","switch"],"name":"Confirm"}` | `next(node for node in find_all(name=...) if node.role in {...})`: a role list matches any of them |
+| `{"role":"*","states":["selected"],"within":{"preview":true}}`, `{"role":"list item","has":{"role":"label","name":"top.txt"}}`, `{"role":"button","name":"Settings","rendered":false}` | `preview.find(states={"selected"})`: `*` is any role; a match that has a rendered widget the inner role target finds at or below it, as `archive_row` picks the row holding a label; `find(..., rendered=False)`, presented but perhaps scrolled away, which `state`, `description`, `activate`, and `remember` then read as it is |
+| `{"row":"readme.md"}` | `test_chooser_selection._find_row`: the first rendered list item with the name, else the first table cell |
 | `{"other_window":"Strata"}` | a showing application window with this title other than the one the run started with, as a reveal opens a second browser window |
 | `{"toplevel":"Copy to"}`, `{"field":true,"within":{"toplevel":"Copy to"}}` | `destination_chooser(title)`: an application window by its title, outside the browser window; `chooser.find(role="text", states={"editable", "focused"})`, which `remember` keeps as a field |
 | `{"sidebar":"Home"}`, `{"header":"Choose sort field"}` | `sidebar_button`, `header_button` |
@@ -836,11 +877,15 @@ outside the target, or `"end-1/6"` for a share back from the far edge; without
 it the pointer aims at the centre. A share has no lower bound: the row-padding
 twin's `max(1, height // 6)` equals `"1/6"` for every row at least 6 pixels
 tall, and the scenarios only aim at rows taller than that. Role names are AT-SPI's, with `push button` spelled
-`button`, a plain box `panel`, a group `grouping`, and a scale `slider`, as GTK's AT-SPI bridge
+`button`, a plain box `panel`, a group `grouping`, a scale `slider`, and a password entry `password text`, as GTK's AT-SPI bridge
 reports them; names are the labels `src/ui/accessibility.rs` records (an entry row's
 is its list item's, and `set_labelled_by` joins its labels' names), a label's
 own text, or children's names for buttons and menu items; a menu button's inner
-toggle takes the menu button's name, as GTK names it. Tooltips never name a
+toggle takes the menu button's name, as GTK names it, and a button with a text
+label is named by that label, through the `labelled-by` relation GTK gives it,
+before any label set on the button, unless `accessibility::clear_labelled_by`
+dropped the relation or `set_labelled_by` replaced it. A list view's row is
+selected as its selected state flag says, as GTK reports it. Tooltips never name a
 target: a control that needs a name, such as an icon-only button, gets
 `accessibility::set_label` with its tooltip text. The `tree` query prints both
 for every widget, which is the quickest way to write a target. `absent` holds
@@ -862,7 +907,7 @@ Predicates mirror the page object's accessors:
 | `{"field":{"of":"rename","name":"Rename","text":"a","caret":4,"selection":[0,4],"focused":true}}` | a field node's `text`, caret offset, selection (null for none), and `focused` state |
 | `{"editor_within_viewport":{"of":"rename"}}` | `assert_editor_constrained` in the caret scenario |
 | `{"pref":{"key":"browser_mode","value":"icons"}}` | `read_preferences()[key]`, parsed from TOML; null when absent; `"contains":"size"` instead holds for a list holding the string or a string containing it, as `'"size"' in read_preferences().get(key, "")`, and `"one_of":[1,2,3,4]` holds for any of the values |
-| `{"state":{"target":TARGET,"selected":true,"focused":false,"checked":false,"pressed":true,"sensitive":true}}` | `node.has_state(...)` for each state given; an active switch is `pressed` as well as `checked`, and `selected` is what `accessibility::set_selected` recorded, as for a tab, as GTK's bridge reports them (a list box row and a notebook tab report their own selection); `selectable` (a list box row that takes the selection) and `editable` (an editable entry or text view) too; a description is the recorded one or a picture's alternative text |
+| `{"state":{"target":TARGET,"selected":true,"focused":false,"checked":false,"pressed":true,"sensitive":true}}` | `node.has_state(...)` for each state given; an active switch is `pressed` as well as `checked`, and `selected` is what `accessibility::set_selected` recorded, as for a tab, as GTK's bridge reports them (a list box row and a notebook tab report their own selection); `selectable` (a list box row that takes the selection), `editable` (an editable entry or text view), and `focusable` (a widget that can take focus) too; a description is the recorded one, a picture's alternative text, or for a menu button's inner toggle the menu button's, as GTK describes it |
 | `{"view_mode":"Icons"}`, `{"window_width":420}` | `view_mode()`, `window_bounds().width` |
 | `{"present":TARGET}`, `{"absent":TARGET}` | `window.find(...)` is or is not `None` |
 | `{"moved":{"target":TARGET,"direction":"up"}}` | bounds against the last `settle`; also `down`, `left`, `right`, or `none`; `none` with `"within":1` allows that much drift on both axes and keeps the size, as `assert_layout` |
@@ -889,7 +934,7 @@ Predicates mirror the page object's accessors:
 | `{"description":{"target":{"menu_item":"Copy"},"text":"Ctrl+C"}}` | `node.description == "Ctrl+C"`, or a pattern such as `{"contains":...}` |
 | `{"mentions":{"target":{"dialog":true},"text":"Customize Folder"}}`, `"words":"doesn't support Trash"` | `"Customize Folder" in dialog.dump()`: some name or description in the subtree contains it; with `"role":"label"`, the name of some rendered widget with that role does, as `any("x" in node.name for node in dialog.find_all(role="label"))`; with `words`, some rendered widget's `f"{name} {text}"` has them with any whitespace between, as `re.search(r"doesn't\s+support\s+Trash", ...)`; with `equals`, some rendered widget's name with its whitespace collapsed is exactly that, as `" ".join(node.name.split()) == text` |
 | `{"presented":{"role":"label","name":"Ctrl+Alt+M"}}` | `window.find(..., rendered=False) is not None` |
-| `{"file":{"path":"$fixture/documents/notes.txt","exists":false}}` | whether the path exists without following a final symlink, as the runner's `fs` `exists` checks it; read by the process so `any` and `all` can join it with window state |
+| `{"file":{"path":"$fixture/documents/notes.txt","exists":false}}`, `{"file":{"path":"$fixture/todo.txt","mode_bits":{"mask":"100","set":true}}}` | whether the path exists without following a final symlink, as the runner's `fs` `exists` checks it; or `bool(path.stat().st_mode & 0o100)`; read by the process so `any` and `all` can join it with window state |
 | `{"focused_widget":"Custom color…"}` | `strata.focused_node().name`, exactly or as `{"contains":"Shortcuts"}`; null when nothing has focus |
 | `{"inside":{"target":TARGET,"of":{"container":"rename-target"},"axis":"y"}}` | the target has width and height and lies inside the other's box, on both axes or just `axis` |
 | `{"editor_within_window":{"of":"rename","pane":"$root"}}` | the narrow-window creation check: a remembered field wider than one pixel, starting at or right of `max(pane.x, 0)` and ending inside the window |
@@ -904,12 +949,17 @@ Predicates mirror the page object's accessors:
 | `{"children":{"comm_prefix":"xdg-terminal-ex","count":0}}` | `test_terminal._launcher_children`: how many of the application's child processes have a command name with the prefix |
 | `{"list_sections":{"within":{"dialog":true},"section":"Recommended Applications","names":NAMES}}` | the selectable list items under each unselectable heading row, named by the row's first named child, as `test_open_with` groups them |
 | `{"text":{"target":TARGET,"text":"batch-rename"}}` | `node.text`, the text interface: a label's or entry's text, a text view's buffer |
+| `{"some_window":{"title":"Strata","holds":PREDICATE}}`, `{"windows":{"title":"Strata","count":6}}` | `any(... for window in application.find_all(role="frame", name="Strata"))`: the predicate read in each showing application window with the title as its own tree; how many there are |
+| `{"child_names":{"of":{"parent":{"sidebar":"Home"}},"role":"button","names":NAMES}}` | `[row.name for row in node.children if row.role == "button"]`, the target's visible children, as `_place_names` lists the sidebar's places |
+| `{"focus_outside":TARGET}`, `{"focused_widget_is":TARGET}` | `test_accessibility._focus_outside`: the focused widget has a name and is neither the target nor inside it; `strata.focused_node() == target` |
+| `{"alive":"rename"}`, `{"subtree_text":{"target":{"dialog":true},"contains":"...","strip_newlines":true}}` | `node.alive` for a widget `remember` kept: it still belongs to a window; `" ".join(node.text for _, node in dialog.walk() if node.text)` contains the part, after `.replace("\n", "")` with `strip_newlines` |
 | `{"name":{"target":TARGET,"text":"0:05"}}`, `{"editable_text":"todo"}`, `{"visible_top":NAMES}` | `node.name == "0:05"` (or a pattern; with `"rendered":false` the target is looked up presented, as `find(..., rendered=False).name`); `any(node.text == "todo" for node in window.find_all(role="text", states={"editable"}))`; the rows `note visible_top` lists |
 
 `NAMES` is an exact list in visual order or
 `{"contains":[...],"excludes":[...],"count":4,"at_least":2,"ends_with":[...]}`,
 with `"first"` (`names[0] == ...`), `"first_above"` (`names[0] > "010.txt"`),
 `"any_from"` (some name `>= "040.txt"`), and
+`"starts_with":[...]` (`names[:2] == [...]`),
 `"toggled":{"names":[...],"against":[...]}` (each listed exactly when
 `against` does not list it), `"in_order":[...]` (each listed, first
 occurrences in that order, as `assert_menu_order`), `"set":[...]`
@@ -1014,7 +1064,11 @@ position a `pointer` line carries is the final pointer position before that
 button event, which is what parity checks of motion. A twin harness writes the
 same `key` and `pointer` lines and may write `motion` lines as it likes.
 
-The Python harness writes the same lines from `harness/xtest.py`. Under pytest,
+The Python harness writes the same lines from `harness/xtest.py`; the
+helpers live in `harness/parity.py`, which the portal scenarios, having no
+`strata` fixture, also use from `harness/portal.py`: their input is logged
+relative to the chooser and the chooser's state is dumped before the request
+ends (an empty snapshot once it has closed). Under pytest,
 `STRATA_INPUT_LOG` names a directory, and each scenario appends to
 `<directory>/<node id>.log`, with every character outside `A-Za-z0-9._-`
 replaced by `_` and a name longer than 200 characters cut to its first 180
@@ -1103,6 +1157,20 @@ the AT-SPI surface itself, and is listed here with that reason.
   the twin sees no focused node at all before that Ctrl+C. The cause of the
   difference is not established.
 
+### Skipped scenarios
+
+A scenario whose pass or fail the app leaves to chance under both harnesses,
+so neither `known_bug` nor a pass can be relied on, carries a `skip` reason
+until the app is fixed; it stays registered and runs when named.
+
+- `settings-text-size-keeps-switches` (twin
+  `test_text_size.py::test_settings_text_size_keeps_switches_inside_the_page`):
+  after the Settings window shrinks from 1000 to 640 pixels at 32-pixel text,
+  "Complete setup" can stay four pixels below the General page's viewport with
+  no scroll left to reveal it. The twin failed 24 of 24 runs with its input
+  logged and passed four of four without; the QA scenario passed and failed by
+  turns in full runs.
+
 ### QA-only waits
 
 A QA run sends input faster than its twin, whose AT-SPI lookups take tens of
@@ -1163,6 +1231,17 @@ then leaves the pasted file neither selected nor focused.
   later; QA's pace compares in between (the column ended at 802 against the
   preview's 600, then at 600). Over 24 sequential twin runs the comparison
   always held.
+- `empty-directory-focus-and-tab-order` (pointer): once the new `empty` row
+  is listed after F5, waits up to a second for the listing to replace that
+  row once more (it always did within a second over 36 probe runs) before
+  clicking it; a click on the row the listing replaces mid-press is
+  cancelled, and 4 of 12 QA runs without the wait lost it. Over 24 sequential
+  twin runs of each pointer case the click always opened `empty`.
+- `invalid-archive-reports-damage`: waits for the error detail label once the
+  progress dialog has turned into `Unable to complete operation`, before
+  asserting it; the label can show a moment after the dialog takes its new name,
+  and one QA run in about fifty checked in between. Over 24 sequential twin
+  runs of all seven cases the assertion always held at once.
 - `preview-mode-survives-unsupported` (Columns): waits for the Beta column the
   cursor mirrors before pressing Space on Beta, as the same-folder copy waits
   above do. Without it Space enters Beta before the mirror and the app never
@@ -1170,6 +1249,12 @@ then leaves the pasted file neither selected nor focused.
   always shows (24 sequential runs).
 
 ### Nondeterministic final state
+
+`startup-with-closed-pipes` sets `state_parity_ignore` to `["*"]`: the twin
+starts the application itself with its output pipes closed and terminates
+that process in its `finally:`, so the `strata` fixture's state dump finds no
+application on the accessibility bus and records an error instead of a state.
+The QA run's own final state is still kept in `state.json`.
 
 `sidebar-destinations-accept-three-files` sets `state_parity_ignore` to
 `["focused","panes.focused"]`: after three selected files are dropped on Home,
@@ -1179,6 +1264,19 @@ arrive. Over 24 sequential twin runs of `[Home-columns]` it ended on
 asserts no focus, and the rest of the state is still compared.
 
 ### Nondeterministic input
+
+`png-conversion-consent-reuses-download` and `png-conversion-errors-keep-chooser`
+set `input_parity_ignore` to `key down`/`key up` for the ten key events that
+type the image server's port into the chooser's name field (events 45 to 54,
+and 127 to 136 for the second submission): both twins serve the image on an
+ephemeral port (`ThreadingHTTPServer(("127.0.0.1", 0), ...)`), always five
+digits, so the same keys stand there with other digits. Every other key of the
+URL, and every other event, is compared.
+
+`zipcrypto-collision-reopens` sets `typed digits` at event 11 in both runs:
+the twins write the archive with a random 11-byte header, so the colliding
+password each side finds and types is a different number, of one to four
+digits.
 
 `pdf-zoom-keeps-text-size` sets `input_parity_ignore` for its `columns-wheel`
 run's events 19 (`button 1 down`) and 20 (`button 1 up`), the click on the PDF

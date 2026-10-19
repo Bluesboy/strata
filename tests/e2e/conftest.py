@@ -4,20 +4,16 @@
 from __future__ import annotations
 
 import functools
-import hashlib
-import json
 import os
-import re
 import signal
 import sys
-import time
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import resources, screenshots, tree  # noqa: E402
+from harness import parity, resources, screenshots, tree  # noqa: E402
 from harness.application import Application, build_binary  # noqa: E402
 from harness.artifacts import ArtifactCollector  # noqa: E402
 from harness.browser import Strata  # noqa: E402
@@ -26,20 +22,10 @@ from harness.environment import TestEnvironment  # noqa: E402
 from harness.fixtures import FixtureTree  # noqa: E402
 from harness.interaction import Keyboard, Pointer  # noqa: E402
 from harness.keyboard_layout import switched  # noqa: E402
-from harness.xtest import INPUT_LOG_VARIABLE, XTestConnection  # noqa: E402
+from harness.xtest import XTestConnection  # noqa: E402
 
 # Retry infrastructure startup only, never interaction assertions.
 DISPLAY_START_ATTEMPTS = 2
-# Set to a directory, each scenario writes its final window state, the
-# `--qa` reply snapshot's shape, to `<directory>/<test id>.json`.
-STATE_DUMP_VARIABLE = "STRATA_STATE_DUMP"
-# How long the final state may keep changing before it is dumped anyway.
-STATE_SETTLE_TIMEOUT = 5.0
-STATE_SETTLE_INTERVAL = 0.25
-# Input logs and state dumps are named after the node id, kept below the
-# 255-byte file name limit; `scripts/qa_parity.py` derives the same names.
-NODE_FILE_NAME_LIMIT = 200
-NODE_FILE_NAME_KEPT = 180
 
 pytest_plugins = ["harness.ci_plugin", "harness.warnings_plugin"]
 
@@ -110,9 +96,12 @@ def headless_display() -> HeadlessDisplay:
 @pytest.fixture(scope="session")
 def xtest(headless_display: HeadlessDisplay) -> XTestConnection:
     connection = XTestConnection(headless_display.display)
+    # The portal scenarios drive no `strata` fixture and log their input here.
+    headless_display.input_connection = connection
     try:
         yield connection
     finally:
+        headless_display.input_connection = None
         tree.set_surface_origin_provider(None)
         connection.close()
 
@@ -155,13 +144,14 @@ def test_environment() -> TestEnvironment:
 
 
 @pytest.fixture
-def preferences() -> dict[str, object]:
+def preferences(request: pytest.FixtureRequest) -> dict[str, object]:
     """Overrides a scenario applies before the application starts.
 
-    Parametrise it with `@pytest.mark.preferences(browser_mode="icons")`.
+    Parametrise it with `@pytest.mark.preferences(browser_mode="icons")`, or
+    indirectly with `@pytest.mark.parametrize("preferences", [...], indirect=True)`.
     """
 
-    return {}
+    return dict(getattr(request, "param", {}))
 
 
 @pytest.fixture
@@ -212,45 +202,20 @@ def strata(
             application.stop()
 
 
-def node_file_name(node_id: str) -> str:
-    """The file a scenario's input log and state dump are named after.
-
-    `scripts/qa_parity.py` derives the same name from a twin's node id.
-    """
-
-    name = re.sub(r"[^A-Za-z0-9._-]+", "_", node_id)
-    if len(name) <= NODE_FILE_NAME_LIMIT:
-        return name
-    # Inside the 255-byte file name limit, still unique per node.
-    digest = hashlib.sha256(node_id.encode()).hexdigest()[:16]
-    return f"{name[:NODE_FILE_NAME_KEPT]}-{digest}"
-
-
 def _start_input_log(request: pytest.FixtureRequest, window: Strata) -> None:
-    directory = os.environ.get(INPUT_LOG_VARIABLE)
-    if not directory:
-        return
-
     def origin() -> tuple[int, int]:
         bounds = window.window.screen_bounds()
         return bounds.x, bounds.y
 
-    window.keyboard.connection.start_input_log(
-        Path(directory) / f"{node_file_name(request.node.nodeid)}.log", origin
-    )
+    parity.start_input_log(window.keyboard.connection, request.node.nodeid, origin)
 
 
 def _dump_state(request: pytest.FixtureRequest, window: Strata) -> None:
-    directory = os.environ.get(STATE_DUMP_VARIABLE)
-    if not directory:
-        return
-    try:
-        state = _settled_snapshot(window)
-    except Exception as error:  # the window may already be gone after a failure
-        state = {"error": repr(error)}
-    path = Path(directory) / f"{node_file_name(request.node.nodeid)}.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"nodeid": request.node.nodeid, "app": state}, indent=2) + "\n")
+    def finished() -> bool:
+        process = window.application.process
+        return process is None or process.exited()
+
+    parity.dump_state(request.node.nodeid, window.state_snapshot, finished)
 
 
 @pytest.fixture
@@ -273,33 +238,6 @@ def unreserved_columns(strata: Strata) -> None:
     )
     strata.keyboard.press("Escape")
     strata.wait(lambda: strata.focused_pane(), "focus to return to the file listing")
-
-
-def _settled_snapshot(window: Strata) -> dict[str, object]:
-    """The snapshot once two reads in a row agree, as the `--qa` runner takes it.
-
-    A pane can vanish mid-read while the window is still changing, which only
-    means the state has not settled yet, as `tree.wait_until` treats it; once
-    the window or the process is gone, a failed read is final.
-    """
-
-    deadline = time.monotonic() + STATE_SETTLE_TIMEOUT
-    previous = None
-    while True:
-        try:
-            state = window.state_snapshot()
-        except AssertionError:
-            # `Application.root` found no window or no application to read.
-            raise
-        except Exception:
-            process = window.application.process
-            if time.monotonic() >= deadline or process is None or process.exited():
-                raise
-            state = None
-        if state is not None and (state == previous or time.monotonic() >= deadline):
-            return state
-        previous = state
-        time.sleep(STATE_SETTLE_INTERVAL)
 
 
 _REPORT_KEY = pytest.StashKey[bool]()

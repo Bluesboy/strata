@@ -14,6 +14,9 @@
 #[expect(dead_code, reason = "the runner only validates commands")]
 mod protocol;
 
+#[path = "qa/peers.rs"]
+mod peers;
+
 use std::{
     collections::BTreeMap,
     fmt::Write as _,
@@ -53,6 +56,7 @@ macro_rules! scenarios {
 // One test per scenario file, named after it with underscores; names are unique
 // across the folders.
 scenarios! {
+    abandoned_extract_to_no_hijack,
     action_editor_validates_saves_reopens,
     activation_without_application_empty_state,
     activation_without_default_opens_visible_app,
@@ -60,8 +64,11 @@ scenarios! {
     alt_up_and_history,
     appearance_menu_switches_view,
     appearance_menu_switches_view_list,
+    appearance_options_expose_chosen,
     archive_activation_extracts_subfolder,
     archive_conflict_keyboard_choices,
+    archive_password_retry_sandbox,
+    archive_rows_select_on_click,
     arrow_keys_move_focus,
     arrow_keys_move_focus_remaining,
     arrow_scope_toggles_live,
@@ -74,8 +81,13 @@ scenarios! {
     beside_last_column_clears,
     breadcrumb_returns_to_parent,
     browser_workers_reuse_processes,
+    builtin_and_pinned_keep_sections,
+    builtin_places_reorder_survive_restart,
     cached_icons_fill_dimensions_after_jump,
     camera_formats_preview_sandbox,
+    cancel_compression_allows_another,
+    chooser_pdf_zoom_keeps_text_size,
+    chooser_sidebar_drops_survive_resize,
     click_after_navigating_reanchors,
     click_away_rename_respects_navigation,
     click_mode_preference_live,
@@ -87,6 +99,7 @@ scenarios! {
     column_edge_scrolls_listing,
     column_header_titles_bounded,
     column_preview_fills_free_space,
+    columns_archive_preview_explicit_entry,
     columns_dismissed_preview_stays_closed,
     columns_home_end_mirror,
     columns_keyboard_opens_preview,
@@ -96,9 +109,13 @@ scenarios! {
     columns_preview_reopens_after_closing,
     columns_reclick_open_folder_renames,
     columns_return_selects_source_folder,
+    columns_reveal_in_child_column,
+    columns_reveal_in_deep_column,
+    columns_reveal_in_parent_column,
     columns_terminal_parent_pane_folder,
     committed_rename_stays_visible,
     compress_then_chooser_extracts,
+    compressed_archive_revealed,
     context_menu_copy_and_paste,
     context_menu_cut_and_paste,
     context_menu_keeps_column_target,
@@ -112,6 +129,7 @@ scenarios! {
     ctrl_drag_copies_keeps_selection,
     ctrl_drop_on_tab_copies,
     current_breadcrumb_opens_hierarchy,
+    custom_text_size_shortcuts_restart,
     customization_follows_move_and_trash,
     customization_follows_rename,
     customize_takes_focus_single_escape,
@@ -127,6 +145,7 @@ scenarios! {
     dismissed_overlays_return_focus,
     dismissing_conflict_preserves_both,
     dismissing_filter_keeps_hidden,
+    distant_archive_scrolled_into_view,
     double_click_leaves_folder_open_focused,
     drag_cancels_folder_peek,
     drag_completion_keeps_source_label,
@@ -140,8 +159,11 @@ scenarios! {
     drop_on_partially_visible_column,
     drop_on_tab_moves_files,
     empty_column_clears_other_columns,
+    empty_directory_focus_and_tab_order,
     empty_name_space_drag_starts_marquee,
+    enabled_tenxer_survives_restart,
     enter_after_escape_opens_folder,
+    enter_returns_multiple_selection,
     entry_menu_named_actions,
     escape_clears_selection_no_navigation,
     escape_dismisses_transient,
@@ -153,6 +175,7 @@ scenarios! {
     file_drag_does_not_open_preview,
     file_manager_reveals_requested_name,
     file_properties_describes_and_closes,
+    files_cannot_pin_through_gap,
     filled_preview_outlines_minimum,
     filter_rename_shortcuts_hidden_selection,
     filter_results_follow_external_changes,
@@ -171,9 +194,14 @@ scenarios! {
     filtered_thumbnail_stays_rendered,
     filtering_pane_narrows_listing,
     floating_chooser_transfers_files,
+    focus_order_reaches_files,
     focus_usable_after_view_change,
     folder_click_keeps_tab_name,
     folder_into_another_folder,
+    folder_named_like_archive_no_extract,
+    folder_pin_drag_survives_resize,
+    folder_pins_order_and_restart,
+    foreign_folder_drags_validate,
     global_search_activation_in_open_folder,
     global_search_activation_previews_file,
     global_search_arrows_keep_typing,
@@ -187,6 +215,7 @@ scenarios! {
     icons_rename_reuses_thumbnail_details,
     idle_workers_exit_and_restart,
     invalid_archive_name_keeps_dialog,
+    invalid_archive_reports_damage,
     invalid_names_retain_original,
     invalid_new_file_names_corrected,
     keep_both_applies_to_all_mixed_paste,
@@ -197,12 +226,14 @@ scenarios! {
     keyboard_only_copy_paste,
     keyboard_open_selects_first_child,
     keyboard_selection_in_single_click_mode,
+    language_selection_after_relaunch,
     leftover_click_honors_modifiers,
     list_column_resize_tracks_pointer,
     list_icons_fill_duration_cached,
     list_preview_keeps_horizontal_scroll,
     list_transfer_reveal_selects_copy,
     list_typed_file_path,
+    listing_names_descriptions_selection,
     local_filtered_result_opens_once,
     long_rename_keeps_caret,
     markdown_equations_keep_prose,
@@ -213,11 +244,13 @@ scenarios! {
     media_details_properties_only,
     media_keys_step_timeline_and_volume,
     merge_combines_folder_contents,
+    missing_directory_restored_and_retried,
     modal_dialog_blocks_window_shortcuts,
     model_preview_reports_limits,
     modifier_click_focuses_target,
     modifier_clicks_inert_space_select,
     multi_selection_drag_moves_every_entry,
+    multiple_arguments_non_utf8,
     named_location_controls,
     narrow_window_keeps_last_column,
     navigation_survives_insertion,
@@ -229,6 +262,7 @@ scenarios! {
     new_item_first_free_number,
     new_items_in_empty_directory,
     one_click_only_selects,
+    open_preview_keeps_focus_on_archives,
     open_with_always_use_updates_default,
     open_with_broken_link_disabled,
     open_with_cancel_keeps_default,
@@ -258,6 +292,12 @@ scenarios! {
     peek_click_reveals_column,
     permanent_delete_confirmation,
     permanent_delete_symlinked_parent,
+    permission_bits_expose_state,
+    pin_insertion_keeps_one_destination,
+    pinned_rows_transfer_and_remote_gaps,
+    png_conversion_consent_reuses_download,
+    png_conversion_errors_keep_chooser,
+    preferences_sync_windows_restart,
     preselected_entry_hover,
     preview_blank_click_keeps_selection,
     preview_boundary_resizes_grabbed_side,
@@ -317,6 +357,10 @@ scenarios! {
     select_all_selects_every_entry,
     selected_blank_space_starts_file_drag,
     selection_properties_aggregate_warnings,
+    settings_choice_buttons_expose_value,
+    settings_choice_options_expose_chosen,
+    settings_search_filters_and_clears,
+    settings_text_size_keeps_switches,
     shift_after_escape_starts_on_focused,
     shift_arrow_extends_selection,
     shift_click_range,
@@ -347,7 +391,9 @@ scenarios! {
     space_opens_and_closes_preview,
     space_previews_filtered_result,
     space_previews_filtered_result_pointer,
+    spring_loaded_rows_keep_pin_intent,
     spring_navigation_keeps_drag,
+    startup_with_closed_pipes,
     strip_edge_scrolls_columns_in,
     submenu_arrows_return_to_parent,
     switching_keeps_directory_and_sort,
@@ -371,6 +417,7 @@ scenarios! {
     tenxer_l_enters_preview,
     tenxer_numbered_action_confirms,
     tenxer_open_with_fill_launches_on_accept,
+    tenxer_password_archive_keys,
     tenxer_sidebar_header_round_trips,
     tenxer_sort_chords_keep_cursor,
     tenxer_space_toggles_cursor,
@@ -380,6 +427,7 @@ scenarios! {
     terminal_without_emulator_reports,
     thumbnail_workers_stepper_persists,
     tone_mark_escape_before_rename,
+    toolbar_controls_named,
     trashing_open_folder_opens_next,
     two_clicks_open,
     two_slow_clicks_do_not_open,
@@ -390,13 +438,16 @@ scenarios! {
     undo_created_folder_trashes,
     undo_restores_completed_move,
     unreadable_location_reports_error,
+    unsaved_changes_one_notice,
     valid_name_commits_remaining,
     video_preview_badges_next_video,
     visible_created_item_preserves_scroll,
     visible_rename_preserves_scroll,
     wildcard_filter_patterns,
     window_accelerators_leave_rename,
+    wrong_extract_password_reopens,
     zero_selects_tenth_tab,
+    zipcrypto_collision_reopens,
 }
 
 const REPOSITORY: &str = env!("CARGO_MANIFEST_DIR");
@@ -420,31 +471,51 @@ const DEFAULT_LAYOUT: &str = "us";
 const ALL_MODIFIERS: u16 = 0xff;
 /// The error `strata --qa` replies with before it exits on a harness bug.
 const CONTROLLER_PANIC: &str = "the QA controller panicked";
-const RUNNER_COMMANDS: [&str; 12] = [
+const RUNNER_COMMANDS: [&str; 23] = [
     "layout",
     "fs",
     "increment",
     "slice",
     "screenshot",
     "stem",
+    "parent",
     "flag",
     "restart",
     "dbus_send",
     "log",
     "proc",
     "each",
+    "launch",
+    "portal_open",
+    "portal_response",
+    "http",
+    "http_requests",
+    "foreign",
+    "foreign_label",
+    "foreign_stop",
+    "zipcrypto",
+    "fail",
 ];
+/// `services::remote_download::DOWNLOAD_PREFIX`: what a portal download's
+/// directory is named with, the only kind a `portal_response` may discard.
+const DOWNLOAD_PREFIX: &str = "strata-download-";
+/// `subprocess.run([strata, *arguments], check=True, timeout=30)`: another
+/// `strata` a twin starts, which hands its arguments to the running one.
+const LAUNCH_TIMEOUT_ARGUMENTS: Duration = Duration::from_secs(30);
 /// Runner steps that only keep or switch state, which no `known_bug_step`
 /// may name.
-const KEEPING_STEPS: [&str; 8] = [
+const KEEPING_STEPS: [&str; 11] = [
     "layout",
     "flag",
     "note",
     "slice",
     "increment",
     "stem",
+    "parent",
     "screenshot",
     "restart",
+    "http",
+    "foreign_stop",
 ];
 /// What a run-time note stands for while steps are checked before the launch.
 const NOTED_PLACEHOLDER: &str = "noted";
@@ -506,6 +577,9 @@ const RESULT_FILE: &str = "result.json";
 /// after its twin's node id, as the twin does, so typed paths and pane names
 /// are the same on both sides.
 const PARITY_FIXTURES: &str = "STRATA_PARITY_FIXTURES";
+/// Set to `1` by `./scripts/qa.sh` when the command line names scenarios, so a
+/// scenario the header's `skip` keeps out of the default run still runs.
+const NAMED: &str = "STRATA_QA_NAMED";
 /// How long the final state may keep changing before it is taken anyway.
 const STATE_SETTLE_TIMEOUT: Duration = Duration::from_secs(5);
 const STATE_SETTLE_INTERVAL: Duration = Duration::from_millis(250);
@@ -775,6 +849,15 @@ struct Header {
     /// application gets a bus address that cannot connect.
     #[serde(default)]
     session_bus: bool,
+    /// The run starts `strata --qa --portal`, the FileChooser portal
+    /// backend, instead of the browser, as `open_file_request` starts
+    /// `strata --portal`; its window comes with a `portal_open` request.
+    #[serde(default)]
+    portal: bool,
+    /// Why the scenario stays out of the default `./scripts/qa.sh` run and out
+    /// of parity, such as an app race that makes it pass or fail by chance;
+    /// it still runs when named on the command line (`STRATA_QA_NAMED=1`).
+    skip: Option<String>,
 }
 
 /// One run's pointer events whose position is not compared, each named by
@@ -848,7 +931,27 @@ enum Mtime {
 struct TarGz {
     mode: String,
     mtime: i64,
-    members: Vec<(String, String)>,
+    members: Vec<(String, TarText)>,
+    /// The byte at this index from the end flipped (`^= 0xFF`) after
+    /// compressing, as `damaged[-8] ^= 0xFF` breaks the gzip trailer's CRC.
+    flip_from_end: Option<usize>,
+}
+
+/// A member's text, or one text repeated, as `b"x" * 50_000`.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum TarText {
+    Text(String),
+    Repeat { repeat: String, count: usize },
+}
+
+impl TarText {
+    fn bytes(&self) -> Vec<u8> {
+        match self {
+            Self::Text(text) => text.as_bytes().to_vec(),
+            Self::Repeat { repeat, count } => repeat.repeat(*count).into_bytes(),
+        }
+    }
 }
 
 /// The first desktop file `[Default Applications]` lists in a
@@ -905,6 +1008,10 @@ struct Variant {
     /// such a case's fixture writes its own file's bytes.
     #[serde(default)]
     setup: Vec<Value>,
+    /// `fs` actions taken after the header's `teardown`, however the run
+    /// ends, as such a case's `finally:` restores its own directory.
+    #[serde(default)]
+    teardown: Vec<Value>,
 }
 
 fn default_layout() -> String {
@@ -1002,7 +1109,12 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
             ));
         }
     }
-    for (index, step) in header.teardown.iter().enumerate() {
+    for (index, step) in header
+        .teardown
+        .iter()
+        .chain(header.variants.iter().flat_map(|variant| &variant.teardown))
+        .enumerate()
+    {
         let parsed: FsStep = serde_json::from_value(step.clone())
             .map_err(|error| format!("teardown {}: invalid fs step: {error}", index + 1))?;
         if !parsed.fs.acts() || parsed.timeout_ms.is_some() || parsed.message.is_some() {
@@ -1013,7 +1125,21 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
         }
     }
     gtk_settings(&manifest().gtk_settings, &header.gtk_settings)?;
-    for (index, key) in header.state_parity_ignore.iter().enumerate() {
+    // `["*"]` leaves the whole state out, for a twin that ends its own
+    // application before its state can be read; `scripts/qa_parity.py` agrees.
+    let whole_state = header.state_parity_ignore == ["*"];
+    if whole_state && header.mutation.is_some() {
+        return Err(
+            "state_parity_ignore is for baseline parity; a scenario with a mutation keeps every check"
+                .to_owned(),
+        );
+    }
+    for (index, key) in header
+        .state_parity_ignore
+        .iter()
+        .enumerate()
+        .filter(|_| !whole_state)
+    {
         if !IGNORABLE_STATE.contains(&key.as_str())
             || header.state_parity_ignore[..index].contains(key)
         {
@@ -1022,7 +1148,7 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
             ));
         }
     }
-    if !header.state_parity_ignore.is_empty() {
+    if !header.state_parity_ignore.is_empty() && !whole_state {
         if header.mutation.is_some() {
             return Err(
                 "state_parity_ignore is for baseline parity; a scenario with a mutation keeps every check"
@@ -1044,6 +1170,16 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
         }
     }
     check_input_parity_ignore(&header)?;
+    if let Some(reason) = &header.skip
+        && (reason.trim().is_empty() || header.mutation.is_some() || header.known_bug.is_some())
+    {
+        return Err(
+            "skip gives a reason and is for a scenario without a mutation or known_bug".to_owned(),
+        );
+    }
+    if header.portal && !header.session_bus {
+        return Err("a portal run needs the header's session_bus".to_owned());
+    }
     if let Some(name) = header.env.keys().find(|name| {
         RUNNER_OWNED_ENVIRONMENT.contains(&name.as_str())
             || XDG_DIRECTORIES.iter().any(|(variable, _)| variable == name)
@@ -1079,9 +1215,23 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
                 view_name(mode).map_err(|error| format!("line {}: {error}", index + 1))?;
             }
         }
-        if object.contains_key("dbus_send") && !header.session_bus {
+        if ["dbus_send", "launch", "foreign"]
+            .iter()
+            .any(|command| object.contains_key(*command))
+            && !header.session_bus
+        {
             return Err(format!(
-                "line {}: dbus_send needs the header's session_bus",
+                "line {}: dbus_send, launch, and foreign need the header's session_bus",
+                index + 1
+            ));
+        }
+        if ["portal_open", "portal_response"]
+            .iter()
+            .any(|command| object.contains_key(*command))
+            && !header.portal
+        {
+            return Err(format!(
+                "line {}: portal_open and portal_response need the header's portal",
                 index + 1
             ));
         }
@@ -1157,7 +1307,10 @@ fn check_input_parity_ignore(header: &Header) -> Result<(), String> {
         }
         let mut seen = Vec::new();
         for ignored in &entry.events {
-            let named = ignored
+            let named = matches!(
+                ignored.event.as_str(),
+                "key down" | "key up" | "typed digits"
+            ) || ignored
                 .event
                 .strip_prefix("button ")
                 .and_then(|rest| rest.split_once(' '))
@@ -1167,7 +1320,7 @@ fn check_input_parity_ignore(header: &Header) -> Result<(), String> {
             if ignored.position == 0 || seen.contains(&ignored.position) || !named {
                 return Err(
                     "an input_parity_ignore event is {\"position\": N, \"event\": \"button 1 down\"} \
-                     with a distinct position from 1"
+                     (or \"key down\", or \"typed digits\") with a distinct position from 1"
                         .to_owned(),
                 );
             }
@@ -1244,12 +1397,12 @@ fn run_steps(
             None => checked,
         };
         for key in [STEP_IF, STEP_UNLESS] {
-            if let Some(flag) = checked.get(key).and_then(Value::as_str)
-                && !flags.iter().any(|kept| kept == flag)
-            {
-                return Err(format!(
-                    "line {line}: {key} names {flag:?}, which no earlier expect or flag keeps"
-                ));
+            for flag in flag_names(checked.get(key)) {
+                if !flags.iter().any(|kept| kept == flag) {
+                    return Err(format!(
+                        "line {line}: {key} names {flag:?}, which no earlier expect or flag keeps"
+                    ));
+                }
             }
         }
         let keeps_flag = checked.get("expect").is_some()
@@ -1324,15 +1477,27 @@ fn kept_note(step: &Value, notes: &[(String, Value)]) -> Result<Option<(String, 
         };
         return Ok(Some((name(), placeholder)));
     }
-    if let Some(source) = step.get("stem") {
-        let source = source.as_str().unwrap_or_default();
-        if !notes
-            .iter()
-            .any(|(note, value)| note == source && value.is_string())
-        {
-            return Err(format!("stem needs an earlier note of a name, {source:?}"));
-        }
+    if step.get("http").is_some() || step.get("zipcrypto").is_some() {
         return Ok(Some((name(), json!(NOTED_PLACEHOLDER))));
+    }
+    if let Some(kept) = step
+        .get("portal_response")
+        .and_then(|check| check.get("keep"))
+        .and_then(Value::as_str)
+    {
+        return Ok(Some((kept.to_owned(), json!(NOTED_PLACEHOLDER))));
+    }
+    for key in ["stem", "parent"] {
+        if let Some(source) = step.get(key) {
+            let source = source.as_str().unwrap_or_default();
+            if !notes
+                .iter()
+                .any(|(note, value)| note == source && value.is_string())
+            {
+                return Err(format!("{key} needs an earlier note of a name, {source:?}"));
+            }
+            return Ok(Some((name(), json!(NOTED_PLACEHOLDER))));
+        }
     }
     if let Some(source) = step.get("increment") {
         let source = source.as_str().unwrap_or_default();
@@ -1479,6 +1644,14 @@ fn increment(text: &str) -> Result<String, String> {
     Ok(format!("{prefix}{:0width$}", value + 1, width = digits))
 }
 
+/// `Path(name).parent`, as a twin removes `output.parent`.
+fn parent(text: &str) -> Result<String, String> {
+    Path::new(text)
+        .parent()
+        .map(|parent| parent.display().to_string())
+        .ok_or_else(|| format!("{text:?} has no parent"))
+}
+
 /// `Path(name).stem`: the name without its last extension.
 fn stem(text: &str) -> Result<String, String> {
     Path::new(text)
@@ -1488,7 +1661,7 @@ fn stem(text: &str) -> Result<String, String> {
 }
 
 fn check_step(step: &Value) -> Result<(), String> {
-    for key in ["increment", "stem"] {
+    for key in ["increment", "stem", "parent"] {
         if step.get(key).is_some() {
             let object = step.as_object().ok_or("a step must be an object")?;
             let valid = object.len() == 2
@@ -1506,12 +1679,51 @@ fn check_step(step: &Value) -> Result<(), String> {
     if step.get("holds").is_some() {
         return Err("holds is the runner's own check; a step uses when".to_owned());
     }
+    // An `if` or `unless` comes off first, whatever the step it guards.
+    for key in [STEP_IF, STEP_UNLESS] {
+        if let Some(flag) = step.get(key) {
+            let named = match flag {
+                Value::Array(flags) => {
+                    !flags.is_empty()
+                        && flags
+                            .iter()
+                            .all(|flag| flag.as_str().is_some_and(|flag| !flag.is_empty()))
+                }
+                flag => flag.as_str().is_some_and(|flag| !flag.is_empty()),
+            };
+            if !named {
+                return Err(format!(
+                    "{key} names what an earlier expect or flag kept, or a list of such names"
+                ));
+            }
+            if step.get("as").is_some()
+                && step
+                    .get("log")
+                    .is_some_and(|log| log.get("contains").is_some())
+            {
+                return Err(format!(
+                    "a log that keeps a flag always runs; it takes no {key}"
+                ));
+            }
+            let mut step = step.clone();
+            if let Some(object) = step.as_object_mut() {
+                object.remove(key);
+            }
+            return check_step(&step);
+        }
+    }
     if let Some(condition) = step.get("flag") {
-        let valid = step.as_object().is_some_and(|object| object.len() == 2)
-            && step["as"].as_str().is_some_and(|name| !name.is_empty());
+        let valid = step.as_object().is_some_and(|object| {
+            object
+                .keys()
+                .all(|key| matches!(key.as_str(), "flag" | "as" | "timeout_ms"))
+        }) && step["as"].as_str().is_some_and(|name| !name.is_empty())
+            && step.get("timeout_ms").is_none_or(Value::is_u64);
         if !valid {
             return Err(
-                "flag takes a predicate and the name to keep whether it held as".to_owned(),
+                "flag takes a predicate, the name to keep whether it held as, and an optional \
+                 timeout_ms to wait for it"
+                    .to_owned(),
             );
         }
         return protocol::parse_command(&json!({ "holds": condition }).to_string())
@@ -1552,33 +1764,14 @@ fn check_step(step: &Value) -> Result<(), String> {
         };
     }
     // A flag that is never set would leave both an `if` and an `unless` step
-    // out, so the expect that keeps it must always run.
+    // out, so the expect that keeps it must run or, when an `if` or `unless`
+    // leaves it out, keep false.
     let keeps_flag = step.get("expect").is_some()
         || step
             .get("log")
             .is_some_and(|log| log.get("contains").is_some());
-    if keeps_flag
-        && step.get("as").is_some()
-        && [STEP_WHEN, STEP_IF, STEP_UNLESS]
-            .iter()
-            .any(|key| step.get(*key).is_some())
-    {
-        return Err(
-            "an expect or log that keeps a flag in as may not have a when, if, or unless"
-                .to_owned(),
-        );
-    }
-    for key in [STEP_IF, STEP_UNLESS] {
-        if let Some(flag) = step.get(key) {
-            if !flag.as_str().is_some_and(|flag| !flag.is_empty()) {
-                return Err(format!("{key} names what an earlier expect kept"));
-            }
-            let mut step = step.clone();
-            if let Some(object) = step.as_object_mut() {
-                object.remove(key);
-            }
-            return check_step(&step);
-        }
+    if keeps_flag && step.get("as").is_some() && step.get(STEP_WHEN).is_some() {
+        return Err("an expect or log that keeps a flag in as may not have a when".to_owned());
     }
     if step.get("expect").is_some()
         && step
@@ -1632,11 +1825,109 @@ fn check_step(step: &Value) -> Result<(), String> {
         }
         return check_step(&inner);
     }
-    if step.get("restart").is_some() {
-        return if *step == json!({ "restart": true }) {
+    if let Some(restart) = step.get("restart") {
+        if step.as_object().is_some_and(|object| object.len() != 1) {
+            return Err("restart takes nothing else".to_owned());
+        }
+        if *restart == json!(true) {
+            return Ok(());
+        }
+        let relaunch: Relaunch = serde_json::from_value(restart.clone())
+            .map_err(|error| format!("invalid restart: {error}"))?;
+        return relaunch.check();
+    }
+    if step.get("launch").is_some() {
+        let parsed: LaunchStep = serde_json::from_value(step.clone())
+            .map_err(|error| format!("invalid launch step: {error}"))?;
+        return if parsed.launch.is_empty() {
+            Err("launch needs the arguments strata gets".to_owned())
+        } else {
+            parsed
+                .launch
+                .iter()
+                .filter(|_| parsed.percent_path)
+                .try_for_each(|argument| percent_decoded(argument).map(|_| ()))
+        };
+    }
+    if step.get("portal_open").is_some() {
+        let parsed: PortalOpenStep = serde_json::from_value(step.clone())
+            .map_err(|error| format!("invalid portal_open step: {error}"))?;
+        return if parsed.portal_open.is_empty() {
+            Err("portal_open needs the request's title".to_owned())
+        } else {
+            Ok(())
+        };
+    }
+    if step.get("portal_response").is_some() {
+        let parsed: PortalResponseStep = serde_json::from_value(step.clone())
+            .map_err(|error| format!("invalid portal_response step: {error}"))?;
+        let check = &parsed.portal_response;
+        let answers = check.status.is_some()
+            || check.names.is_some()
+            || check.paths.is_some()
+            || check.keep.is_some()
+            || check.png.is_some()
+            || check.discard;
+        return if !check.done && (answers || parsed.timeout_ms.is_some()) {
+            Err(
+                "a portal_response that is not done checks nothing else and does not wait"
+                    .to_owned(),
+            )
+        } else {
+            Ok(())
+        };
+    }
+    if step.get("http").is_some() {
+        let parsed: HttpStep = serde_json::from_value(step.clone())
+            .map_err(|error| format!("invalid http step: {error}"))?;
+        return if parsed.name.is_empty() {
+            Err("http keeps the URL under a name in as".to_owned())
+        } else {
+            Ok(())
+        };
+    }
+    if step.get("http_requests").is_some() {
+        return serde_json::from_value::<HttpRequestsStep>(step.clone())
+            .map(|_| ())
+            .map_err(|error| format!("invalid http_requests step: {error}"));
+    }
+    if step.get("foreign").is_some() {
+        let parsed: ForeignStep = serde_json::from_value(step.clone())
+            .map_err(|error| format!("invalid foreign step: {error}"))?;
+        return if parsed.name.is_empty() || parsed.foreign.paths.is_empty() {
+            Err("foreign needs paths and a name in as for its button's box".to_owned())
+        } else {
+            Ok(())
+        };
+    }
+    if step.get("foreign_label").is_some() {
+        return serde_json::from_value::<ForeignLabelStep>(step.clone())
+            .map(|_| ())
+            .map_err(|error| format!("invalid foreign_label step: {error}"));
+    }
+    if step.get("foreign_stop").is_some() {
+        return if *step == json!({ "foreign_stop": true }) {
             Ok(())
         } else {
-            Err("restart is {\"restart\": true} and takes nothing else".to_owned())
+            Err("foreign_stop is {\"foreign_stop\": true}".to_owned())
+        };
+    }
+    if step.get("zipcrypto").is_some() {
+        let parsed: ZipCryptoStep = serde_json::from_value(step.clone())
+            .map_err(|error| format!("invalid zipcrypto step: {error}"))?;
+        return if parsed.name.is_empty() {
+            Err("zipcrypto keeps the colliding password under a name in as".to_owned())
+        } else {
+            Ok(())
+        };
+    }
+    if let Some(message) = step.get("fail") {
+        return if step.as_object().is_some_and(|object| object.len() == 1)
+            && message.as_str().is_some_and(|message| !message.is_empty())
+        {
+            Ok(())
+        } else {
+            Err("fail takes the twin's assertion message and nothing else".to_owned())
         };
     }
     if let Some(arguments) = step.get("dbus_send") {
@@ -1671,6 +1962,185 @@ fn check_step(step: &Value) -> Result<(), String> {
         return step.fs.kind().map(|_| ());
     }
     protocol::parse_command(&step.to_string()).map(|_| ())
+}
+
+/// The names an `if` or `unless` gives: one, or a list.
+fn flag_names(value: Option<&Value>) -> Vec<&str> {
+    match value {
+        Some(Value::Array(flags)) => flags.iter().filter_map(Value::as_str).collect(),
+        Some(flag) => flag.as_str().into_iter().collect(),
+        None => Vec::new(),
+    }
+}
+
+/// `{"launch":["$fixture/a"]}`: another `strata` with these arguments, which
+/// hands them to the running one and exits; `percent_path` decodes `%XX`
+/// escapes into raw bytes, for arguments that are not UTF-8.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LaunchStep {
+    launch: Vec<String>,
+    #[serde(default)]
+    percent_path: bool,
+}
+
+/// A `restart` that starts the application otherwise, as a twin stops it
+/// and starts `strata <directory>` itself: in this directory, with these
+/// variables added, and with standard output and error left `closed` or
+/// `null` (`STRATA_QA_STREAMS`), as `subprocess.Popen` with a pipe it
+/// closes, or `DEVNULL`.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Relaunch {
+    directory: Option<String>,
+    #[serde(default)]
+    env: BTreeMap<String, String>,
+    stdout: Option<String>,
+    stderr: Option<String>,
+}
+
+impl Relaunch {
+    fn check(&self) -> Result<(), String> {
+        if self.stdout.is_some() != self.stderr.is_some() {
+            return Err("a restart gives both stdout and stderr, or neither".to_owned());
+        }
+        for stream in self.stdout.iter().chain(&self.stderr) {
+            if !matches!(stream.as_str(), "closed" | "null") {
+                return Err(format!("a stream is closed or null, not {stream:?}"));
+            }
+        }
+        if let Some(name) = self.env.keys().find(|name| {
+            RUNNER_OWNED_ENVIRONMENT.contains(&name.as_str())
+                || XDG_DIRECTORIES.iter().any(|(variable, _)| variable == name)
+                || QA_ENVIRONMENT.iter().any(|(variable, _)| variable == name)
+        }) {
+            return Err(format!(
+                "a restart may not set {name}, which the runner owns"
+            ));
+        }
+        Ok(())
+    }
+
+    fn streams(&self) -> Option<String> {
+        Some(format!(
+            "stdout={},stderr={}",
+            self.stdout.as_deref()?,
+            self.stderr.as_deref()?
+        ))
+    }
+}
+
+/// `open_file_request(..., title=..., options=...)`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PortalOpenStep {
+    portal_open: String,
+    #[serde(default)]
+    options: peers::OpenOptions,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PortalResponseStep {
+    portal_response: PortalCheck,
+    timeout_ms: Option<u64>,
+    message: Option<String>,
+}
+
+/// `assert not response.done()`, or `tree.wait_until(response.done, ...)`
+/// and then the answer: its status, the chosen files' names as a set or
+/// their paths in order, and the first path kept as a note.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PortalCheck {
+    done: bool,
+    status: Option<u32>,
+    names: Option<Vec<String>>,
+    paths: Option<Vec<String>>,
+    keep: Option<String>,
+    /// The first chosen file is such a PNG, as `Image.open(output)` is checked.
+    png: Option<PngCheck>,
+    /// Then its download directory is removed however the check went, as
+    /// the twin's `finally: shutil.rmtree(output.parent)`.
+    #[serde(default)]
+    discard: bool,
+}
+
+/// `image_server(body)`, the body in base64, its URL kept as a note.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HttpStep {
+    http: String,
+    #[serde(rename = "as")]
+    name: String,
+}
+
+/// `assert len(requests) == count, message`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HttpRequestsStep {
+    http_requests: usize,
+    message: Option<String>,
+}
+
+/// Starts the foreign drag source on these paths and waits for its button,
+/// as `strata.wait(lambda: tree.desktop().find(role="button", name="Foreign
+/// file selection"), message)`, keeping its box in the process under `as`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ForeignStep {
+    foreign: ForeignPaths,
+    #[serde(rename = "as")]
+    name: String,
+    timeout_ms: Option<u64>,
+    message: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ForeignPaths {
+    paths: Vec<String>,
+    #[serde(default)]
+    move_only: bool,
+}
+
+/// Waits for the foreign drag source's button to show this label.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ForeignLabelStep {
+    foreign_label: String,
+    timeout_ms: Option<u64>,
+    message: Option<String>,
+}
+
+/// `_write_zipcrypto(path, password, member, contents, deflated=...)` and
+/// `_zipcrypto_crc_collision(path)`, the colliding password kept under `as`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ZipCryptoStep {
+    zipcrypto: ZipCryptoArchive,
+    #[serde(rename = "as")]
+    name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ZipCryptoArchive {
+    path: String,
+    password: String,
+    member: String,
+    contents: TarText,
+    #[serde(default)]
+    deflated: bool,
+}
+
+/// What a run started besides the application, ended once its final state
+/// is read, as a twin's `finally:` blocks and context managers end them.
+#[derive(Default)]
+struct Peers {
+    portal: Option<peers::PortalRequest>,
+    server: Option<peers::ImageServer>,
+    foreign: Option<peers::ForeignSource>,
 }
 
 struct Run {
@@ -2173,11 +2643,13 @@ struct Launch<'a> {
     /// The header's `env`, with `$variables` replaced.
     extra: Vec<(String, String)>,
     bus: Option<&'a str>,
+    /// `strata --qa --portal` in place of the browser on the fixture.
+    portal: bool,
 }
 
 impl Launch<'_> {
     fn start(&self) -> Result<Application, String> {
-        Application::start(self)
+        Application::start(self, &Relaunch::default())
     }
 
     /// The environment a twin's helper process gets: `process_environment()`,
@@ -2220,7 +2692,7 @@ struct Application {
 }
 
 impl Application {
-    fn start(launch: &Launch) -> Result<Self, String> {
+    fn start(launch: &Launch, relaunch: &Relaunch) -> Result<Self, String> {
         let log = launch.log.clone();
         // A fresh log per launch, as `ManagedProcess.spawn` opens it "wb".
         let output = File::create(&log).map_err(|error| error.to_string())?;
@@ -2228,9 +2700,13 @@ impl Application {
         // Its own group, as `ManagedProcess.spawn` starts a session, so a
         // restart can signal the application and whatever it started.
         std::os::unix::process::CommandExt::process_group(&mut command, 0);
+        command.arg("--qa");
+        match (&relaunch.directory, launch.portal) {
+            (Some(directory), _) => command.arg(directory),
+            (None, true) => command.arg("--portal"),
+            (None, false) => command.arg(launch.fixture),
+        };
         command
-            .arg("--qa")
-            .arg(launch.fixture)
             .current_dir(launch.fixture)
             .env_clear()
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
@@ -2258,6 +2734,10 @@ impl Application {
             command.env(variable, launch.home.join(directory));
         }
         command.envs(launch.extra.iter().map(|(key, value)| (key, value)));
+        command.envs(&relaunch.env);
+        if let Some(streams) = relaunch.streams() {
+            command.env("STRATA_QA_STREAMS", streams);
+        }
         let mut child =
             spawn(&mut command).map_err(|error| format!("cannot start {BINARY}: {error}"))?;
         let stdout = child.stdout.take().ok_or("no stdout")?;
@@ -2502,6 +2982,42 @@ struct FsCheck {
     /// UTF-8, as a twin opens `documents + b"/bad\xe8name.txt"`.
     #[serde(default)]
     percent_path: bool,
+    /// `path.write_bytes(os.urandom(size))`: this many random bytes in one write.
+    random: Option<u64>,
+    /// `path.stat().st_size == size`.
+    size: Option<u64>,
+    /// No name in the directory matches this pattern, `*` standing for any
+    /// run of characters, as `not list(path.glob(".strata-compression-*"))`.
+    glob_none: Option<String>,
+    /// `path.read_text().splitlines()` equals these, a missing file having
+    /// none, as `test_sidebar_pinning.bookmarks` reads them.
+    lines_equal: Option<Vec<String>>,
+    /// The list at each dotted key of the parsed TOML starts with these,
+    /// as `tomllib.loads(...)["sidebar_order"][:2] == [...]`.
+    toml_prefix: Option<Map<String, Value>>,
+    /// With `toml_like`: only these keys are compared, as a twin compares
+    /// `preferences.get(key) == original.get(key)` for a few.
+    #[serde(default)]
+    toml_keys: Vec<String>,
+    /// A PNG of this size whose pixel lies within bounds, as a twin opens
+    /// `Image.open(output)` and checks its format, size, and colour.
+    png: Option<PngCheck>,
+    /// The zip's member holds the bytes of the named fixture file, as
+    /// `archive.read("todo.txt") == fixture.path("todo.txt").read_bytes()`.
+    zip_member: Option<(String, String)>,
+    /// The last of `path.read_text().splitlines()`, as `bookmarks(strata)[-1]`.
+    last_line: Option<String>,
+}
+
+/// `png.format == "PNG"`, `png.size == size`, and each channel of the RGB
+/// pixel at `at` between `min` and `max`, as `red > 240 and green < 10`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PngCheck {
+    size: [u32; 2],
+    at: [u32; 2],
+    min: [u8; 3],
+    max: [u8; 3],
 }
 
 #[derive(Deserialize)]
@@ -2605,6 +3121,14 @@ enum FsKind<'a> {
     ReplaceLines(&'a ReplaceLines),
     PdfImage(&'a Image),
     Magick(&'a [String]),
+    Random(u64),
+    Size(u64),
+    GlobNone(&'a str),
+    LinesEqual(&'a [String]),
+    TomlPrefix(&'a Map<String, Value>),
+    Png(&'a PngCheck),
+    ZipMember(&'a str, &'a str),
+    LastLine(&'a str),
 }
 
 /// What fs steps keep while a run goes: `fixture.listing()` taken by
@@ -2886,6 +3410,39 @@ impl FsCheck {
         if let Some(arguments) = &self.magick {
             kinds.push(FsKind::Magick(arguments));
         }
+        if let Some(size) = self.random {
+            kinds.push(FsKind::Random(size));
+        }
+        if let Some(size) = self.size {
+            kinds.push(FsKind::Size(size));
+        }
+        if let Some(pattern) = &self.glob_none {
+            if pattern.contains('/') {
+                return Err("glob_none matches names in the directory, not paths".to_owned());
+            }
+            kinds.push(FsKind::GlobNone(pattern));
+        }
+        if let Some(lines) = &self.lines_equal {
+            kinds.push(FsKind::LinesEqual(lines));
+        }
+        if let Some(values) = &self.toml_prefix {
+            if values.values().any(|value| !value.is_array()) {
+                return Err("toml_prefix gives each key a list".to_owned());
+            }
+            kinds.push(FsKind::TomlPrefix(values));
+        }
+        if let Some(check) = &self.png {
+            kinds.push(FsKind::Png(check));
+        }
+        if let Some((member, file)) = &self.zip_member {
+            kinds.push(FsKind::ZipMember(member, file));
+        }
+        if let Some(line) = &self.last_line {
+            kinds.push(FsKind::LastLine(line));
+        }
+        if !self.toml_keys.is_empty() && self.toml_like.is_none() {
+            return Err("toml_keys belongs to toml_like".to_owned());
+        }
         if self.cached_in.is_some()
             && !matches!(
                 kinds.as_slice(),
@@ -2911,7 +3468,9 @@ impl FsCheck {
                  remove_volume, symlink, program, remove, rename, all_cached_in, thumbnail, \
                  pixel, keep_mtime, mtime_of, executable, mtime, hex, base64, append, \
                  raw_photo, tar_gz, zip_members, tar_members, is_zip, default_app, opened, \
-                 toml, toml_like, json, json_set, launches, replace_lines, pdf_image, or magick"
+                 toml, toml_like, json, json_set, launches, replace_lines, pdf_image, magick, \
+                 random, size, glob_none, lines_equal, toml_prefix, png, zip_member, or \
+                 last_line"
                     .to_owned(),
             ),
         }
@@ -2947,7 +3506,8 @@ impl FsCheck {
                 | FsKind::TarGz(_)
                 | FsKind::ReplaceLines(_)
                 | FsKind::PdfImage(_)
-                | FsKind::Magick(_))
+                | FsKind::Magick(_)
+                | FsKind::Random(_))
         )
     }
 
@@ -2990,6 +3550,9 @@ impl FsCheck {
                 | FsKind::JsonSet(_)
                 | FsKind::Launches(_)
                 | FsKind::ReplaceLines(_)
+                | FsKind::Random(_)
+                | FsKind::TomlPrefix(_)
+                | FsKind::Png(_)
         ) || (self.percent_path && self.acts());
         if guarded {
             contained(&path, &roots)?;
@@ -3194,6 +3757,15 @@ impl FsCheck {
                     .then_some(())
                     .ok_or(format!("can_trash is {actual}"))
             }
+            // A name that is not UTF-8 has no range to expand.
+            FsKind::Mkdir { parents } if self.percent_path => {
+                let made = if parents {
+                    fs::create_dir_all(&path)
+                } else {
+                    fs::create_dir(&path)
+                };
+                made.map_err(|error| error.to_string())
+            }
             FsKind::Mkdir { parents } => {
                 let parent = path.parent().unwrap_or(root);
                 let name = path
@@ -3341,6 +3913,7 @@ impl FsCheck {
                     flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
                 let mut builder = tar::Builder::new(encoder);
                 for (name, text) in &archive.members {
+                    let text = text.bytes();
                     let mut header = tar::Header::new_ustar();
                     header.set_size(text.len() as u64);
                     header.set_mode(mode);
@@ -3349,13 +3922,20 @@ impl FsCheck {
                     header.set_gid(0);
                     header.set_entry_type(tar::EntryType::Regular);
                     builder
-                        .append_data(&mut header, name, text.as_bytes())
+                        .append_data(&mut header, name, text.as_slice())
                         .map_err(|error| format!("{name}: {error}"))?;
                 }
-                let bytes = builder
+                let mut bytes = builder
                     .into_inner()
                     .and_then(flate2::write::GzEncoder::finish)
                     .map_err(|error| error.to_string())?;
+                if let Some(back) = archive.flip_from_end {
+                    let index = bytes
+                        .len()
+                        .checked_sub(back)
+                        .ok_or("flip_from_end lies before the archive")?;
+                    bytes[index] ^= 0xFF;
+                }
                 fs::write(&path, bytes).map_err(|error| error.to_string())
             }
             FsKind::ZipMembers(members) => {
@@ -3467,10 +4047,97 @@ impl FsCheck {
                 let kept = parsed_toml(&String::from_utf8_lossy(kept))?;
                 let now =
                     parsed_toml(&fs::read_to_string(&path).map_err(|error| error.to_string())?)?;
-                (now == kept)
-                    .then_some(())
-                    .ok_or(format!("the TOML is now {now}"))
+                let same = if self.toml_keys.is_empty() {
+                    now == kept
+                } else {
+                    self.toml_keys
+                        .iter()
+                        .all(|key| now.get(key) == kept.get(key))
+                };
+                same.then_some(()).ok_or(format!("the TOML is now {now}"))
             }
+            FsKind::TomlPrefix(values) => {
+                let parsed =
+                    parsed_toml(&fs::read_to_string(&path).map_err(|error| error.to_string())?)?;
+                let wrong: Vec<String> = values
+                    .iter()
+                    .filter(|(key, value)| {
+                        let wanted = value.as_array().map(Vec::as_slice).unwrap_or_default();
+                        !key.split('.')
+                            .try_fold(&parsed, |node, part| node.get(part))
+                            .and_then(Value::as_array)
+                            .is_some_and(|found| found.starts_with(wanted))
+                    })
+                    .map(|(key, _)| key.clone())
+                    .collect();
+                wrong
+                    .is_empty()
+                    .then_some(())
+                    .ok_or(format!("{wrong:?} differ in {parsed}"))
+            }
+            FsKind::Random(size) => {
+                let mut bytes = vec![0; usize::try_from(size).map_err(|error| error.to_string())?];
+                File::open("/dev/urandom")
+                    .and_then(|mut random| std::io::Read::read_exact(&mut random, &mut bytes))
+                    .map_err(|error| error.to_string())?;
+                fs::write(&path, bytes).map_err(|error| error.to_string())
+            }
+            FsKind::Size(size) => {
+                let actual = fs::metadata(&path)
+                    .map(|metadata| metadata.len())
+                    .map_err(|error| error.to_string())?;
+                (actual == size)
+                    .then_some(())
+                    .ok_or(format!("the size is {actual}"))
+            }
+            FsKind::GlobNone(pattern) => {
+                let names = sorted_names(&path)?;
+                let found: Vec<&String> = names
+                    .iter()
+                    .filter(|name| glob_matches(pattern, name))
+                    .collect();
+                found
+                    .is_empty()
+                    .then_some(())
+                    .ok_or(format!("names {found:?} match {pattern:?}"))
+            }
+            FsKind::LastLine(expected) => {
+                let text = fs::read_to_string(&path).map_err(|error| error.to_string())?;
+                let last = text.lines().last();
+                (last == Some(expected))
+                    .then_some(())
+                    .ok_or(format!("the last line is {last:?}"))
+            }
+            FsKind::LinesEqual(expected) => {
+                let lines: Vec<String> = match fs::read_to_string(&path) {
+                    Ok(text) => text.lines().map(str::to_owned).collect(),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+                    Err(error) => {
+                        let error = format!("cannot read the lines: {error}");
+                        state.fatal = Some(error.clone());
+                        return Err(error);
+                    }
+                };
+                (lines == expected)
+                    .then_some(())
+                    .ok_or(format!("the lines are {lines:?}"))
+            }
+            FsKind::ZipMember(member, file) => {
+                let archive = File::open(&path).map_err(|error| error.to_string())?;
+                let mut archive =
+                    zip::ZipArchive::new(archive).map_err(|error| error.to_string())?;
+                let mut bytes = Vec::new();
+                std::io::Read::read_to_end(
+                    &mut archive.by_name(member).map_err(|error| error.to_string())?,
+                    &mut bytes,
+                )
+                .map_err(|error| error.to_string())?;
+                let expected = fs::read(other(file)).map_err(|error| error.to_string())?;
+                (bytes == expected)
+                    .then_some(())
+                    .ok_or(format!("{member} holds other bytes than {file}"))
+            }
+            FsKind::Png(check) => check_png(&path, check),
             FsKind::Json(values) | FsKind::JsonSet(values) => {
                 let as_set = matches!(self.kind()?, FsKind::JsonSet(_));
                 let text = fs::read_to_string(&path).map_err(|error| error.to_string())?;
@@ -3661,6 +4328,53 @@ impl FsCheck {
             }
         }
     }
+}
+
+/// `output.suffix == ".png"`, then `Image.open(output)`: its format, its
+/// size, and each channel of one pixel within bounds.
+fn check_png(path: &Path, check: &PngCheck) -> Result<(), String> {
+    if path.extension().is_none_or(|extension| extension != "png") {
+        return Err(format!("{} has no .png suffix", path.display()));
+    }
+    let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    if image::guess_format(&bytes).ok() != Some(image::ImageFormat::Png) {
+        return Err("the file is no PNG".to_owned());
+    }
+    let decoded = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)
+        .map_err(|error| error.to_string())?
+        .to_rgb8();
+    if decoded.dimensions() != (check.size[0], check.size[1]) {
+        return Err(format!("the size is {:?}", decoded.dimensions()));
+    }
+    let pixel = decoded
+        .get_pixel_checked(check.at[0], check.at[1])
+        .ok_or("the pixel lies outside the image")?
+        .0;
+    (0..3)
+        .all(|channel| (check.min[channel]..=check.max[channel]).contains(&pixel[channel]))
+        .then_some(())
+        .ok_or(format!("the pixel is {pixel:?}"))
+}
+
+/// `fnmatch` for a pattern whose only wildcard is `*`, as `Path.glob`
+/// matches a name in one directory.
+fn glob_matches(pattern: &str, name: &str) -> bool {
+    let mut parts = pattern.split('*');
+    let first = parts.next().unwrap_or_default();
+    let Some(mut rest) = name.strip_prefix(first) else {
+        return false;
+    };
+    let middle: Vec<&str> = parts.collect();
+    let Some((last, between)) = middle.split_last() else {
+        return rest.is_empty();
+    };
+    for part in between {
+        match rest.find(part) {
+            Some(at) => rest = &rest[at + part.len()..],
+            None => return false,
+        }
+    }
+    rest.len() >= last.len() && rest.ends_with(last)
 }
 
 /// A solid-colour PNG's bytes, as `Image.new("RGB", size, colour).save(...)`.
@@ -4151,6 +4865,20 @@ fn run_scenario(name: &str) {
             panic!("{}/{}: {error}", scenario.header.scenario, run.label);
         }
     }
+    if let Some(reason) = &scenario.header.skip
+        && std::env::var_os(NAMED).is_none_or(|named| named != "1")
+    {
+        // Printed past libtest's capture, as RUN lines are, so it never goes unseen.
+        let mut skipped = std::io::stdout().lock();
+        let _ = writeln!(skipped);
+        let _ = writeln!(
+            skipped,
+            "SKIPPED {} (run it by name): {reason}",
+            scenario.header.scenario
+        );
+        let _ = skipped.flush();
+        return;
+    }
     // Written past libtest's output capture, so the plan shows even when a run
     // never reports; `scripts/qa_parity.py` requires a result line for each.
     {
@@ -4278,6 +5006,7 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
             .header
             .teardown
             .iter()
+            .chain(&run.variant.teardown)
             .filter_map(|step| {
                 let step = unescape(&substitute(step, &variables(run, &places)));
                 wait_for_fs(&step, fixture.path(), fixture_time(manifest), fs_state)
@@ -4340,6 +5069,7 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
             })
             .collect(),
         bus: bus.as_ref().map(|bus| bus.address.as_str()),
+        portal: scenario.header.portal,
     };
     let mut application = match launch.start() {
         Ok(application) => application,
@@ -4347,8 +5077,10 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
     };
 
     let mut layout = DEFAULT_LAYOUT.to_owned();
+    let mut peers = Peers::default();
     let mut outcome = drive(
         &mut application,
+        &mut peers,
         &Context {
             steps: &steps,
             initial_layout: run
@@ -4381,6 +5113,11 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
         if application.responsive {
             final_state = settled_state(&mut application);
         }
+    }
+    // A pending portal request is closed, the image server stopped, and a
+    // foreign drag source ended only once the final state is read.
+    drop(peers);
+    if collect {
         if outcome.last_tree.is_none()
             && application.responsive
             && let Ok(reply) = application.send(&json!({ "query": "tree" }), COMMAND_TIMEOUT)
@@ -4713,6 +5450,7 @@ struct Context<'a> {
 
 fn drive(
     application: &mut Application,
+    peers: &mut Peers,
     context: &Context,
     layout: &mut String,
     fs_state: &mut FsState,
@@ -4748,13 +5486,22 @@ fn drive(
         let step = &unescape(&substitute_notes(step, &notes));
         let label = format!("line {line} {step}");
         let mut object = step.as_object().cloned().unwrap_or_default();
-        let held = |key: &str, object: &mut Map<String, Value>| {
-            object
-                .remove(key)
-                .and_then(|flag| flag.as_str().and_then(|flag| flags.get(flag).copied()))
+        // An `if` runs the step unless one of its flags did not hold, an
+        // `unless` unless one did; an expect or flag it leaves out keeps false.
+        let condition = |key: &str, object: &mut Map<String, Value>, held: bool| {
+            let names = object.remove(key);
+            flag_names(names.as_ref())
+                .into_iter()
+                .any(|flag| flags.get(flag).copied() == Some(held))
         };
-        if held(STEP_IF, &mut object) == Some(false) || held(STEP_UNLESS, &mut object) == Some(true)
-        {
+        if condition(STEP_IF, &mut object, false) | condition(STEP_UNLESS, &mut object, true) {
+            if let Some(name) = object
+                .get("expect")
+                .or_else(|| object.get("flag"))
+                .and(object.get("as"))
+            {
+                flags.insert(name.as_str().unwrap_or_default().to_owned(), false);
+            }
             continue;
         }
         if let Some(condition) = object.remove(STEP_WHEN) {
@@ -4789,21 +5536,35 @@ fn drive(
             continue;
         }
         if let Some(condition) = object.get("flag") {
+            // With a timeout it polls, as a twin's `try: strata.wait(..., timeout=5)
+            // except TreeTimeout: pass`, and never fails.
             let probe = json!({ "holds": condition });
-            match application.send(&probe, COMMAND_TIMEOUT) {
-                Ok(reply) => {
-                    let holds = reply["result"] == json!(true);
-                    if let Err(error) = record(&mut outcome, Some(*line), &label, &probe, reply) {
-                        file_failure(&mut outcome, *line, &label, &error);
+            let deadline = Instant::now()
+                + object
+                    .get("timeout_ms")
+                    .and_then(Value::as_u64)
+                    .map_or(Duration::ZERO, Duration::from_millis);
+            let holds = loop {
+                match application.send(&probe, COMMAND_TIMEOUT) {
+                    Ok(reply) => {
+                        let holds = reply["result"] == json!(true);
+                        if let Err(error) = record(&mut outcome, Some(*line), &label, &probe, reply)
+                        {
+                            file_failure(&mut outcome, *line, &label, &error);
+                            return outcome;
+                        }
+                        if holds || Instant::now() >= deadline {
+                            break holds;
+                        }
+                        std::thread::sleep(POLL_INTERVAL);
+                    }
+                    Err(error) => {
+                        outcome.errors.push(format!("{label}: {error}"));
                         return outcome;
                     }
-                    flags.insert(object["as"].as_str().unwrap_or_default().to_owned(), holds);
                 }
-                Err(error) => {
-                    outcome.errors.push(format!("{label}: {error}"));
-                    return outcome;
-                }
-            }
+            };
+            flags.insert(object["as"].as_str().unwrap_or_default().to_owned(), holds);
             continue;
         }
         if let Some(name) = object.get("screenshot") {
@@ -4862,15 +5623,28 @@ fn drive(
             }
             continue;
         }
-        if object.contains_key("restart") {
+        if let Some(restart) = object.get("restart") {
             if *layout != DEFAULT_LAYOUT {
                 outcome.errors.push(format!(
                     "{label}: a restart reads the keymap again, so it needs the US layout"
                 ));
                 return outcome;
             }
+            let relaunch: Relaunch = if *restart == json!(true) {
+                Relaunch::default()
+            } else {
+                match serde_json::from_value(restart.clone()) {
+                    Ok(relaunch) => relaunch,
+                    Err(error) => {
+                        outcome
+                            .errors
+                            .push(format!("{label}: invalid restart: {error}"));
+                        return outcome;
+                    }
+                }
+            };
             application.terminate_group();
-            let started = context.launch.start().and_then(|started| {
+            let started = Application::start(context.launch, &relaunch).and_then(|started| {
                 *application = started;
                 application.receive(LAUNCH_TIMEOUT)
             });
@@ -4885,6 +5659,26 @@ fn drive(
             }) {
                 outcome.errors.push(format!("{label}: {error}"));
                 return outcome;
+            }
+            continue;
+        }
+        if let Some(result) = peer_step(application, peers, context, &object, &mut notes) {
+            match result {
+                Ok(Some((request, reply))) => {
+                    if let Err(error) = record(&mut outcome, Some(*line), &label, &request, reply) {
+                        file_failure(&mut outcome, *line, &label, &error);
+                        return outcome;
+                    }
+                }
+                Ok(None) => {}
+                Err(PeerError::Failed(error)) => {
+                    file_failure(&mut outcome, *line, &label, &error);
+                    return outcome;
+                }
+                Err(PeerError::Harness(error)) => {
+                    outcome.errors.push(format!("{label}: {error}"));
+                    return outcome;
+                }
             }
             continue;
         }
@@ -4973,6 +5767,7 @@ fn drive(
             .get("increment")
             .map(|source| (source, increment as fn(&str) -> Result<String, String>))
             .or_else(|| object.get("stem").map(|source| (source, stem as _)))
+            .or_else(|| object.get("parent").map(|source| (source, parent as _)))
         {
             let name = object["as"].as_str().unwrap_or_default().to_owned();
             let noted = notes
@@ -5032,6 +5827,325 @@ fn drive(
         }
     }
     outcome
+}
+
+/// Why a step the runner takes with another process went wrong: the
+/// scenario's failure, or the harness's error.
+enum PeerError {
+    Failed(String),
+    Harness(String),
+}
+
+/// Polls until `ready`, failing as a twin's `strata.wait(..., message)` times out.
+fn wait_until(
+    timeout: Option<u64>,
+    message: Option<&str>,
+    mut ready: impl FnMut() -> bool,
+) -> Result<(), PeerError> {
+    let deadline = Instant::now() + timeout.map_or(DEFAULT_WAIT, Duration::from_millis);
+    while !ready() {
+        if Instant::now() >= deadline {
+            return Err(PeerError::Failed(format!(
+                "timed out{}",
+                message
+                    .map(|message| format!(" waiting for {message}"))
+                    .unwrap_or_default()
+            )));
+        }
+        std::thread::sleep(POLL_INTERVAL);
+    }
+    Ok(())
+}
+
+/// The runner's steps with processes and services besides the
+/// application: `None` for any other step, else whether it went well and,
+/// for one that told the process something, that request and its reply.
+fn peer_step(
+    application: &mut Application,
+    peers: &mut Peers,
+    context: &Context,
+    object: &Map<String, Value>,
+    notes: &mut Vec<(String, Value)>,
+) -> Option<Result<Option<(Value, Value)>, PeerError>> {
+    fn parsed<T: serde::de::DeserializeOwned>(
+        object: &Map<String, Value>,
+        kind: &str,
+    ) -> Result<T, PeerError> {
+        serde_json::from_value(Value::Object(object.clone()))
+            .map_err(|error| PeerError::Harness(format!("invalid {kind} step: {error}")))
+    }
+    let keep = |notes: &mut Vec<(String, Value)>, name: &str, value: Value| {
+        notes.retain(|(note, _)| note != name);
+        notes.push((name.to_owned(), value));
+    };
+    Some(if object.contains_key("launch") {
+        parsed::<LaunchStep>(object, "launch").and_then(|step| {
+            launch_instance(context.launch, &step)
+                .map(|()| None)
+                .map_err(PeerError::Failed)
+        })
+    } else if object.contains_key("portal_open") {
+        parsed::<PortalOpenStep>(object, "portal_open").and_then(|step| {
+            let bus = context
+                .launch
+                .bus
+                .ok_or_else(|| PeerError::Harness("a portal run needs a session bus".to_owned()))?;
+            let request = peers::PortalRequest::send(bus, &step.portal_open, &step.options)
+                .map_err(PeerError::Failed)?;
+            peers.portal = Some(request);
+            Ok(None)
+        })
+    } else if object.contains_key("portal_response") {
+        parsed::<PortalResponseStep>(object, "portal_response").and_then(|step| {
+            let request = peers
+                .portal
+                .as_mut()
+                .ok_or_else(|| PeerError::Harness("no portal request was sent".to_owned()))?;
+            portal_response(request, &step, notes).map(|()| None)
+        })
+    } else if object.contains_key("http") {
+        parsed::<HttpStep>(object, "http").and_then(|step| {
+            let server = peers::ImageServer::start(gtk::glib::base64_decode(&step.http))
+                .map_err(PeerError::Harness)?;
+            keep(notes, &step.name, json!(server.url));
+            peers.server = Some(server);
+            Ok(None)
+        })
+    } else if object.contains_key("http_requests") {
+        parsed::<HttpRequestsStep>(object, "http_requests").and_then(|step| {
+            let made = peers
+                .server
+                .as_ref()
+                .ok_or_else(|| PeerError::Harness("no image server runs".to_owned()))?
+                .requests();
+            if made == step.http_requests {
+                Ok(None)
+            } else {
+                Err(PeerError::Failed(format!(
+                    "{}: {made} requests, not {}",
+                    step.message.as_deref().unwrap_or("request count"),
+                    step.http_requests
+                )))
+            }
+        })
+    } else if object.contains_key("foreign") {
+        parsed::<ForeignStep>(object, "foreign").and_then(|step| {
+            if peers.foreign.is_some() {
+                return Err(PeerError::Harness(
+                    "a foreign drag source already runs; stop it first".to_owned(),
+                ));
+            }
+            let mut arguments = Vec::new();
+            if step.foreign.move_only {
+                arguments.push("--move-only".to_owned());
+            }
+            arguments.extend(step.foreign.paths.iter().cloned());
+            let source = peers::ForeignSource::start(
+                &python(),
+                Path::new(REPOSITORY),
+                &arguments,
+                &context.launch.helper_environment(),
+                &context.launch.log.with_file_name("foreign-drag-source.log"),
+            )
+            .map_err(PeerError::Harness)?;
+            let found = wait_until(step.timeout_ms, step.message.as_deref(), || {
+                source.bounds().is_some()
+            });
+            let request = json!({ "keep": source.bounds(), "as": step.name });
+            peers.foreign = Some(source);
+            found?;
+            application
+                .send(&request, COMMAND_TIMEOUT)
+                .map(|reply| Some((request, reply)))
+                .map_err(PeerError::Harness)
+        })
+    } else if object.contains_key("foreign_label") {
+        parsed::<ForeignLabelStep>(object, "foreign_label").and_then(|step| {
+            let source = peers
+                .foreign
+                .as_ref()
+                .ok_or_else(|| PeerError::Harness("no foreign drag source runs".to_owned()))?;
+            wait_until(step.timeout_ms, step.message.as_deref(), || {
+                source.label().as_deref() == Some(step.foreign_label.as_str())
+            })
+            .map(|()| None)
+        })
+    } else if object.contains_key("foreign_stop") {
+        drop(peers.foreign.take());
+        Ok(None)
+    } else if object.contains_key("zipcrypto") {
+        parsed::<ZipCryptoStep>(object, "zipcrypto").and_then(|step| {
+            let archive = &step.zipcrypto;
+            let path = context.fixture.join(&archive.path);
+            contained(&path, &[context.fixture.to_path_buf()]).map_err(PeerError::Harness)?;
+            peers::write_zipcrypto(
+                &path,
+                &archive.password,
+                &archive.member,
+                &archive.contents.bytes(),
+                archive.deflated,
+            )
+            .and_then(|()| peers::zipcrypto_collision(&path))
+            .map(|collision| {
+                keep(notes, &step.name, json!(collision));
+                None
+            })
+            .map_err(PeerError::Harness)
+        })
+    } else {
+        let message = object.get("fail")?;
+        Err(PeerError::Failed(
+            message.as_str().unwrap_or_default().to_owned(),
+        ))
+    })
+}
+
+/// `subprocess.run([strata, *arguments], env=..., cwd=fixture, check=True,
+/// timeout=30, capture_output=True)`.
+fn launch_instance(launch: &Launch, step: &LaunchStep) -> Result<(), String> {
+    use std::os::unix::ffi::OsStringExt as _;
+    let arguments = step
+        .launch
+        .iter()
+        .map(|argument| {
+            if step.percent_path {
+                percent_decoded(argument).map(std::ffi::OsString::from_vec)
+            } else {
+                Ok(argument.into())
+            }
+        })
+        .collect::<Result<Vec<std::ffi::OsString>, String>>()?;
+    let output = File::options()
+        .create(true)
+        .append(true)
+        .open(launch.log.with_file_name("launches.log"))
+        .map_err(|error| error.to_string())?;
+    let errors = output.try_clone().map_err(|error| error.to_string())?;
+    let mut child = spawn(
+        Command::new(BINARY)
+            .args(&arguments)
+            .current_dir(launch.fixture)
+            .env_clear()
+            .envs(launch.helper_environment())
+            .stdin(Stdio::null())
+            .stdout(output)
+            .stderr(errors),
+    )
+    .map_err(|error| format!("cannot start {BINARY}: {error}"))?;
+    let deadline = Instant::now() + LAUNCH_TIMEOUT_ARGUMENTS;
+    loop {
+        match child.try_wait().map_err(|error| error.to_string())? {
+            Some(status) if status.success() => return Ok(()),
+            Some(status) => return Err(format!("strata {arguments:?} exited with {status}")),
+            None if Instant::now() >= deadline => {
+                terminate(&mut child);
+                return Err(format!(
+                    "strata {arguments:?} ran past {} s",
+                    LAUNCH_TIMEOUT_ARGUMENTS.as_secs()
+                ));
+            }
+            None => std::thread::sleep(POLL_INTERVAL),
+        }
+    }
+}
+
+/// `assert not response.done()`, or the wait for the answer and the
+/// twin's assertions on it.
+fn portal_response(
+    request: &mut peers::PortalRequest,
+    step: &PortalResponseStep,
+    notes: &mut Vec<(String, Value)>,
+) -> Result<(), PeerError> {
+    let check = &step.portal_response;
+    let failed = |detail: String| {
+        PeerError::Failed(match &step.message {
+            Some(message) => format!("{message}: {detail}"),
+            None => detail,
+        })
+    };
+    if !check.done {
+        return match request.poll() {
+            None => Ok(()),
+            Some(answer) => Err(failed(format!("the portal already answered {answer:?}"))),
+        };
+    }
+    let deadline = Instant::now() + step.timeout_ms.map_or(DEFAULT_WAIT, Duration::from_millis);
+    let answer = loop {
+        if let Some(answer) = request.poll() {
+            break answer.clone().map_err(failed)?;
+        }
+        if Instant::now() >= deadline {
+            return Err(failed("timed out waiting for the answer".to_owned()));
+        }
+        std::thread::sleep(POLL_INTERVAL);
+    };
+    if let Some(status) = check.status
+        && answer.status != status
+    {
+        return Err(failed(format!(
+            "the status is {}, not {status}",
+            answer.status
+        )));
+    }
+    if let Some(names) = &check.names {
+        let mut chosen: Vec<String> = answer
+            .paths
+            .iter()
+            .filter_map(|path| path.file_name())
+            .map(|name| name.to_string_lossy().into_owned())
+            .collect();
+        let mut wanted = names.clone();
+        chosen.sort();
+        chosen.dedup();
+        wanted.sort();
+        wanted.dedup();
+        if chosen != wanted {
+            return Err(failed(format!("the chosen names are {chosen:?}")));
+        }
+    }
+    if let Some(paths) = &check.paths {
+        let chosen: Vec<String> = answer
+            .paths
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect();
+        if chosen != *paths {
+            return Err(failed(format!("the chosen paths are {chosen:?}")));
+        }
+    }
+    if check.keep.is_none() && check.png.is_none() && !check.discard {
+        return Ok(());
+    }
+    let first = answer
+        .paths
+        .first()
+        .ok_or_else(|| failed("the answer chose no file".to_owned()))?;
+    if let Some(name) = &check.keep {
+        notes.retain(|(note, _)| note != name);
+        notes.push((name.clone(), json!(first.display().to_string())));
+    }
+    let checked = check
+        .png
+        .as_ref()
+        .map_or(Ok(()), |png| check_png(first, png).map_err(failed));
+    if check.discard {
+        // Only a `services::remote_download` directory straight in the
+        // temporary directory, named with its `DOWNLOAD_PREFIX`.
+        let parent = first
+            .parent()
+            .filter(|parent| {
+                parent.parent() == Some(std::env::temp_dir().as_path())
+                    && parent
+                        .file_name()
+                        .is_some_and(|name| name.to_string_lossy().starts_with(DOWNLOAD_PREFIX))
+            })
+            .ok_or_else(|| {
+                PeerError::Harness(format!("{} is no Strata download", first.display()))
+            })?;
+        fs::remove_dir_all(parent)
+            .map_err(|error| PeerError::Harness(format!("{}: {error}", parent.display())))?;
+    }
+    checked
 }
 
 /// A step that went wrong is the scenario's failure, unless the controller
@@ -5929,11 +7043,14 @@ fn state_parity_may_ignore_only_distinct_compared_keys() {
         "ignoring every compared key compares nothing"
     );
     assert!(load(r#"["view_mode","directory","panes.selected","panes.focused","focused","focused_pane","dialog"]"#).is_ok());
+    assert!(load(r#"["*"]"#).is_ok(), "the whole state, alone");
+    assert!(load_with(r#""clipboard""#, r#"["*"]"#).is_err());
     for bad in [
         r#"["menu"]"#,
         r#"["panes.name"]"#,
         r#"["focused","focused"]"#,
         r#""focused""#,
+        r#"["*","focused"]"#,
     ] {
         assert!(load(bad).is_err(), "{bad} should be rejected");
     }
@@ -6102,6 +7219,7 @@ fn input_parity_may_ignore_only_named_positions_of_one_run() {
     };
     let load = |ignore: &str| load_with("null", ignore);
     assert!(load(r#"[{"run":"columns-wheel","events":[{"position":19,"event":"button 1 down"},{"position":20,"event":"button 1 up"}]}]"#).is_ok());
+    assert!(load(r#"[{"run":"columns-wheel","events":[{"position":3,"event":"key down"},{"position":4,"event":"key up"},{"position":9,"event":"typed digits"}]}]"#).is_ok());
     assert!(load("[]").is_ok());
     assert!(
         load_with(
@@ -6307,4 +7425,112 @@ fn log_proc_and_each_steps_check_their_shape_before_the_run() {
             json!({ "wait": { "present": { "role": "label", "name": "332×180" } }, "message": "for photo-0012.png" })
         )
     );
+}
+
+#[test]
+fn peer_restart_and_guard_steps_check_their_shape_before_the_run() {
+    for valid in [
+        json!({ "launch": ["$fixture"] }),
+        json!({ "launch": ["a-%FF"], "percent_path": true }),
+        json!({ "restart": { "directory": "/tmp/x", "env": { "RUST_LOG": "trace" }, "stdout": "closed", "stderr": "null" } }),
+        json!({ "portal_open": "Title", "options": { "current_folder": "/tmp", "multiple": true } }),
+        json!({ "portal_response": { "done": false } }),
+        json!({ "portal_response": { "done": true, "status": 0, "names": ["a"] }, "timeout_ms": 20000 }),
+        json!({ "http": "aGk=", "as": "url" }),
+        json!({ "http_requests": 1 }),
+        json!({ "foreign": { "paths": ["/tmp/a"], "move_only": true }, "as": "foreign" }),
+        json!({ "foreign_label": "done" }),
+        json!({ "foreign_stop": true }),
+        json!({ "zipcrypto": { "path": "a.zip", "password": "p", "member": "m", "contents": { "repeat": "x", "count": 3 } }, "as": "c" }),
+        json!({ "fail": "message" }),
+        json!({ "flag": { "focused": null }, "as": "f", "timeout_ms": 5000, "unless": ["a", "b"] }),
+        json!({ "expect": { "focused": null }, "as": "f", "if": "a" }),
+    ] {
+        assert!(check_step(&valid).is_ok(), "{valid} should be accepted");
+    }
+    for invalid in [
+        json!({ "launch": [] }),
+        json!({ "restart": { "stdout": "closed" } }),
+        json!({ "restart": { "stdout": "piped", "stderr": "null" } }),
+        json!({ "restart": { "env": { "DISPLAY": ":1" } } }),
+        json!({ "portal_response": { "done": false, "status": 0 } }),
+        json!({ "foreign": { "paths": [] }, "as": "foreign" }),
+        json!({ "foreign_stop": false }),
+        json!({ "fail": "" }),
+        json!({ "expect": { "focused": null }, "if": [] }),
+        json!({ "expect": { "focused": null }, "as": "f", "when": { "focused": null } }),
+    ] {
+        assert!(
+            check_step(&invalid).is_err(),
+            "{invalid} should be rejected"
+        );
+    }
+    assert_eq!(flag_names(Some(&json!(["a", "b"]))), ["a", "b"]);
+    assert_eq!(flag_names(Some(&json!("a"))), ["a"]);
+    let relaunch: Relaunch =
+        serde_json::from_value(json!({ "stdout": "closed", "stderr": "null" }))
+            .expect("a relaunch");
+    assert_eq!(
+        relaunch.streams().as_deref(),
+        Some("stdout=closed,stderr=null")
+    );
+}
+
+#[test]
+fn glob_and_zipcrypto_helpers_mirror_the_twins() {
+    assert!(glob_matches(
+        ".strata-compression-*",
+        ".strata-compression-x1"
+    ));
+    assert!(!glob_matches(
+        ".strata-compression-*",
+        "strata-compression-x1"
+    ));
+    assert!(glob_matches("*.tar.gz", "a.tar.gz"));
+    assert!(!glob_matches("*.7z", "a.7z.part"));
+    assert!(glob_matches("a*b*c", "aXbYc"));
+    let directory = tempfile::tempdir().expect("a scratch directory");
+    let path = directory.path().join("password.zip");
+    for deflated in [false, true] {
+        peers::write_zipcrypto(
+            &path,
+            "zipsecret",
+            "some.txt",
+            b"hello from zipcrypto",
+            deflated,
+        )
+        .expect("the archive should be written");
+        let collision = peers::zipcrypto_collision(&path).expect("a colliding password");
+        assert!(collision.parse::<u32>().is_ok_and(|number| number < 4096));
+        let archive = zip::ZipArchive::new(File::open(&path).expect("the archive")).expect("a zip");
+        assert_eq!(archive.file_names().collect::<Vec<_>>(), ["some.txt"]);
+    }
+}
+
+#[test]
+fn a_skipped_scenario_names_a_reason_and_no_mutation_or_known_bug() {
+    let directory = tempfile::tempdir().expect("a scratch directory");
+    let path = directory.path().join("example.jsonl");
+    let load = |extra: &str| {
+        fs::write(
+            &path,
+            format!(
+                "{{\"scenario\":\"example\",\"modes\":[\"columns\"],\"twin\":\"x\",{extra}}}\n\
+                 {{\"key\":\"Escape\"}}\n"
+            ),
+        )
+        .expect("the scenario should be written");
+        load_scenario(&path).map(|scenario| scenario.header.skip)
+    };
+    assert_eq!(
+        load(r#""mutation":null,"known_bug":null,"skip":"issue 9""#),
+        Ok(Some("issue 9".to_owned()))
+    );
+    for bad in [
+        r#""mutation":null,"known_bug":null,"skip":" ""#,
+        r#""mutation":"clipboard","known_bug":null,"skip":"x""#,
+        r#""mutation":null,"known_bug":"y","known_bug_step":2,"skip":"x""#,
+    ] {
+        assert!(load(bad).is_err(), "{bad} should be rejected");
+    }
 }

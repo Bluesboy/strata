@@ -1,0 +1,7 @@
+{"scenario":"enabled-tenxer-survives-restart","modes":["columns"],"prefs":{"tenxer_mode":true},"layout":"us","twin":"tests/e2e/scenarios/test_preferences.py::test_enabled_tenxer_applies_before_settings_and_survives_restart","mutation":null,"known_bug":null}
+{"expect":{"absent":{"role":"button","name":"Search (Ctrl+K)"}}}
+{"expect":{"present":{"role":"button","name":"Close window"}}}
+{"restart":true}
+{"expect":{"absent":{"role":"button","name":"Search (Ctrl+K)"}}}
+{"expect":{"present":{"role":"button","name":"Close window"}}}
+{"expect":{"pref":{"key":"tenxer_mode","value":true}}}

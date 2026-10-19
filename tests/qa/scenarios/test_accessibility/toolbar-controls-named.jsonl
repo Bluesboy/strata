@@ -1,0 +1,6 @@
+{"scenario":"toolbar-controls-named","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_accessibility.py::test_toolbar_controls_are_named","mutation":null,"known_bug":null}
+{"expect":{"present":{"named":"Search (Ctrl+K)","within":{"window":true}}},"message":"'Search (Ctrl+K)' is unnamed"}
+{"expect":{"present":{"named":"Appearance","within":{"window":true}}},"message":"'Appearance' is unnamed"}
+{"expect":{"present":{"named":"Settings","within":{"window":true}}},"message":"'Settings' is unnamed"}
+{"expect":{"present":{"named":"Close window","within":{"window":true}}},"message":"'Close window' is unnamed"}
+{"expect":{"present":{"named":"Toggle sidebar (Ctrl+B)","within":{"window":true}}},"message":"'Toggle sidebar (Ctrl+B)' is unnamed"}

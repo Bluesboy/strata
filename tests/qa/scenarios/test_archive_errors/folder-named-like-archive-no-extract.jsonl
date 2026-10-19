@@ -1,0 +1,9 @@
+{"scenario":"folder-named-like-archive-no-extract","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_archive_errors.py::test_folder_named_like_an_archive_offers_no_extract_actions","mutation":null,"known_bug":null}
+{"fs":{"path":"photos.zip","mkdir":true}}
+{"key":"ctrl+r"}
+{"click":{"entry":"photos.zip"},"button":3}
+{"wait":{"menu_items":{}},"message":"the context menu for 'photos.zip'"}
+{"expect":{"menu_items":{"excludes":["Extract here","Extract to…"]}}}
+{"expect":{"any":[{"menu_items":{"contains":["Open in Terminal"]}},{"menu_items":{"contains":["Pin to sidebar"]}}]}}
+{"key":"Escape"}
+{"wait":{"menu_items":null},"message":"the menu to close"}

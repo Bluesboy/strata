@@ -91,6 +91,9 @@ class HeadlessDisplay:
     accessibility_bus_address: str = field(init=False)
     _processes: list[ManagedProcess] = field(init=False, default_factory=list)
     _home: TestEnvironment | None = field(init=False, default=None)
+    # The session's XTest connection, set by the `xtest` fixture, for
+    # scenarios that log their input without a `strata` fixture.
+    input_connection: object | None = field(init=False, default=None)
 
     def start(self) -> None:
         self.runtime_dir = Path(tempfile.mkdtemp(prefix="strata-e2e-", dir="/tmp"))

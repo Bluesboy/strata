@@ -199,7 +199,10 @@ fn main() -> gtk::glib::ExitCode {
                 return restart_for_gtk_environment(&arguments, false);
             }
             restart_with_local_vfs_if_gvfs_is_unresponsive();
-            return portal::run();
+            return portal::run(
+                #[cfg(feature = "qa")]
+                None,
+            );
         }
         LaunchMode::InstallPortal => return finish_portal_setup(portal_setup::install()),
         LaunchMode::DismissPortalPrompt => {
@@ -233,6 +236,16 @@ fn main() -> gtk::glib::ExitCode {
         },
         _ => None,
     };
+    #[cfg(feature = "qa")]
+    if qa_session.as_ref().is_some_and(qa::Session::portal) {
+        // As `--portal` starts, minus the restart that would lose the replies.
+        if has_desktop_theme_override() {
+            eprintln!("--qa needs GTK_THEME unset");
+            return gtk::glib::ExitCode::FAILURE;
+        }
+        restart_with_local_vfs_if_gvfs_is_unresponsive();
+        return portal::run(qa_session);
+    }
     #[cfg(feature = "qa")]
     let application_arguments = qa_session.as_ref().map_or_else(
         || arguments.clone(),

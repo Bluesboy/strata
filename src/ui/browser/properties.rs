@@ -208,7 +208,7 @@ fn permission_row(parent: &gtk::Box, label: &str) -> PermissionRow {
             .accessible_role(gtk::AccessibleRole::ToggleButton)
             .build();
         // The visible `r`/`w`/`x` label would otherwise name the bit.
-        button.reset_relation(gtk::AccessibleRelation::LabelledBy);
+        crate::ui::accessibility::clear_labelled_by(&button);
         button.add_css_class("properties-permission-bit");
         button.set_sensitive(false);
         button
