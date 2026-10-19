@@ -390,7 +390,8 @@ def signature_parity(found: list[RunPair]) -> Comparison:
 def exit_accounted(status: int | None, runs) -> Comparison:
     if status is None:
         return Comparison(False, "qa.sh's exit status was not recorded")
-    failing = any(run.result.status != "pass" for run in runs)
+    # A known bug still failing as expected passes the runner, as qa.sh exits 0 for it.
+    failing = any(run.result.status not in ("pass", "known bug") for run in runs)
     if (status != 0) != failing:
         return Comparison(False, f"qa.sh exited {status}, which its run results do not account for")
     return Comparison(True)

@@ -82,7 +82,10 @@ class QaLogTests(unittest.TestCase):
     def test_the_exit_status_must_match_the_run_results(self):
         passing = [QaRun("s", "columns", "t", Result("pass"))]
         failing = [QaRun("s", "columns", "t", Result("fail"))]
+        known = passing + [QaRun("k", "columns", "u", Result("known bug"))]
         self.assertTrue(exit_accounted(0, passing).agree)
+        self.assertTrue(exit_accounted(0, known).agree)
+        self.assertFalse(exit_accounted(101, known).agree)
         self.assertTrue(exit_accounted(101, failing).agree)
         self.assertFalse(exit_accounted(101, passing).agree)
         self.assertFalse(exit_accounted(0, failing).agree)
