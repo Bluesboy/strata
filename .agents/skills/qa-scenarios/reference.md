@@ -1,8 +1,8 @@
 # QA scenario reference
 
 The full catalogue behind [SKILL.md](SKILL.md). The parsers are the source of
-truth: the header is `Header` in `tests/qa.rs`, process steps are
-`parse_command` in `src/qa/protocol.rs` (also compiled into the runner, so a
+truth: the header is `Header` in `tests/qa/scenario.rs`, process steps are
+`parse_command` in `src/qa/protocol/command/parse.rs` (also compiled into the runner, so a
 malformed step fails at load), and runner steps are the `RUNNER_COMMANDS` in
 `tests/qa.rs`. When this file and the code disagree, the code wins; fix this
 file.
@@ -46,7 +46,7 @@ Line 1 of the file, one JSON object. Unknown keys are rejected.
 | `known_bug_step` | with `known_bug` | The file line (header = 1) of the step expected to fail. It must run in every run, carry no `when`/`if`/`unless`, and not be a `layout`, `flag`, `note`, `slice`, `increment`, `stem`, `parent`, `screenshot`, `restart`, `http`, or `foreign_stop` step. A failure anywhere else, or any error, fails the run; a pass fails with "remove the marker". |
 | `skip` | no | A non-empty reason. Keeps the scenario out of the default run (`SKIPPED <scenario> (run it by name): <reason>`); naming it still runs it. Not combinable with `known_bug`. |
 | `cost` | no | `{"<run label>": number}` for exactly every run label, the run's median time over a typical run's, as `scripts/qa_cost.py` writes it (one decimal, at least 0.1); the runner requires a positive finite number. |
-| `quality` | no | `{"impact":1-5,"coverage":1-5,"criticality":1-5,"diagnostic":1-5,"score":0-100,"note":"<one line>"}`. All six keys required and no other; the ratings and `score` are integers; `note` is one non-empty line with no line break of any kind (including U+0085, U+2028, U+2029, and the vertical tab, form feed, and U+001C–U+001E separators). The runner recomputes `score` from the four ratings (`quality_score` in `tests/qa.rs`) and rejects a mismatch, naming the expected value. The `qa-quality` skill defines the ratings. |
+| `quality` | no | `{"impact":1-5,"coverage":1-5,"criticality":1-5,"diagnostic":1-5,"score":0-100,"note":"<one line>"}`. All six keys required and no other; the ratings and `score` are integers; `note` is one non-empty line with no line break of any kind (including U+0085, U+2028, U+2029, and the vertical tab, form feed, and U+001C–U+001E separators). The runner recomputes `score` from the four ratings (`quality_score` in `tests/qa/scenario.rs`) and rejects a mismatch, naming the expected value. The `qa-quality` skill defines the ratings. |
 
 Leave header keys this reference does not list as they are.
 
@@ -155,7 +155,7 @@ the main context drains. Input is real XTEST.
 
 ## Runner steps
 
-These run in `tests/qa.rs`, between process commands.
+These run in the runner (`drive` in `tests/qa/drive.rs`), between process commands.
 
 ### Control and values
 
@@ -175,7 +175,7 @@ These run in `tests/qa.rs`, between process commands.
 | `{"launch":["$fixture/requested-missing"],"percent_path":true}` | Runs another `strata` with arguments (needs `session_bus`); it hands them to the running app over the bus and exits. `percent_path` turns `%XX` into raw bytes. |
 | `{"dbus_send":["--print-reply","--dest=...","/path","iface.Method","array:string:file://..."]}` | `dbus-send --session` on the private bus (needs `session_bus`); fails on a non-zero exit. |
 | `{"screenshot":"hover.png"}` | Captures the X root into the run's artifacts. |
-| `{"baseline":"columns-view"}` | Captures the X root and compares it with the committed image for the GTK version the runner links (`baseline_directory()` in `tests/qa.rs`): a pixel differs when a channel moves by more than 24; more than 0.5 % differing pixels, a size change, or a missing baseline fails. Artifacts keep `<name>.actual.png`, plus `.expected.png` and `.diff.png` on a mismatch. Never writes a baseline; takes no `message`. |
+| `{"baseline":"columns-view"}` | Captures the X root and compares it with the committed image for the GTK version the runner links (`baseline_directory()` in `tests/qa/baseline.rs`): a pixel differs when a channel moves by more than 24; more than 0.5 % differing pixels, a size change, or a missing baseline fails. Artifacts keep `<name>.actual.png`, plus `.expected.png` and `.diff.png` on a mismatch. Never writes a baseline; takes no `message`. |
 
 ### Peers
 

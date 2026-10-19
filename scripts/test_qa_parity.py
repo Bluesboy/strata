@@ -11,6 +11,9 @@ from pathlib import Path
 from unittest import mock
 
 import qa_parity
+import qa_parity_ci
+import qa_parity_run
+import qa_parity_scenarios
 from qa_parity import (
     QaRun,
     Result,
@@ -430,9 +433,9 @@ class CiShardingTests(unittest.TestCase):
             (scenarios / "test_example" / "alpha.jsonl").write_text(json.dumps({"scenario": "alpha", "twin": "x", "mutation": "break-alpha"}) + "\n")
             (scenarios / "test_example" / "beta.jsonl").write_text(json.dumps({"scenario": "beta", "twin": "x", "mutation": None}) + "\n")
             (mutations / "break-alpha.patch").write_text("+++ b/src/main.rs\n")
-            with mock.patch.object(qa_parity, "SCENARIOS", scenarios), \
-                    mock.patch.object(qa_parity, "MUTATIONS", mutations), \
-                    mock.patch.object(qa_parity, "CI_SHARDS", 1):
+            with mock.patch.object(qa_parity_scenarios, "SCENARIOS", scenarios), \
+                    mock.patch.object(qa_parity_ci, "MUTATIONS", mutations), \
+                    mock.patch.object(qa_parity_ci, "CI_SHARDS", 1):
                 self.assertEqual(qa_parity.ci_units(), ["beta", "break-alpha"])
                 output = io.StringIO()
                 with contextlib.redirect_stdout(output):
@@ -465,7 +468,7 @@ class ScenarioChoiceTests(unittest.TestCase):
             (scenarios / "test_example").mkdir()
             (scenarios / "test_example" / "alpha.jsonl").write_text(json.dumps({"scenario": "alpha", "twin": "x", "mutation": "break-alpha"}) + "\n")
             (scenarios / "test_example" / "beta.jsonl").write_text(json.dumps({"scenario": "beta", "twin": "x", "mutation": None}) + "\n")
-            with mock.patch.object(qa_parity, "SCENARIOS", scenarios):
+            with mock.patch.object(qa_parity_scenarios, "SCENARIOS", scenarios):
                 chosen = qa_parity.chosen_scenarios(["break-alpha", "beta", "alpha"])
                 self.assertEqual([(s.name, s.unit) for s in chosen],
                                  [("alpha", "break-alpha"), ("beta", "beta"), ("alpha", "break-alpha")])
@@ -491,9 +494,11 @@ class TwinlessScenarioTests(unittest.TestCase):
         (scenarios / "hidden_files" / "delta.jsonl").write_text(
             json.dumps({"scenario": "delta", "modes": ["columns", "list"]}) + "\n")
         (mutations / "break-alpha.patch").write_text("+++ b/src/main.rs\n")
-        for name, value in (("SCENARIOS", scenarios), ("MUTATIONS", mutations),
-                            ("OUTPUT", self.root / "output"), ("CI_SHARDS", 1)):
-            patcher = mock.patch.object(qa_parity, name, value)
+        for module, name, value in ((qa_parity_scenarios, "SCENARIOS", scenarios),
+                                    (qa_parity_ci, "MUTATIONS", mutations),
+                                    (qa_parity_run, "OUTPUT", self.root / "output"),
+                                    (qa_parity_ci, "CI_SHARDS", 1)):
+            patcher = mock.patch.object(module, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
 
@@ -509,7 +514,7 @@ class TwinlessScenarioTests(unittest.TestCase):
                          ["No twin, not compared: delta", "No twin, not compared: gamma"])
 
     def test_naming_only_scenarios_without_a_twin_runs_nothing(self):
-        with mock.patch.object(qa_parity, "collect") as collect, \
+        with mock.patch.object(qa_parity_run, "collect") as collect, \
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(qa_parity.parity(["delta"]), 0)
         collect.assert_not_called()
@@ -547,9 +552,11 @@ class AggregateTests(unittest.TestCase):
             (mutations / f"break-{name}.patch").write_text("+++ b/src/main.rs\n")
         (scenarios / "test_example" / "gamma.jsonl").write_text(json.dumps({"scenario": "gamma", "twin": "x", "mutation": None}) + "\n")
         self.shards = root / "shards"
-        for name, value in (("SCENARIOS", scenarios), ("MUTATIONS", mutations),
-                            ("OUTPUT", root / "untouched"), ("CI_SHARDS", 3)):
-            patcher = mock.patch.object(qa_parity, name, value)
+        for module, name, value in ((qa_parity_scenarios, "SCENARIOS", scenarios),
+                                    (qa_parity_ci, "MUTATIONS", mutations),
+                                    (qa_parity_run, "OUTPUT", root / "untouched"),
+                                    (qa_parity_ci, "CI_SHARDS", 3)):
+            patcher = mock.patch.object(module, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
         patcher = mock.patch.dict(os.environ)

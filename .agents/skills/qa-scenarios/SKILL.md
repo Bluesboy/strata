@@ -23,17 +23,17 @@ header key, step, target, predicate, and `fs` kind. The maintained guide is the
 - **The app side.** A build with the `qa` cargo feature (never released)
   accepts `strata --qa <directory>`: the normal window opens on the directory,
   then `src/qa.rs` reads one JSON command per line on stdin, runs it on the GTK
-  main loop, and writes one reply per line on stdout once the main context
+  main loop (`src/qa/dispatch.rs`), and writes one reply per line on stdout once the main context
   drains. Input is XTEST sent from inside the process; state is read from the
   widget tree by the accessible names `src/ui/accessibility.rs` sets.
   `strata --qa --portal` runs the FileChooser portal backend instead.
-  `src/qa/protocol.rs` parses commands; `targets.rs` resolves targets;
-  `state.rs` builds the snapshot.
+  `src/qa/protocol/` parses commands; `src/qa/targets.rs` and its
+  `targets/` submodules resolve targets; `state.rs` builds the snapshot.
 - **The reply.** `{"ok","app","changed","criticals","result","failures","error"}`.
   `app` is the state snapshot (view mode, directory, panes with selection and
   focus, focused entry, dialog, menu, preview, field, matches). Any GLib
   warning or critical in `criticals` fails the run.
-- **The runner.** `tests/qa.rs` (custom harness `tests/qa/harness.rs`,
+- **The runner.** `tests/qa.rs` and its modules in `tests/qa/` (custom harness `tests/qa/harness.rs`,
   `harness = false`) loads every file, checks every step with the process's
   own parser before launching anything, and makes each run a test named
   `<scenario>/<run>`. Each run gets its own Xvfb, HOME, XDG directories, and
@@ -322,8 +322,9 @@ run.
 
 ## Change the runner
 
-Runner unit tests live in `tests/qa.rs` and must be listed in its
-`unit_tests!` macro: the custom harness ignores `#[test]` and
+Runner unit tests live in `tests/qa/scenario_tests.rs` and
+`tests/qa/step_tests.rs` and must be listed in the `unit_tests!` macro in
+`tests/qa/unit_tests.rs`: the custom harness ignores `#[test]` and
 `#[cfg(test)]`, and `no_test_attribute_hides_a_runner_test` rejects them.
 Unit tests run in every `./scripts/qa.sh` run that names no scenario. Script
 tests: `python3 -m unittest discover -s scripts -p 'test_*.py'`.

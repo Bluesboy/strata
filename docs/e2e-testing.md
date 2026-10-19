@@ -1079,8 +1079,9 @@ may start later while another such run is going. `--help` lists the options;
 libtest's `--report-time`, `--shuffle`, and `--shuffle-seed` are accepted and
 change nothing, as cost order wins.
 
-The runner's own unit tests live in `tests/qa.rs` too, and each must be
-listed in its `unit_tests!` macro: with the harness replaced, `#[test]` and
+The runner's own unit tests live in `tests/qa/scenario_tests.rs` and
+`tests/qa/step_tests.rs`, and each must be listed in the `unit_tests!` macro in
+`tests/qa/unit_tests.rs`: with the harness replaced, `#[test]` and
 `#[cfg(test)]` there are stripped without a warning and never run, so the
 `no_test_attribute_hides_a_runner_test` test rejects them in `tests/qa.rs` and
 `tests/qa/*.rs`.
@@ -1565,7 +1566,7 @@ a red QA job never blocks a merge.
   `qa-artifacts-<attempt>`.
 - **QA parity plan** runs `python3 scripts/qa_parity.py ci-plan`. On a pull
   request, parity runs only when the merge commit's changes touch `PARITY_PATHS`
-  in `scripts/qa_parity.py` (`src/`, `data/`, `tests/e2e/`, `tests/qa/`,
+  in `scripts/qa_parity_ci.py` (`src/`, `data/`, `tests/e2e/`, `tests/qa/`,
   `tests/qa.rs`, the runners, and this workflow among them); a dispatch always
   runs it. The plan spreads the scenarios over at most `CI_SHARDS` (10)
   shards, each named by its mutation patch (full parity) or, without one, by
