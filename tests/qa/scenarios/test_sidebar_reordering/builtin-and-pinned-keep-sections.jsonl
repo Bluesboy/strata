@@ -1,4 +1,4 @@
-{"scenario":"builtin-and-pinned-keep-sections","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_sidebar_reordering.py::test_builtin_and_pinned_rows_cannot_reorder_into_each_others_section","mutation":null,"known_bug":null,"cost":{"columns":1.2},"quality":{"impact":2,"coverage":2,"criticality":2,"diagnostic":3,"score":8,"note":"Bookmark/Home drags across builtin and pinned sections leave file and order; e2e twin test_builtin_and_pinned_rows_cannot_reorder covers same route"}}
+{"scenario":"builtin-and-pinned-keep-sections","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_sidebar_reordering.py::test_builtin_and_pinned_rows_cannot_reorder_into_each_others_section","mutation":null,"known_bug":null,"cost":{"columns":1.2},"quality":{"impact":2,"coverage":3,"criticality":2,"diagnostic":3,"score":16,"note":"Cross-section drags rejected in GUI, bookmarks unchanged after restart; rule alone unit-tested in src/ui/window/tests/sidebar.rs"}}
 {"fs":{"path":"$config/gtk-3.0","mkdir":true,"parents":true}}
 {"fs":{"path":"$config/gtk-3.0/bookmarks","write":"sftp://host/one One\nsftp://host/two Two\n"}}
 {"restart":true}

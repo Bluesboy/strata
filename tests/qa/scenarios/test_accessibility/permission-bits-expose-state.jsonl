@@ -1,4 +1,4 @@
-{"scenario":"permission-bits-expose-state","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_accessibility.py::test_permission_bits_expose_their_permission_and_state","mutation":null,"known_bug":null,"cost":{"columns":0.8},"quality":{"impact":3,"coverage":3,"criticality":3,"diagnostic":4,"score":28,"note":"Properties permission bits match disk and Owner execute click writes mode; only QA check of permission bits, e2e twin test_permission_bits_expose_their_permission_and_state repeats it"}}
+{"scenario":"permission-bits-expose-state","modes":["columns"],"layout":"us","twin":"tests/e2e/scenarios/test_accessibility.py::test_permission_bits_expose_their_permission_and_state","mutation":null,"known_bug":null,"cost":{"columns":0.8},"quality":{"impact":3,"coverage":4,"criticality":3,"diagnostic":4,"score":42,"note":"Properties permission toggles match disk bits and Owner execute click writes mode; only QA check, no unit test pins the editor"}}
 {"select":{"entry":"todo.txt"}}
 {"key":"alt+Return"}
 {"wait":{"dialog":true},"message":"a dialog to appear"}
