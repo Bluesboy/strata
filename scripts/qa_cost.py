@@ -1,20 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Measures each `--qa` scenario run and writes its relative cost into the scenario's header.
-
-`tests/qa.rs` starts the costliest runs first, so a long run never starts
-last and finishes alone. A run's cost is the median of its wall-clock times
-over several full `./scripts/qa.sh` runs at the default thread count, divided
-by the median of every run's median, so 1.0 is a typical run; it is rounded to
-one decimal place, and never below 0.1. Only the header's `cost` changes:
-every other byte of the scenario files stays as it was.
-
-    python3 scripts/qa_cost.py run              # three full runs, then write the costs
-    python3 scripts/qa_cost.py run --repeat 5
-    python3 scripts/qa_cost.py write LOG...     # the costs from saved qa.sh logs
-
-See "Scheduling and run costs" in docs/e2e-testing.md.
-"""
+"""Measures each `--qa` scenario run and writes its relative cost into the scenario's header."""
 
 from __future__ import annotations
 
@@ -32,7 +18,6 @@ REPOSITORY = Path(__file__).resolve().parents[1]
 SCENARIOS = REPOSITORY / "tests/qa/scenarios"
 OUTPUT = REPOSITORY / "target/qa-cost"
 MINIMUM = 0.1
-# The harness's result line for a scenario run, with its wall-clock time.
 RESULT = re.compile(
     r"^test (?P<run>[^\s/]+/\S+) \.\.\. (?P<status>ok|FAILED) <(?P<seconds>\d+(?:\.\d+)?)s>$"
 )
@@ -40,8 +25,6 @@ SPACE = re.compile(r"\s*")
 
 
 def durations(log: str) -> dict[str, tuple[float, bool]]:
-    """Each scenario run's seconds in one qa.sh log, and whether it passed."""
-
     found = {}
     for line in log.splitlines():
         if match := RESULT.match(line.rstrip()):
@@ -50,8 +33,6 @@ def durations(log: str) -> dict[str, tuple[float, bool]]:
 
 
 def scores(samples: dict[str, list[float]]) -> dict[str, float]:
-    """Each run's median over the typical run's, the median of all medians."""
-
     medians = {run: statistics.median(seconds) for run, seconds in samples.items()}
     typical = statistics.median(medians.values())
     if typical <= 0:
@@ -60,8 +41,6 @@ def scores(samples: dict[str, list[float]]) -> dict[str, float]:
 
 
 def value_spans(header: str) -> tuple[dict[str, tuple[int, int]], int]:
-    """Where each top-level value of a JSON object line starts and ends, and where its `}` is."""
-
     decoder = json.JSONDecoder()
     spans = {}
     index = SPACE.match(header, 0).end()
@@ -87,8 +66,6 @@ def value_spans(header: str) -> tuple[dict[str, tuple[int, int]], int]:
 
 
 def with_cost(header: str, cost: dict[str, float]) -> str:
-    """The header line with `cost` replaced, or added last, and nothing else changed."""
-
     text = json.dumps(cost, separators=(",", ":"))
     spans, close = value_spans(header)
     if "cost" in spans:
@@ -102,8 +79,6 @@ def with_cost(header: str, cost: dict[str, float]) -> str:
 
 
 def rewrite(path: Path, cost: dict[str, float]) -> bool:
-    """Writes the cost into the file's first line; whether the file changed."""
-
     data = path.read_bytes()
     first, newline, rest = data.partition(b"\n")
     header = first.decode("utf-8")
@@ -143,7 +118,6 @@ def write(logs: list[Path], scenarios: Path = SCENARIOS) -> int:
     if unknown:
         print(f"ignored, no longer planned: {', '.join(unknown)}", file=sys.stderr)
     if failed:
-        # A failed run still took that long; its time counts like any other.
         print(f"timed although they failed: {', '.join(sorted(failed))}", file=sys.stderr)
     cost = scores({run: samples[run] for run in wanted})
     changed = sum(

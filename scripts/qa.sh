@@ -11,11 +11,8 @@ repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$repository/scripts/lib/qa-container.sh"
 qa_container_prepare
 
-# Each run is a test named `<scenario>/<run>` (tests/qa/harness.rs). A scenario
-# name (hyphens or underscores) selects all of its runs, `<scenario>/<run>` one;
-# flags pass to the runner's libtest-style harness unchanged, except that a
-# --skip naming a scenario or one of its runs, in either spelling, becomes
-# --skip-exact: it leaves out that scenario, never another it prefixes.
+# A --skip naming a scenario or run becomes --skip-exact, so it never skips
+# another scenario that the name prefixes.
 scenarios="$repository/tests/qa/scenarios"
 arguments=()
 skip() {
@@ -59,9 +56,6 @@ while (($#)); do
       ;;
   esac
 done
-# A name selects only its own scenario, never every one it prefixes; --exact
-# makes any other --skip match whole names too. A named scenario runs even when its
-# header's `skip` keeps it out of the default run (STRATA_QA_NAMED).
 if ((${named:-0})); then
   arguments+=(--exact)
 fi
@@ -74,15 +68,11 @@ exec "$engine" run "${options[@]}" "${mounts[@]}" \
   --env "STRATA_QA_NAMED=${named:-0}" \
   "$image" bash -euc '
     mkdir -p "$HOME" "$CARGO_HOME"
-    # The tmpfs hides the image'"'"'s /tmp, so its X socket directory is made again.
-    # It belongs to this user, so xvfb.log warns "_XSERVTransmkdir: Owner of
-    # /tmp/.X11-unix should be set to root"; that is harmless here.
+    # The tmpfs hides the X socket directory of the image; the xvfb.log owner warning is harmless.
     mkdir -p -m 1777 /tmp/.X11-unix
     rustc --version
     output="$(mktemp)"
-    # Without pipefail the pipeline reports tee; the test status is kept apart.
-    # Each passing run prints a PASS or KNOWN BUG line, which the check below
-    # counts; the unit tests of the runner alone do not count as a QA run.
+    # Runner unit tests alone print no PASS or KNOWN BUG line, so require one.
     cargo test --locked --features qa --test qa -- --include-ignored "$@" 2>&1 | tee "$output"
     status="${PIPESTATUS[0]}"
     if ((status != 0)); then exit "$status"; fi

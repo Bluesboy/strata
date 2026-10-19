@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-//! What a run talks to besides the application, each mirroring a Python
-//! twin's helper: the FileChooser portal request `harness/portal.py` sends,
-//! the image server `test_chooser_image_conversion.image_server` runs, the
-//! foreign drag source `tests/e2e/fixtures/file_drag_source.py` is, and the
-//! ZipCrypto archive `test_archive_errors._write_zipcrypto` writes.
+//! Mirrors of the Python twins' helpers: `harness/portal.py`, `image_server`,
+//! `tests/e2e/fixtures/file_drag_source.py`, and `_write_zipcrypto`.
 
 use std::{
     io::{BufRead, BufReader, Read, Write},
@@ -22,24 +19,16 @@ use std::{
 use gtk::{gio, gio::prelude::*, glib};
 use serde::Deserialize;
 
-/// `BACKEND`, `DESKTOP`, and the interfaces `harness/portal.py` calls.
 const BACKEND: &str = "org.freedesktop.impl.portal.desktop.strata";
 const DESKTOP: &str = "/org/freedesktop/portal/desktop";
 const FILE_CHOOSER: &str = "org.freedesktop.impl.portal.FileChooser";
 const REQUEST: &str = "org.freedesktop.impl.portal.Request";
-/// `tree.wait_until(..., message="portal backend registration", timeout=20)`.
 const REGISTRATION_TIMEOUT: Duration = Duration::from_secs(20);
-/// The `OpenFile` call's own D-Bus timeout, 60000 ms.
 const OPEN_FILE_TIMEOUT_MS: i32 = 60_000;
-/// The `Request.Close` a twin sends when it ends before the answer.
 const CLOSE_TIMEOUT_MS: i32 = 2_000;
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
-/// How long the image server waits for a request's next line.
 const READ_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// The `options` of an `OpenFile` request: `current_folder` as a
-/// NUL-terminated byte string, `multiple`, and `filters` as
-/// `[["PNG images", [[1, "image/png"]]]]`.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct OpenOptions {
@@ -70,15 +59,12 @@ impl OpenOptions {
     }
 }
 
-/// The portal's answer: its status and the chosen files' paths.
 #[derive(Clone, Debug)]
 pub(crate) struct Answer {
     pub(crate) status: u32,
     pub(crate) paths: Vec<PathBuf>,
 }
 
-/// One `OpenFile` request sent to the portal backend on the run's bus, as
-/// `open_file_request` sends it from a worker thread and keeps its future.
 pub(crate) struct PortalRequest {
     connection: gio::DBusConnection,
     handle: String,
@@ -87,8 +73,6 @@ pub(crate) struct PortalRequest {
 }
 
 impl PortalRequest {
-    /// Waits for the backend's name, as the twin's registration wait does,
-    /// then sends the request without waiting for its answer.
     pub(crate) fn send(bus: &str, title: &str, options: &OpenOptions) -> Result<Self, String> {
         let connection = gio::DBusConnection::for_address_sync(
             bus,
@@ -164,7 +148,6 @@ impl PortalRequest {
         })
     }
 
-    /// `future.done()` and, once it is, its result.
     pub(crate) fn poll(&mut self) -> Option<&Result<Answer, String>> {
         if self.answer.is_none() {
             match self.pending.try_recv() {
@@ -180,7 +163,6 @@ impl PortalRequest {
 }
 
 impl Drop for PortalRequest {
-    /// `Request.Close` for a request the scenario left unanswered.
     fn drop(&mut self) {
         if self.poll().is_none() {
             let _ = self.connection.call_sync(
@@ -225,8 +207,6 @@ fn rand_byte() -> u8 {
     byte[0]
 }
 
-/// `image_server(body)`: answers every GET with the body as `image/png`,
-/// counting the requests, until dropped.
 pub(crate) struct ImageServer {
     pub(crate) url: String,
     requests: Arc<AtomicUsize>,
@@ -277,10 +257,8 @@ impl Drop for ImageServer {
     }
 }
 
-/// `BaseHTTPRequestHandler` speaking HTTP/1.0: one response, then close.
 fn serve(stream: std::net::TcpStream, body: &[u8], requests: &AtomicUsize) {
     let _ = stream.set_nonblocking(false);
-    // A client that never finishes its request cannot keep the thread forever.
     let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
     let mut reader = BufReader::new(match stream.try_clone() {
         Ok(stream) => stream,
@@ -310,16 +288,12 @@ fn serve(stream: std::net::TcpStream, body: &[u8], requests: &AtomicUsize) {
         .and_then(|()| stream.flush());
 }
 
-/// What the foreign drag source has reported of its button: its screen box
-/// and its latest label, as the twin reads them through AT-SPI.
 #[derive(Default)]
 struct Reported {
     bounds: Option<[i64; 4]>,
     label: Option<String>,
 }
 
-/// `file_drag_source.py` started through `tests/qa/foreign_drag_source.py`,
-/// which reports its button on stdout; ended as `terminate(source.popen)`.
 pub(crate) struct ForeignSource {
     child: Child,
     reported: Arc<Mutex<Reported>>,
@@ -386,7 +360,6 @@ impl ForeignSource {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// `harness.process.terminate`: SIGTERM to the group, then SIGKILL.
     pub(crate) fn stop(&mut self) {
         let group = rustix::process::Pid::from_child(&self.child);
         for signal in [rustix::process::Signal::TERM, rustix::process::Signal::KILL] {
@@ -409,7 +382,6 @@ impl Drop for ForeignSource {
     }
 }
 
-/// `_zipcrypto_crc32`: one byte into a CRC-32 register, as PKWARE's keys use it.
 fn crc32_byte(byte: u8, crc: u32) -> u32 {
     let mut value = (crc ^ u32::from(byte)) & 0xFF;
     for _ in 0..8 {
@@ -422,7 +394,6 @@ fn crc32_byte(byte: u8, crc: u32) -> u32 {
     (crc >> 8) ^ value
 }
 
-/// PKWARE's traditional encryption keys.
 struct Keys([u32; 3]);
 
 impl Keys {
@@ -460,8 +431,6 @@ impl Keys {
     }
 }
 
-/// `_write_zipcrypto`: one ZipCrypto member, stored or raw-deflated at level
-/// 9, behind a random 11-byte header whose twelfth byte is the CRC's top byte.
 pub(crate) fn write_zipcrypto(
     path: &Path,
     password: &str,
@@ -550,10 +519,8 @@ pub(crate) fn write_zipcrypto(
     std::fs::write(path, archive).map_err(|error| format!("{}: {error}", path.display()))
 }
 
-/// `_zipcrypto_crc_collision`: the first numeric password in 0..4096 whose
-/// decrypted header ends in the CRC's top byte, which `zipfile` takes for a
-/// right password before the member fails its CRC or decompression, so the
-/// twin's loop returns it.
+/// The first numeric password whose decrypted check byte matches the CRC's top byte,
+/// which Python's `zipfile` accepts as right before the member fails its CRC.
 pub(crate) fn zipcrypto_collision(path: &Path) -> Result<String, String> {
     let archive = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
     let field = |at: usize| -> Result<u16, String> {

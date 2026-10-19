@@ -55,7 +55,6 @@ fn launch_mode_recognizes_only_the_first_argument_as_a_mode() {
         ("--unlock-volume", LaunchMode::Application),
         #[cfg(feature = "qa")]
         ("--qa", LaunchMode::Qa),
-        // Without the feature `--qa` is no mode; GIO rejects it as an unknown option.
         #[cfg(not(feature = "qa"))]
         ("--qa", LaunchMode::Application),
     ] {

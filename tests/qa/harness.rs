@@ -1,18 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-//! The test harness of `tests/qa.rs` (`harness = false`): libtest's command
-//! line and output, but tests start in the order the runner gives them, so
-//! the costliest scenario runs start first and no long run starts last.
-//!
-//! It takes the libtest options the scripts pass: name filters, `--exact`,
-//! `--skip`, `--test-threads` (or `RUST_TEST_THREADS`), `--ignored`,
-//! `--include-ignored`, and `--list` with `--format terse`, plus its own
-//! `--skip-exact`. `--nocapture`, `--show-output`, `--report-time`,
-//! `--shuffle`, `--shuffle-seed`, `--color`, and `-Z` change nothing: output
-//! is never captured, each line is written whole by the main thread, every
-//! result line has its time, and cost order wins over shuffling. The `--list`
-//! lines and the `test result:` summary are libtest's, which
-//! `scripts/quality_ci.py` reads.
+//! libtest-compatible harness that starts the costliest runs first. The `--list` lines
+//! and the `test result:` summary must stay libtest's: `scripts/quality_ci.py` parses them.
 
 use std::{
     cell::RefCell,
@@ -26,7 +15,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// libtest's exit status for failed tests and for a command line it rejects.
 pub const FAILED: u8 = 101;
 
 pub const USAGE: &str = "\
@@ -52,34 +40,22 @@ Accepted and ignored: --nocapture, --show-output, --report-time, --shuffle,
 ";
 
 pub enum Outcome {
-    /// With the line printed under the test's own, such as `PASS ...`.
     Passed(Option<String>),
-    /// What went wrong, printed in the failures section at the end.
     Failed(String),
 }
 
 pub struct Skip {
     pub reason: String,
-    /// Printed once before the tests start, however many of the group's tests it skips.
     pub notice: String,
 }
 
 pub struct Test {
     pub name: String,
-    /// The scenario a run belongs to: an exact filter or `--skip` naming it
-    /// takes all of its runs, and never another scenario's.
     pub group: Option<String>,
-    /// Why the test runs only with `--ignored` or `--include-ignored`.
     pub ignored: Option<&'static str>,
-    /// Keeps the test out even when ignored tests are included.
     pub skip: Option<Skip>,
-    /// The run's relative cost: costlier tests start first, and a test
-    /// without one starts before them all, as it may be costly.
     pub cost: Option<f64>,
-    /// Exclusive tests never run at the same time as one another; the next
-    /// test that is free to start takes the thread instead of waiting.
     pub exclusive: bool,
-    /// Printed before any test starts, when the test is going to run.
     pub plan: Option<String>,
     pub run: Box<dyn FnOnce() -> Outcome + Send>,
 }
@@ -88,7 +64,6 @@ pub struct Test {
 pub struct Arguments {
     pub filters: Vec<String>,
     pub skip: Vec<String>,
-    /// Matched as `--exact` matches, whether or not it is given.
     pub skip_exact: Vec<String>,
     pub help: bool,
     pub exact: bool,
@@ -167,12 +142,10 @@ impl Arguments {
     }
 }
 
-/// Whether the name is the test's own or its whole scenario's.
 fn named_by(test: &Test, name: &str) -> bool {
     test.name == name || test.group.as_deref() == Some(name)
 }
 
-/// `--test-threads`, else a valid `RUST_TEST_THREADS`, else one per CPU.
 fn thread_count(arguments: &Arguments) -> Result<usize, String> {
     if let Some(count) = arguments.threads {
         return Ok(count);
@@ -192,8 +165,7 @@ fn threads(text: &str) -> Result<usize, String> {
         .ok_or_else(|| format!("the thread count must be a positive number, not {text:?}"))
 }
 
-/// Costliest first; a test without a cost before every test with one; equal
-/// costs by name, so the order is the same every time.
+/// Uncosted tests start first, as they may be costly; ties sort by name.
 pub fn starts_before(first: &Test, second: &Test) -> Ordering {
     match (first.cost, second.cost) {
         (None, Some(_)) => Ordering::Less,
@@ -204,8 +176,6 @@ pub fn starts_before(first: &Test, second: &Test) -> Ordering {
     .then_with(|| first.name.cmp(&second.name))
 }
 
-/// The first pending test free to start while an exclusive test is, or is
-/// not, running.
 pub fn next_to_start(pending: &[Test], exclusive_running: bool) -> Option<usize> {
     pending
         .iter()
@@ -220,7 +190,6 @@ struct Finished {
 }
 
 thread_local! {
-    /// Set on a test's thread: its panic message lands here, not on stderr.
     static PANIC: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
@@ -246,7 +215,6 @@ fn capture_panics() {
                 ":\n{}",
                 info.payload_as_str().unwrap_or("Box<dyn Any>")
             );
-            // Honours RUST_BACKTRACE (and RUST_LIB_BACKTRACE), as the default hook does.
             let backtrace = std::backtrace::Backtrace::capture();
             if backtrace.status() == std::backtrace::BacktraceStatus::Captured {
                 let _ = write!(text, "stack backtrace:\n{backtrace}");
@@ -302,7 +270,6 @@ fn start(test: Test, finished: &Sender<Finished>) {
     }
 }
 
-/// Writes whole lines at once, so nothing else lands inside one.
 fn emit(text: &str) {
     let mut stdout = std::io::stdout().lock();
     let _ = stdout.write_all(text.as_bytes());

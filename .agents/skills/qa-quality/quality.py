@@ -29,7 +29,6 @@ IGNORED_STEP_KEYS = {"message", "timeout_ms"}
 
 
 def score(impact: int, coverage: int, criticality: int, diagnostic: int) -> int:
-    """The rubric's score: 100 * (coverage-1)/4 * P/32, rounded half up."""
     for value in (impact, coverage, criticality, diagnostic):
         if not 1 <= value <= 5:
             raise ValueError("every dimension is an integer from 1 to 5")
@@ -42,7 +41,6 @@ def score(impact: int, coverage: int, criticality: int, diagnostic: int) -> int:
 
 
 def value_spans(header: str) -> tuple[dict[str, tuple[int, int]], int]:
-    """Each top-level key's value span in the header, and the closing brace's index."""
     decoder = json.JSONDecoder()
     index = SPACE.match(header, 0).end()
     if header[index:index + 1] != "{":
@@ -102,7 +100,6 @@ def write(path: Path, impact: int, coverage: int, criticality: int, diagnostic: 
 
 
 def note_problem(note: object) -> str | None:
-    """Why a note is not one non-empty line, as `str.splitlines` splits it; None if it is."""
     if not isinstance(note, str) or not note.strip():
         return "the note is a non-empty string"
     if note.splitlines() != [note]:
@@ -111,7 +108,6 @@ def note_problem(note: object) -> str | None:
 
 
 def quality_problem(quality: object) -> str | None:
-    """Why a recorded quality value breaks the fixed shape or the formula; None if it is valid."""
     if not isinstance(quality, dict):
         return "quality is not an object"
     expected = {*DIMENSIONS, "score", "note"}
@@ -130,7 +126,6 @@ def quality_problem(quality: object) -> str | None:
 
 
 def replace_atomically(path: Path, data: bytes) -> None:
-    """Writes data to a temporary file beside path, with path's mode, then renames it over path."""
     mode = path.stat().st_mode & 0o7777
     handle, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     try:
@@ -158,7 +153,6 @@ def steps(path: Path) -> set[str]:
 
 
 def folder_path(folder: str) -> Path:
-    """A folder given by bare name (test_clipboard) or by path; an error if it does not exist."""
     for candidate in (SCENARIOS / folder, Path(folder)):
         if candidate.is_dir():
             return candidate.resolve()

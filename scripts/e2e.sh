@@ -16,8 +16,6 @@ if [[ -n "${STRATA_BINARY:-}" ]]; then
   exit 1
 fi
 
-# CI points the Cargo home and target directory at the restored quality cache,
-# which `--all-features` built in the same image ("QA in CI", docs/e2e-testing.md).
 cargo_cache="$(realpath -m --relative-to="$repository" "${STRATA_E2E_CARGO_CACHE:-$repository/target/e2e-container}")"
 if [[ "$cargo_cache" != target/* ]]; then
   echo "STRATA_E2E_CARGO_CACHE must name a directory under the checkout's target/." >&2
@@ -52,8 +50,7 @@ elif [[ -z "$bundle" ]]; then
   image="$(python3 "$repository/scripts/e2e_base.py" verify "$image" --engine "$engine")"
 fi
 
-# Parity output directories (docs/e2e-testing.md) must be inside the checkout,
-# which the container sees at /workspace.
+# The container sees only the checkout, at /workspace.
 parity_variables=()
 for variable in STRATA_INPUT_LOG STRATA_STATE_DUMP; do
   value="${!variable:-}"

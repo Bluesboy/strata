@@ -16,12 +16,11 @@ set -euo pipefail
 
 unset DISPLAY WAYLAND_DISPLAY NOTIFY_SOCKET
 repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# Inside the container, where every path below lives.
 session=/tmp/qa-drive
 shared=/workspace/target/qa-drive
 display=:90
 
-# As tests/qa.rs launches each run; scripts/test_qa_drive.py keeps them in step.
+# Must match how tests/qa.rs launches each run; scripts/test_qa_drive.py checks them.
 xvfb_arguments=(-screen 0 1440x900x24 -dpi 96 -nolisten tcp -noreset -ac)
 qa_environment=(GTK_A11Y=none NO_AT_BRIDGE=1)
 xdg_directories=(HOME=home XDG_CONFIG_HOME=config XDG_DATA_HOME=data XDG_CACHE_HOME=cache XDG_STATE_HOME=state)
@@ -50,8 +49,6 @@ usage() {
   sed -n '2,14s/^# \{0,1\}//p' "${BASH_SOURCE[0]}"
 }
 
-# ------------------------------------------------------------ in the container
-
 inside() {
   [[ "${STRATA_QA_CONTAINER:-}" == 1 ]] || {
     echo "qa-drive.sh $1 runs only inside its container" >&2
@@ -59,11 +56,6 @@ inside() {
   }
 }
 
-# `seed SESSION FIXTURE` writes HOME and the fixture from
-# tests/fixtures/harness.json as the QA runner does, and the application's
-# environment to $session/app.env; `prefs SETTINGS` rewrites (or adds)
-# top-level keys of a saved settings.toml for a restart. Both take
-# QA_DRIVE_PREFS, KEY=VALUE lines.
 prepare() {
   python3 - "$@" <<'PYTHON'
 import json, os, re, sys
@@ -131,7 +123,6 @@ os.makedirs(f"{home}/config/gtk-4.0", exist_ok=True)
 with open(f"{home}/config/gtk-4.0/settings.ini", "w") as file:
     file.write(manifest["gtk_settings"])
 os.makedirs(f"{home}/config/strata", exist_ok=True)
-# Pre-answers the first-run portal offer, which would cover the window.
 with open(f"{home}/config/strata/{manifest['portal_offer_marker']}", "w") as file:
     file.write("1\n")
 preferences = dict(manifest["preferences"])
@@ -152,7 +143,6 @@ with open(f"{session}/app.env", "w") as file:
 PYTHON
 }
 
-# The variables every process of the session gets: HOME, XDG, display, bus.
 session_variables() {
   local pair
   for pair in "${xdg_directories[@]}"; do
@@ -169,7 +159,6 @@ launch_app() {
   rm -f "$session/in" "$session/replies"
   mkfifo "$session/in"
   : > "$session/replies"
-  # Replies are numbered by the commands sent; the launch reply is the first.
   echo 1 > "$session/sent"
   setsid env -i --chdir="$(cat "$session/fixture")" PATH="$PATH" "${environment[@]}" \
     "${qa_environment[@]}" "${variables[@]}" \
@@ -177,16 +166,14 @@ launch_app() {
     "${CARGO_TARGET_DIR:?}/debug/strata" --qa "$(cat "$session/fixture")" \
     < "$session/in" > "$session/replies" 2> "$session/strata.log" &
   echo "$!" > "$session/app.pid"
-  # Holds the command pipe open between sends, read-write so a send never
-  # blocks on a dead reader; closing it ends the session.
+  # Holds the command pipe open read-write, so a send never blocks on a dead reader.
   sleep infinity <> "$session/in" > /dev/null 2>&1 &
   echo "$!" > "$session/keeper.pid"
   await_reply 1 "$launch_timeout" launch
 }
 
-# Prints reply number $1 once it arrives, within $2 seconds. A reply that
-# arrives after its send gave up keeps its number, so it is never taken for
-# a later command's.
+# A reply arriving after its send gave up keeps its number, so it is never
+# taken for a later command's.
 await_reply() {
   local number="$1" deadline=$((SECONDS + $2)) app
   app="$(cat "$session/app.pid")"
@@ -206,8 +193,6 @@ await_reply() {
   sed -n "${number}p" "$session/replies"
 }
 
-# Closes the command pipe, which makes strata quit, then signals its group,
-# as the runner's stop and terminate do.
 stop_app() {
   [[ -f "$session/app.pid" ]] || return 0
   local app signal wait
@@ -232,7 +217,6 @@ case "${1:-}" in
   _build)
     inside "$1"
     mkdir -p "$HOME" "$CARGO_HOME" "$shared"
-    # The same build ./scripts/qa.sh makes, so the two share the cache.
     if ! cargo test --locked --features qa --test qa --no-run > "$shared/build.log" 2>&1; then
       tail -n 40 "$shared/build.log" >&2
       exit 1
@@ -289,8 +273,6 @@ case "${1:-}" in
     inside "$1"
     shift
     for command in "$@"; do
-      # One compact line, and the runner's reply budget: the command timeout,
-      # or the command's own timeout plus the margin.
       checked="$(python3 - "$command" "$command_timeout" "$wait_margin" <<'PYTHON'
 import json, sys
 try:
@@ -341,8 +323,6 @@ PYTHON
     exit 0
     ;;
 esac
-
-# ------------------------------------------------------------------ on the host
 
 # shellcheck source=lib/qa-container.sh
 source "$repository/scripts/lib/qa-container.sh"
@@ -410,8 +390,7 @@ case "${1:-}" in
     qa_container_mounts
     rm -rf "$repository/target/qa-drive"
     mkdir -p "$repository/target/qa-drive"
-    # Set before the container exists, so a start that fails at any later
-    # point removes it.
+    # Set before the container exists, so a failed start always removes it.
     trap '"$engine" rm --force "$name" > /dev/null 2>&1 || true' EXIT
     "$engine" run "${options[@]}" "${mounts[@]}" "$image" sleep infinity > /dev/null
     echo "building strata --qa (log: target/qa-drive/build.log)" >&2

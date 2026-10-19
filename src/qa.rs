@@ -1,9 +1,5 @@
 // SPDX-License-Identifier: MIT
 
-//! `strata --qa <directory>`: the normal window, driven by JSON commands on
-//! stdin, with one JSON reply per command on stdout. Built only with the `qa`
-//! feature; `tests/qa.rs` is the runner and `docs/e2e-testing.md` the guide.
-
 mod criticals;
 mod input;
 mod pixels;
@@ -39,87 +35,62 @@ use self::{
     targets::{Aim, Boxes, Kept, LookupError, Memory, Rect},
 };
 
-/// Present in every `qa` build. The release workflow fails a binary containing its
-/// stable prefix `usage: strata --qa`, and the QA job checks a `qa` build does;
-/// `scripts/test_qa_parity.py` requires both checks' pattern to prefix this text.
+/// The release workflow and QA job grep for its `usage: strata --qa` prefix;
+/// `scripts/test_qa_parity.py` checks the patterns against this text.
 const USAGE: &str = "usage: strata --qa <directory|--portal>";
-/// `ui::browser::peek::PEEK_LABEL`, whose module is private to the browser; the
-/// Python harness names it alike, and a peek test fails if the two drift apart.
+/// Mirrors the private `ui::browser::peek::PEEK_LABEL`; a peek test fails if they drift.
 pub(crate) const PEEK_LABEL: &str = "Folder peek";
 const READY_TIMEOUT: Duration = Duration::from_secs(60);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
-/// How often readiness is checked while the window has no frame clock yet.
 const READY_POLL: Duration = Duration::from_millis(5);
 const FRAME_TIMEOUT: Duration = Duration::from_millis(250);
-// The pointer timings mirror `tests/e2e/harness/interaction.py`, so both
-// harnesses feed GTK the same rhythm; each gap also lets a frame settle.
-/// Held like a physical click: a layout change caused by the press makes GTK
-/// synthesize motion from the live pointer state one frame later, and a
+// Pointer timings mirror `tests/e2e/harness/interaction.py`.
+/// A layout change from the press makes GTK synthesize motion a frame later, and a
 /// release it has not read yet would cancel the click.
 const BUTTON_HOLD: Duration = Duration::from_millis(100);
-/// With the hold, two clicks stay well inside GTK's 400 ms double-click time,
-/// so nothing may settle between them.
+/// Keeps two clicks inside GTK's 400 ms double-click time; nothing may settle between them.
 const DOUBLE_CLICK_GAP: Duration = Duration::from_millis(90);
-/// Comfortably outside the double-click time, so a drag right after a
-/// selecting click does not become a double-click activation.
+/// Outside the double-click time, so a drag after a selecting click is no double-click.
 const SEPARATE_CLICK_GAP: Duration = Duration::from_millis(600);
 const EVENT_GAP: Duration = Duration::from_millis(20);
 const POINTER_GAP: Duration = Duration::from_millis(50);
-/// `select_entry` in `tests/e2e/harness/browser.py`: a click can land before
-/// GTK maps the row for input, so it clicks once more after this long.
+/// A click can land before GTK maps the row for input, so it clicks again after this long.
 const SELECT_RETRY_AFTER: Duration = Duration::from_secs(4);
-/// `tree.DEFAULT_TIMEOUT`: how long the Python lookups wait for a node.
 const LOCATE_TIMEOUT: Duration = Duration::from_secs(15);
-/// `Strata.settle` samples: the same bounds this many polls in a row.
 const SETTLE_SAMPLES: usize = 3;
-/// `MENU_RETRY_INTERVAL` in `tests/e2e/harness/browser.py`.
 const MENU_RETRY_AFTER: Duration = Duration::from_secs(1);
-/// `Strata.KEYBOARD_SELECT_STEPS`: enough to cross any fixture directory.
 const KEYBOARD_SELECT_STEPS: usize = 40;
 const PANIC_EXIT: i32 = 70;
-/// `Strata.REVEAL_SCROLL_ATTEMPTS`, each three wheel clicks at the window's centre.
 const REVEAL_SCROLL_ATTEMPTS: usize = 12;
 const WHEEL_REVEAL_CLICKS: u32 = 3;
 const ARRIVAL_ATTEMPTS: usize = 5;
 /// Approach a point in two steps so GTK sees enter and motion, not a teleport.
 const APPROACH_OFFSET: i16 = 6;
-/// When `test_drag_completion_keeps_the_source_label_in_place` samples the
-/// source label after letting go, and the latest any sample may be taken.
 const DROP_SAMPLE_DELAYS: [Duration; 3] = [
     Duration::from_millis(60),
     Duration::from_millis(120),
     Duration::from_millis(180),
 ];
 const DROP_SAMPLE_LIMIT: Duration = Duration::from_millis(240);
-/// How far a sampled label may sit from where it rested, in pixels.
 const DROP_SAMPLE_DRIFT: f64 = 1.5;
-/// How much a sampled label's contrast must recover over the dragging one.
 const DROP_SAMPLE_RECOVERY: f64 = 1.25;
 
 pub(crate) struct Session {
     protocol: File,
     application_arguments: Vec<OsString>,
-    /// `strata --qa --portal`: the FileChooser portal backend, driven the
-    /// same way once a request opens its chooser.
     portal: bool,
 }
 
-/// `strata --qa --portal` runs the portal backend instead of the browser.
 const PORTAL_ARGUMENT: &str = "--portal";
-/// Set by the runner for a launch whose standard output and error a twin
-/// leaves closed or discarded: `stdout=closed,stderr=null`.
 const STREAMS_VARIABLE: &str = "STRATA_QA_STREAMS";
 
-/// Where the controller finds its windows: the browser's application, or
-/// the portal backend's own main loop.
 enum Host {
     Application(gtk::Application),
     Portal(glib::MainLoop),
 }
 
 impl Session {
-    /// Takes over stdout for replies before anything can log there; the
-    /// application's own output, tracing included, goes to stderr instead.
+    /// Takes over stdout for replies before anything can log there; app output goes to stderr.
     pub(crate) fn prepare(arguments: &[OsString]) -> Result<Self, String> {
         let [program, _, directory] = arguments else {
             return Err(USAGE.to_owned());
@@ -143,17 +114,14 @@ impl Session {
         })
     }
 
-    /// Whether this session drives the portal backend rather than the browser.
     pub(crate) fn portal(&self) -> bool {
         self.portal
     }
 
-    /// Starts the controller once the portal backend's GTK is ready.
     pub(crate) fn start_portal(self, main_loop: &glib::MainLoop) {
         self.start(Host::Portal(main_loop.clone()));
     }
 
-    /// The command line the application itself sees: an ordinary launch in the directory.
     pub(crate) fn application_arguments(&self) -> &[OsString] {
         &self.application_arguments
     }
@@ -231,35 +199,21 @@ struct Controller {
     host: Host,
     protocol: File,
     injector: Option<Injector>,
-    /// The browser window the run started with, `strata.window`: a floating
-    /// chooser becomes the active window while it is open, and state is
-    /// still read from the browser.
+    /// A floating chooser becomes the active window while open; state is read from the browser.
     main: glib::WeakRef<gtk::Window>,
     previous: Option<Value>,
-    /// Where each target came to rest in its last `settle`, keyed by its JSON,
-    /// and the boxes `settle` and `remember` kept under a name.
     settled: RefCell<Boxes>,
-    /// The fields `remember` kept, for `{"field":"name"}` and `of`.
     memory: RefCell<Memory>,
-    /// The other widgets `remember` kept, apart from the fields so a field
-    /// lookup never resolves one, for `replaced`.
     widgets: RefCell<Memory>,
-    /// Screen captures, text measurements, and instants, by the name a step
-    /// kept them under.
     samples: RefCell<HashMap<String, Sample>>,
-    /// The second display connection a `clipboard_set` opened and owns the
-    /// clipboard through, until the `clipboard` read that closes it.
+    /// Owns the clipboard a `clipboard_set` set, until the `clipboard` read closes it.
     clipboard: RefCell<Option<gdk::Display>>,
 }
 
 #[derive(Clone)]
 enum Sample {
     Pixels(Capture),
-    /// `text_position`: the ink's mean row and its contrast.
-    Text {
-        position: f64,
-        contrast: u64,
-    },
+    Text { position: f64, contrast: u64 },
     Instant(Instant),
 }
 
@@ -297,7 +251,6 @@ impl Controller {
             Host::Application(application) => Some(application.hold()),
             Host::Portal(_) => None,
         };
-        // The portal has no window until a request opens one, which `adopt` awaits.
         let ready = match self.host {
             Host::Application(_) => self.await_ready().await,
             Host::Portal(_) => Ok(()),
@@ -342,7 +295,6 @@ impl Controller {
         })
     }
 
-    /// Every application window, for checks that read them all.
     fn windows(&self) -> Vec<gtk::Window> {
         match &self.host {
             Host::Application(application) => application.windows(),
@@ -353,9 +305,6 @@ impl Controller {
         }
     }
 
-    /// Readiness changes only when the window lays out, so each check after
-    /// the first waits for the window's next paint, or [`POLL_INTERVAL`]
-    /// without one.
     async fn await_ready(&self) -> Result<(), String> {
         let deadline = Instant::now() + READY_TIMEOUT;
         loop {
@@ -381,7 +330,6 @@ impl Controller {
             .map(|window| state::scan(&window).observation.app_state())
             .and_then(|app| serde_json::to_value(app).ok())
             .unwrap_or_else(|| match self.host {
-                // A chooser that closed, or none yet: an empty tree, as AT-SPI reads one.
                 Host::Portal(_) => state::empty_app_state(),
                 Host::Application(_) => Value::Null,
             });
@@ -509,7 +457,6 @@ impl Controller {
                     },
                 name,
             } => {
-                // `find(..., rendered=False)` keeps a node that may be scrolled away.
                 let deadline = Instant::now() + LOCATE_TIMEOUT;
                 loop {
                     match input.presented(&target) {
@@ -604,7 +551,6 @@ impl Controller {
                         };
                         let number = match evaluate(&input, expr)? {
                             Ok(number) => number,
-                            // Polled until found, a number not there yet is no answer yet.
                             Err(_) if wait.is_some() => return Ok(Value::Null),
                             Err(missing) => {
                                 return Err(format!("cannot work out the number: {missing}"));
@@ -633,7 +579,6 @@ impl Controller {
                         unless_first.as_deref(),
                     ),
                 };
-                // A list that does not match yet is no answer yet.
                 let read = || {
                     read().map(|value| match &until_names {
                         Some(names) => {
@@ -1074,8 +1019,7 @@ impl Controller {
                             false
                         }
                     };
-                    // `_settles` gives up with one last look at the condition,
-                    // which need not hold any longer.
+                    // Like `_settles`, one last look; the condition need not still hold.
                     if (failures.is_empty() && held)
                         || deadline.is_none_or(|deadline| Instant::now() >= deadline)
                     {
@@ -1147,9 +1091,6 @@ impl Controller {
         }
     }
 
-    /// Waits for a showing application window titled `title`, as
-    /// `application.find(name=title)` returns the portal's chooser, and reads
-    /// state and resolves targets in it from then on.
     async fn adopt(&self, title: &str, timeout: Duration, message: Option<&str>) -> Outcome {
         let deadline = Instant::now() + timeout;
         loop {
@@ -1173,8 +1114,6 @@ impl Controller {
         }
     }
 
-    /// A control presented anywhere, as `window.find(..., rendered=False)`,
-    /// waited for as `strata.wait` waits, with its scroll pane.
     async fn presented_control(
         &self,
         input: &Input<'_>,
@@ -1225,7 +1164,6 @@ impl Controller {
         Ok((node, scroll))
     }
 
-    /// `test_text_size._reveal_page_control`.
     async fn reveal_control(&self, input: &Input<'_>, target: &Target) -> Outcome {
         let name = control_name(target);
         let (node, scroll) = match self
@@ -1269,7 +1207,6 @@ impl Controller {
             let below = bounds[1] + bounds[3] - (view_y + view_height);
             let above = view_y - bounds[1];
             let distance = below.max(above);
-            // `int(distance / viewport.height) * 3`, truncated toward zero.
             #[expect(
                 clippy::cast_precision_loss,
                 clippy::cast_possible_truncation,
@@ -1379,8 +1316,7 @@ impl Controller {
         }
     }
 
-    /// `open_appearance_menu`: a late startup focus change can close the
-    /// menu as it opens, so an unchecked target is clicked again each second.
+    /// A late startup focus change can close the menu as it opens, so it is re-clicked each second.
     async fn open_menu(
         &self,
         input: &Input<'_>,
@@ -1405,9 +1341,7 @@ impl Controller {
                 }
                 Ok(Err(_)) => {}
             }
-            // The twin tests AT-SPI's `checked`, which GTK never reports for
-            // a toggle button (an open menu's toggle is `pressed`), so it
-            // re-clicks whenever the menu is still closed; so does this.
+            // GTK never reports `checked` for a toggle button, so re-click while the menu is shut.
             let open = input
                 .locate_now(target, None, Aim::Point)
                 .is_ok_and(|located| {
@@ -1425,8 +1359,6 @@ impl Controller {
         }
     }
 
-    /// `Strata.settle`: polls until the target's bounds repeat, then keeps
-    /// them for later `moved` checks.
     async fn settle_target(
         &self,
         input: &Input<'_>,
@@ -1471,8 +1403,6 @@ impl Controller {
         }
     }
 
-    /// A wheel's `until`: turns the wheel while the predicate does not hold,
-    /// checking first, as a twin's loop does.
     #[expect(
         clippy::too_many_arguments,
         reason = "a wheel's own fields plus its repeat"
@@ -1512,7 +1442,6 @@ impl Controller {
         }
     }
 
-    /// `text_position` over a kept box, from a fresh grab.
     fn measure_text(
         &self,
         injector: &Injector,
@@ -1545,9 +1474,7 @@ impl Controller {
         }
     }
 
-    /// The drag-completion scenario's release: Escape first when asked, then
-    /// the button, with no pause, then a grab at each of the exact delays
-    /// rather than the 50 ms poll, each measured only after all are taken.
+    /// Grabs at the exact delays rather than polling, measuring only after all are taken.
     async fn drop_samples(
         &self,
         input: &Input<'_>,
@@ -1639,8 +1566,7 @@ impl Controller {
         Outcome::default()
     }
 
-    /// A mismatch is the predicate not holding; the outer error is a lookup
-    /// that broke, which no amount of waiting fixes.
+    /// Outer error: a broken lookup, which waiting cannot fix; inner: the predicate not holding.
     fn check(
         &self,
         input: &Input<'_>,
@@ -2017,7 +1943,6 @@ impl Controller {
                             targets::accessible_name(widget).contains(text.as_str())
                                 || targets::accessible_description(widget).contains(text.as_str())
                         }),
-                        // `dialog.find(predicate=...)` looks only at rendered nodes.
                         (None, Some(words)) => {
                             let words = state::collapse_whitespace(words);
                             widgets
@@ -2191,7 +2116,6 @@ impl Controller {
                 verdict(holds, json!(rows))
             }
             Check::HitPath(hit) => {
-                // `TXT_HITS[order[0]]` raises a KeyError for a hit it does not list.
                 if !hit.hits.contains_key(&hit.name) {
                     return Err(format!("{:?} is not one of the hits", hit.name));
                 }
@@ -2274,7 +2198,6 @@ impl Controller {
                             boxes.push([width, height]);
                         }
                     }
-                    // `max(images, key=area)` keeps the first of equal areas.
                     let biggest = boxes.iter().copied().reduce(|best, next| {
                         if next[0] * next[1] > best[0] * best[1] {
                             next
@@ -2400,9 +2323,6 @@ impl Controller {
     }
 }
 
-/// `(pid, state)` of each process whose parent is this one and whose command
-/// name starts with `prefix`, as `test_terminal._launcher_children` reads
-/// `/proc/<pid>/stat`; a process gone between listing and reading is skipped.
 fn child_processes(prefix: &str) -> Result<Vec<(u32, String)>, String> {
     let parent = std::process::id();
     let mut found = Vec::new();
@@ -2434,9 +2354,6 @@ fn child_processes(prefix: &str) -> Result<Vec<(u32, String)>, String> {
     Ok(found)
 }
 
-/// The rendered list items below `root` in DFS order, grouped under each
-/// unselectable heading row by the first named child of that row, as
-/// `test_open_with_names_rows_and_tabs_out_of_the_list` groups them.
 fn list_sections(root: &gtk::Widget) -> Vec<(String, Vec<String>)> {
     let mut sections: Vec<(String, Vec<String>)> = Vec::new();
     for row in targets::presented(root) {
@@ -2460,7 +2377,6 @@ fn list_sections(root: &gtk::Widget) -> Vec<(String, Vec<String>)> {
             if !sections.iter().any(|(existing, _)| *existing == heading) {
                 sections.push((heading.clone(), Vec::new()));
             }
-            // A heading seen again keeps its rows; later rows land under it.
             let index = sections
                 .iter()
                 .position(|(existing, _)| *existing == heading)
@@ -2474,9 +2390,6 @@ fn list_sections(root: &gtk::Widget) -> Vec<(String, Vec<String>)> {
     sections
 }
 
-/// A second connection to the application's display, as
-/// `Gdk.Display.open(strata.display.display)` opens one beside the
-/// application's own.
 fn private_display() -> Result<gdk::Display, String> {
     let name = gdk::Display::default()
         .map(|display| display.name())
@@ -2484,8 +2397,6 @@ fn private_display() -> Result<gdk::Display, String> {
     gdk::Display::open(Some(&name)).ok_or_else(|| format!("cannot open the display {name}"))
 }
 
-/// The clipboard's text through `display`, waiting as `strata.wait` would;
-/// none when nothing came in time.
 async fn read_clipboard(display: &gdk::Display) -> Option<String> {
     let read = display.clipboard().read_text_future();
     match glib::future_with_timeout(protocol::DEFAULT_WAIT, read).await {
@@ -2494,7 +2405,6 @@ async fn read_clipboard(display: &gdk::Display) -> Option<String> {
     }
 }
 
-/// Long clipboard text cut down for a failure report.
 fn abridged(text: &str) -> String {
     const LIMIT: usize = 200;
     match text.char_indices().nth(LIMIT) {
@@ -2503,9 +2413,6 @@ fn abridged(text: &str) -> String {
     }
 }
 
-/// Points standard output and error where a twin's `Popen` would have:
-/// `closed` is a pipe whose reading end is already closed, as a twin closes
-/// `process.stdout` right after starting it, and `null` is `/dev/null`.
 fn replace_streams(spec: &str) -> Result<(), String> {
     for part in spec.split(',') {
         let (stream, kind) = part
@@ -2535,7 +2442,6 @@ fn replace_streams(spec: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// A role target looked up presented, as `find(..., rendered=False)`.
 fn presented(target: &Target) -> Target {
     let mut target = target.clone();
     if let Target::Role { rendered, .. } = &mut target {
@@ -2544,7 +2450,6 @@ fn presented(target: &Target) -> Target {
     target
 }
 
-/// The name a role target looks for, as a twin's helper names its control.
 fn control_name(target: &Target) -> String {
     match target {
         Target::Role {
@@ -2554,7 +2459,6 @@ fn control_name(target: &Target) -> String {
     }
 }
 
-/// A string as Python's `repr` prints it, for messages a twin formats with `!r`.
 fn python_repr(text: &str) -> String {
     let quote = if text.contains('\'') && !text.contains('"') {
         '"'
@@ -2578,7 +2482,6 @@ fn python_repr(text: &str) -> String {
     printed
 }
 
-/// A whole number as an integer, as Python prints `int`s, else a float.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "only whole numbers well inside the i64 range are converted"
@@ -2591,10 +2494,7 @@ fn number_json(number: f64) -> Value {
     }
 }
 
-/// Works an [`Expr`] out against the window now. The outer error is a broken
-/// lookup or a malformed number; the inner one is something not there yet,
-/// such as a target off screen, which a wait keeps polling through, as a
-/// twin's condition raising inside `strata.wait` is retried.
+/// Outer error: a broken lookup or malformed number; inner: not there yet, so a wait keeps polling.
 fn evaluate(input: &Input<'_>, expr: &Expr) -> Result<Result<f64, String>, String> {
     let pair = |items: &[Expr; 2]| -> Result<Result<(f64, f64), String>, String> {
         Ok(
@@ -2711,8 +2611,6 @@ fn evaluate(input: &Input<'_>, expr: &Expr) -> Result<Result<f64, String>, Strin
     })
 }
 
-/// `test_monitor_selection.visible_entries`: the deepest pane's entries whose
-/// top edge lies inside the scroll viewport around its entry list.
 fn visible_top(input: &Input<'_>) -> Result<Vec<String>, String> {
     let scene = state::scan(input.window);
     let (Some(pane), Some(widgets)) = (scene.observation.pane(None), scene.pane_widgets(None))
@@ -2740,8 +2638,6 @@ fn visible_top(input: &Input<'_>) -> Result<Vec<String>, String> {
         .collect())
 }
 
-/// The active theme's accent colour, as the twin reads `settings["theme"]`
-/// and looks its `accent` up in `data/themes/catalog.toml`.
 fn theme_accent() -> Result<[u8; 3], String> {
     let preferences = preferences()?;
     let theme = preferences
@@ -2751,7 +2647,6 @@ fn theme_accent() -> Result<[u8; 3], String> {
     catalog_accent(include_str!("../data/themes/catalog.toml"), theme)
 }
 
-/// `ImageColor.getrgb(theme["accent"])` for the catalog theme with this id.
 fn catalog_accent(catalog: &str, theme: &str) -> Result<[u8; 3], String> {
     let catalog: toml::Table = toml::from_str(catalog).map_err(|error| error.to_string())?;
     let accent = catalog
@@ -2773,8 +2668,6 @@ fn catalog_accent(catalog: &str, theme: &str) -> Result<[u8; 3], String> {
     Ok([channel(0)?, channel(2)?, channel(4)?])
 }
 
-/// `footer_hit`: beside the footer mark, the first panel whose rendered
-/// labels, joined, are one of the hits' paths.
 fn hit_path(window: &gtk::Window, hit: &protocol::HitPath) -> Option<String> {
     let mark = targets::presented(window.upcast_ref())
         .into_iter()
@@ -2808,8 +2701,6 @@ fn hit_path(window: &gtk::Window, hit: &protocol::HitPath) -> Option<String> {
     None
 }
 
-/// The samples as the twin's `assert ..., samples` prints them, its message:
-/// `[(elapsed, (position, contrast)), ...]` with seconds as Python floats.
 fn python_samples(samples: &[(Duration, f64, u64)]) -> String {
     let items: Vec<String> = samples
         .iter()
@@ -2838,8 +2729,6 @@ fn drop_failure(message: &str, samples: &[(Duration, f64, u64)]) -> Outcome {
     }
 }
 
-/// The screen's pixels in a box that must lie wholly on the screen, as
-/// `text_position` indexes a screenshot's pixels and fails past its edge.
 fn grab_on_screen(injector: &Injector, rect: [i64; 4]) -> Result<Capture, String> {
     let [x, y, width, height] = rect;
     let (screen_width, screen_height) = injector.screen_size()?;
@@ -2855,8 +2744,6 @@ fn grab_on_screen(injector: &Injector, rect: [i64; 4]) -> Result<Capture, String
     grab(injector, rect)
 }
 
-/// The screen's pixels in a whole-pixel box `[x, y, width, height]`; any
-/// part off the screen is black, as PIL's `crop` pads a screenshot.
 fn grab(injector: &Injector, [x, y, width, height]: [i64; 4]) -> Result<Capture, String> {
     let size = |value: i64| usize::try_from(value).map_err(|error| format!("{value}: {error}"));
     if width <= 0 || height <= 0 {
@@ -2891,16 +2778,12 @@ fn grab(injector: &Injector, [x, y, width, height]: [i64; 4]) -> Result<Capture,
     })
 }
 
-/// A row wholly inside its pane's scroll viewport.
 struct VisibleRow {
     name: String,
     selected: bool,
-    /// The row's first label's box, else the row's, on the X screen.
     name_box: [i64; 4],
 }
 
-/// `_visible_entries`: the pane's rows whose boxes lie wholly inside the
-/// scroll viewport around its entry list, top to bottom.
 fn visible_rows(input: &Input<'_>, directory: Option<&str>) -> Result<Vec<VisibleRow>, String> {
     let scene = state::scan(input.window);
     let (Some(pane), Some(widgets)) = (
@@ -2946,8 +2829,6 @@ fn visible_rows(input: &Input<'_>, directory: Option<&str>) -> Result<Vec<Visibl
     Ok(rows)
 }
 
-/// The first scroll bar of any orientation showing in the pane's viewport,
-/// `viewport.find(role="scroll bar")`, and its value.
 fn scroll_value(input: &Input<'_>, directory: Option<&str>) -> Result<Option<f64>, String> {
     Ok(pane_scroll(input, directory)?.map(|(_, scrollbar)| scrollbar.adjustment().value()))
 }
@@ -2976,7 +2857,6 @@ fn pane_scroll(
     Ok(scrollbar.map(|scrollbar| (viewport, scrollbar)))
 }
 
-/// `initial_scroll + max(anchor.y + anchor.height - viewport.y + 1, 1)`.
 fn scroll_target(input: &Input<'_>, of: &Target, directory: Option<&str>) -> Result<Value, String> {
     let Some((viewport, scrollbar)) = pane_scroll(input, directory)? else {
         return Err("the pane has no scroll bar showing".to_owned());
@@ -2997,9 +2877,6 @@ fn scroll_target(input: &Input<'_>, of: &Target, directory: Option<&str>) -> Res
     Ok(json!(scrollbar.adjustment().value() + past))
 }
 
-/// `footer_counts_the_remaining_fill`: with both marquee ends listed,
-/// cleared, and on screen, a label whose description starts with the count
-/// the cleared rows leave, worded as the twin words it.
 fn footer_fill(
     input: &Input<'_>,
     fill: &protocol::FooterFill,
@@ -3051,8 +2928,6 @@ fn footer_fill(
     })
 }
 
-/// `settings.toml` as JSON, read from disk as `read_preferences` reads it;
-/// an absent file is no preferences.
 fn preferences() -> Result<Value, String> {
     let path = crate::storage::config_directory().join("settings.toml");
     let text = match std::fs::read_to_string(&path) {
@@ -3065,7 +2940,6 @@ fn preferences() -> Result<Value, String> {
     serde_json::to_value(table).map_err(|error| error.to_string())
 }
 
-/// How a `note` reshapes a list it reads, applied in this order.
 struct Shape<'a> {
     from: Option<&'a str>,
     through: Option<&'a str>,
@@ -3077,7 +2951,6 @@ struct Shape<'a> {
 
 impl Shape<'_> {
     fn apply(&self, names: Vec<String>) -> Result<Value, String> {
-        // `names[names.index(from):names.index(through) + 1]`.
         let index = |name: &str| {
             names
                 .iter()
@@ -3121,7 +2994,6 @@ impl Shape<'_> {
     }
 }
 
-/// A page-object accessor's value now, for `note`; see [`Accessor`].
 fn note(
     window: &gtk::Window,
     value: Accessor,
@@ -3192,8 +3064,6 @@ fn note(
     }
 }
 
-/// `Atspi.Value.set_current_value` on the first scroll bar with this
-/// orientation, which GTK applies to the scroll bar's adjustment.
 fn set_scrollbar(window: &gtk::Window, orientation: Orientation, value: f64) -> Result<(), String> {
     let wanted = match orientation {
         Orientation::Horizontal => gtk::Orientation::Horizontal,
@@ -3210,7 +3080,6 @@ fn set_scrollbar(window: &gtk::Window, orientation: Orientation, value: f64) -> 
         .ok_or_else(|| format!("no {orientation:?} scroll bar"))?;
     let adjustment = scrollbar.adjustment();
     adjustment.set_value(value);
-    // The twin asserts `set_current_value` reports success.
     if (adjustment.value() - value).abs() > f64::EPSILON {
         return Err(format!(
             "the {orientation:?} scroll bar took {} instead of {value}",
@@ -3220,8 +3089,6 @@ fn set_scrollbar(window: &gtk::Window, orientation: Orientation, value: f64) -> 
     Ok(())
 }
 
-/// A pointer aim: the target, `at` on it, and the name of a kept box whose
-/// left edge the aim may not pass, as `max(bounds.x, browser_left) + 12`.
 struct Aimed<'a> {
     target: &'a Target,
     at: Option<&'a At>,
@@ -3245,18 +3112,14 @@ struct DragEnds<'a> {
     to_at: Option<&'a At>,
 }
 
-/// A predicate holding, a mismatch, or a lookup that broke.
 type Verdict = Result<Result<(), Failure>, String>;
 
-/// A drag's `after_press` checks, and how to check one predicate.
 struct AfterPress<'a> {
     checks: &'a [PressCheck],
     check: &'a dyn Fn(&Predicate) -> Verdict,
 }
 
 impl AfterPress<'_> {
-    /// Runs the checks in order, polling a wait as `strata.wait` does; the
-    /// first that fails comes back with its message.
     async fn run(&self) -> Result<Option<Failure>, String> {
         for press in self.checks {
             let deadline = press.wait.map(|wait| Instant::now() + wait);
@@ -3278,8 +3141,6 @@ impl AfterPress<'_> {
     }
 }
 
-/// Lets queued X events, the idle work they schedule, and the next frame's
-/// layout run before the next event or the reply.
 async fn settle(window: Option<&gtk::Window>) {
     glib::timeout_future_with_priority(glib::Priority::LOW, Duration::ZERO).await;
     if let Some(clock) = window.and_then(WidgetExt::frame_clock) {
@@ -3290,8 +3151,7 @@ async fn settle(window: Option<&gtk::Window>) {
     glib::timeout_future_with_priority(glib::Priority::LOW, Duration::ZERO).await;
 }
 
-/// Resolves after the clock's next paint, or after `limit` without one. It
-/// listens from the call, so a frame requested afterwards is not missed.
+/// Listens from the call, so a frame requested afterwards is not missed.
 fn next_paint(clock: &gdk::FrameClock, limit: Duration) -> impl Future<Output = ()> + use<> {
     let (sender, receiver) = futures_channel::oneshot::channel();
     let sender = RefCell::new(Some(sender));
@@ -3312,12 +3172,10 @@ struct Input<'a> {
     window: &'a gtk::Window,
     memory: &'a RefCell<Memory>,
     widgets: &'a RefCell<Memory>,
-    /// Boxes and points `settle` and `remember` kept, for `left_bound` and `kept` targets.
     boxes: &'a RefCell<Boxes>,
 }
 
 impl Input<'_> {
-    /// At least `gap`, as the Python harness sleeps, and at least one frame.
     async fn pause(&self, gap: Duration) {
         let started = Instant::now();
         settle(Some(self.window)).await;
@@ -3336,7 +3194,6 @@ impl Input<'_> {
         self.emit(Event::Key { keycode, pressed }, EVENT_GAP).await
     }
 
-    /// `connection.key(keysym, pressed)`: a modifier's name or a key's, no tap.
     async fn raw_key(&self, name: &str, pressed: bool) -> Result<(), String> {
         let keysym = match Modifier::parse(name) {
             Ok(modifier) => input::modifier_keysym(modifier)?,
@@ -3384,11 +3241,8 @@ impl Input<'_> {
         tapped
     }
 
-    /// The key comes up `EVENT_GAP` after it went down, as the twin's sleep
-    /// between them has it, with the server timing the release: waiting for
-    /// a frame in between, as other events do, could hold the key past the X
-    /// server's 660 ms autorepeat delay while the app is busy with what the
-    /// press started, and repeat it.
+    /// The server times the release `EVENT_GAP` after the press: waiting for a frame could hold
+    /// the key past the X server's 660 ms autorepeat delay while the app is busy.
     async fn tap_key(&self, keycode: u8, needs_shift: bool) -> Result<(), String> {
         let shift = if needs_shift {
             self.hold(&[Modifier::Shift]).await?
@@ -3418,7 +3272,6 @@ impl Input<'_> {
         result
     }
 
-    /// The target as it is now; see [`Self::locate`] for the patient lookup.
     fn locate_now(
         &self,
         target: &Target,
@@ -3439,8 +3292,6 @@ impl Input<'_> {
         )
     }
 
-    /// The target presented anywhere, perhaps scrolled away: a role target
-    /// as `find(..., rendered=False)`, any other as it resolves on screen.
     fn presented(&self, target: &Target) -> Result<Option<gtk::Widget>, String> {
         targets::presented_target(
             self.window,
@@ -3455,8 +3306,6 @@ impl Input<'_> {
         .map_err(|error| error.message().to_owned())
     }
 
-    /// A check's widget: a role target with `rendered` false as it is
-    /// presented, any other on screen; `None` when it is not there.
     fn resolve(&self, target: &Target) -> Result<Option<gtk::Widget>, String> {
         if matches!(
             target,
@@ -3474,19 +3323,12 @@ impl Input<'_> {
         }
     }
 
-    /// The field a check names; a remembered one that is gone is no field.
     fn field(&self, field: &FieldRef) -> Result<Option<gtk::Widget>, String> {
         targets::field(self.window, &self.memory.borrow(), field).map_err(|error| match error {
             LookupError::Missing(message) | LookupError::Broken(message) => message,
         })
     }
 
-    /// `Node.activate`: waits for the control as `strata.wait` would, then
-    /// invokes its default action, which GTK's AT-SPI bridge maps to
-    /// `gtk_widget_activate`.
-    /// A role target without `within` may be scrolled away, as a twin's
-    /// `window.find(..., rendered=False)` reaches it; any other target is
-    /// looked up on screen, as `dialog.find(role="button", name=...)` is.
     async fn activate(&self, target: &Target, message: Option<&str>) -> Result<(), String> {
         let widget = if let Target::Role {
             rendered: false, ..
@@ -3559,8 +3401,6 @@ impl Input<'_> {
         Ok(())
     }
 
-    /// Polls the snapshot until `holds`, as `strata.wait` does, on behalf of
-    /// a `select_with_keyboard` for `name`.
     async fn wait_for(
         &self,
         name: &str,
@@ -3589,8 +3429,6 @@ impl Input<'_> {
         }
     }
 
-    /// A failing `select_with_keyboard` names the scenario's step before the
-    /// helper's own wait, so its failure lines up with the twin's step.
     async fn select_with_keyboard(&self, name: &str, step: Option<&str>) -> Outcome {
         let mut outcome = self.walk_to(name).await;
         if let Some(step) = step {
@@ -3604,8 +3442,6 @@ impl Input<'_> {
         outcome
     }
 
-    /// `select_entry_with_keyboard`: Home, then the next-entry key until the
-    /// cursor reaches the entry, waiting for each step to move it.
     async fn walk_to(&self, name: &str) -> Outcome {
         if let Err(outcome) = self
             .wait_for(
@@ -3679,10 +3515,8 @@ impl Input<'_> {
         }
     }
 
-    /// Waits for the target like the Python lookups do, and for its box to
-    /// come through a painted frame unchanged: a row a listing has just added
-    /// or replaced can report a box before its first allocation lands, which
-    /// the Python lookups, slower by an accessibility round trip, never see.
+    /// A row a listing just added can report a box before its first allocation lands, so the
+    /// box must come through a painted frame unchanged.
     async fn find(
         &self,
         target: &Target,
@@ -3717,7 +3551,6 @@ impl Input<'_> {
         }
     }
 
-    /// Waits for the target, then the X screen point to aim at.
     async fn locate(
         &self,
         target: &Target,
@@ -3728,7 +3561,6 @@ impl Input<'_> {
         Ok((coordinate(x)?, coordinate(y)?))
     }
 
-    /// Waits for the aim's target, then the X screen point it names.
     async fn aim(&self, aim: &Aimed<'_>) -> Result<(i16, i16), String> {
         let located = self.find(aim.target, aim.at, Aim::Point).await?;
         let (x, y) = match aim.left_bound {
@@ -3749,8 +3581,6 @@ impl Input<'_> {
         Ok((coordinate(x)?, coordinate(y)?))
     }
 
-    /// `Pointer.click(node, modifiers=...)` on a widget a step already holds,
-    /// once its box comes through a painted frame unchanged.
     async fn click_widget(
         &self,
         widget: &gtk::Widget,
@@ -3778,7 +3608,6 @@ impl Input<'_> {
             .await
     }
 
-    /// `Pointer.click` and `double_click`: aim, hold the modifiers, tap, let go.
     async fn click(
         &self,
         aim: &Aimed<'_>,
@@ -3835,8 +3664,6 @@ impl Input<'_> {
         Ok(())
     }
 
-    /// `click_releasing_modifiers_before_up`: the modifiers come up while
-    /// the button is held, and once more after it, as the twin's `finally` does.
     async fn click_releasing_modifiers_first(
         &self,
         aim: &Aimed<'_>,
@@ -3871,14 +3698,12 @@ impl Input<'_> {
         self.move_to(x, y).await
     }
 
-    /// `Pointer.move_to` the pointer's position plus an offset.
     async fn move_by(&self, x: i16, y: i16) -> Result<(), String> {
         let (from_x, from_y) = self.injector.pointer_position()?;
         self.move_to(from_x.saturating_add(x), from_y.saturating_add(y))
             .await
     }
 
-    /// `strata.focused_node()`: the first focused widget on screen.
     fn focused_widget(&self) -> Option<gtk::Widget> {
         targets::presented(self.window.upcast_ref())
             .into_iter()
@@ -3887,7 +3712,6 @@ impl Input<'_> {
             })
     }
 
-    /// `Pointer.scroll`: buttons 4 and 5 are the wheel turning up and down.
     async fn wheel(
         &self,
         target: &Target,
@@ -3906,7 +3730,6 @@ impl Input<'_> {
         .await
     }
 
-    /// `Pointer.scroll` over a screen point the scenario worked out.
     async fn wheel_at(
         &self,
         (x, y): (i64, i64),
@@ -3931,11 +3754,7 @@ impl Input<'_> {
         result
     }
 
-    /// `Pointer.drag` and `drag_points`: press on the source's icon, cross to
-    /// the target in even steps so GTK passes its drag threshold and the drop
-    /// site sees the hover, then release unless asked to keep holding.
-    /// A failed `after_press` check comes back as the failure, with the
-    /// button already let go.
+    /// Crosses in even steps so GTK passes its drag threshold and the drop site sees the hover.
     async fn drag(
         &self,
         ends: &DragEnds<'_>,
@@ -3948,9 +3767,8 @@ impl Input<'_> {
             let start = self.locate(ends.from, ends.from_at, Aim::Point).await?;
             (start, self.locate(ends.to, ends.to_at, Aim::Point).await?)
         } else {
-            // `Pointer.drag(source, target)` reads both boxes only once both
-            // lookups returned, the target's first: a row the wait for the
-            // target let a listing refresh move is aimed where it is now.
+            // Read both boxes only after both lookups, so a target a listing refresh moved
+            // is aimed where it is now.
             self.find(ends.from, None, Aim::DragOrigin).await?;
             let end = self.locate(ends.to, ends.to_at, Aim::Point).await?;
             (self.locate(ends.from, None, Aim::DragOrigin).await?, end)
@@ -4048,8 +3866,7 @@ impl Input<'_> {
         }
     }
 
-    /// `Pointer.move_to`: approach, arrive, and confirm the server moved the
-    /// pointer, since a press while it is elsewhere lands on the wrong widget.
+    /// Confirms the server moved the pointer, since a press elsewhere lands on the wrong widget.
     async fn move_to(&self, x: i16, y: i16) -> Result<(), String> {
         self.emit(
             Event::Motion {

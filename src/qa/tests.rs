@@ -583,7 +583,6 @@ fn at_offsets_resolve_like_the_python_points() {
         width: 301.0,
         height: 95.0,
     };
-    // `bounds.center`, then `background_point`-style offsets.
     assert_eq!(bounds.point(None), (250.0, 87.0));
     let at = |x: Offset, y: Offset| At { x, y };
     assert_eq!(
@@ -594,7 +593,6 @@ fn at_offsets_resolve_like_the_python_points() {
         bounds.point(Some(&at(Offset::Pixels(4), Offset::Pixels(-14)))),
         (104.0, 121.0)
     );
-    // `label.x + label.width * 2 // 3` and `icon.x - 6`.
     assert_eq!(
         bounds.point(Some(&at(Offset::Fraction(2, 3), Offset::FromStart(-6)))),
         (300.0, 34.0)
@@ -606,7 +604,6 @@ fn at_offsets_resolve_like_the_python_points() {
         panic!("fractions and near-edge offsets should parse");
     };
     assert_eq!(parsed, at(Offset::Fraction(2, 3), Offset::FromStart(-6)));
-    // `x + width * 2 // 3 + 3`, `x + width + 60`, and `y + height - height // 6`.
     assert_eq!(
         bounds.point(Some(&at(
             Offset::FractionPlus(2, 3, 3),
@@ -829,7 +826,6 @@ fn window_geometry_checks_mirror_the_twin_arithmetic() {
     let rows: Vec<(String, [i64; 4])> = (0..8)
         .map(|index| (format!("folder-{index:03}"), [0, index * 30, 100, 30]))
         .collect();
-    // Rows lying wholly between the viewport's edges, as the twin filters them.
     assert_eq!(
         state::middle_visible(&rows, [0, 40, 100, 120], "folder-000"),
         Some("folder-003".to_owned())
@@ -1247,12 +1243,10 @@ fn text_is_measured_like_the_pil_luma_centroid() {
     assert_eq!(pixels::luma([0, 255, 0]), 150);
     let white = [255, 255, 255];
     let black = [0, 0, 0];
-    // Three rows of four: ink only in the last row's first pixel.
     let mut rows = vec![white; 12];
     rows[8] = black;
     let (position, contrast) = pixels::text_position(&capture(4, 3, rows));
     assert_eq!((position, contrast), (Some(2.0), 255));
-    // Ink in rows 0 and 2 alike centres on row 1.
     let mut rows = vec![white; 12];
     rows[0] = black;
     rows[8] = black;
@@ -1276,7 +1270,6 @@ fn hover_feedback_ignores_only_the_pointer_square() {
         after
     };
     let pointer = (100 + 10, 50 + 5);
-    // The square runs from 2 before the pointer to 32 after it, inclusive.
     assert!(!pixels::differs_beside_pointer(
         &before,
         &changed_at(8, 3),
@@ -1564,7 +1557,6 @@ fn notebook_tabs_and_scrolled_text_report_what_the_bridge_does() {
             );
             assert_eq!(super::targets::accessible_name(scroll.upcast_ref()), "");
             assert!(super::targets::states(view.upcast_ref()).editable);
-            // An unlabelled scrolled window names nothing, as the preview's text shows.
             let plain = gtk::TextView::new();
             let _unlabelled = gtk::ScrolledWindow::builder().child(&plain).build();
             assert_eq!(super::targets::accessible_name(plain.upcast_ref()), "");
@@ -1651,20 +1643,17 @@ fn buttons_alerts_passwords_and_list_rows_report_what_the_bridge_does() {
         || {
             use gtk::prelude::*;
             let name = |widget: &gtk::Widget| super::targets::accessible_name(widget);
-            // GTK's labelled-by relation to a button's text label comes first.
             let labelled = gtk::Button::with_label("Home directory");
             crate::ui::accessibility_qa::record(&labelled, |naming| {
                 naming.label = Some("Default directory".to_owned());
             });
             assert_eq!(name(labelled.upcast_ref()), "Home directory");
-            // With the relation reset, the button's own label names it.
             let reset = gtk::Button::with_label("r");
             crate::ui::accessibility_qa::record_labelled_by_reset(&reset);
             crate::ui::accessibility_qa::record(&reset, |naming| {
                 naming.label = Some("Owner read".to_owned());
             });
             assert_eq!(name(reset.upcast_ref()), "Owner read");
-            // An icon button has no text label to be named by.
             let icon = gtk::Button::from_icon_name("edit-find");
             crate::ui::accessibility_qa::record(&icon, |naming| {
                 naming.label = Some("Search".to_owned());

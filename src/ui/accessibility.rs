@@ -24,9 +24,7 @@ pub(super) fn set_label(widget: &impl IsA<gtk::Accessible>, label: &str) {
 }
 
 thread_local! {
-    /// Widgets whose label is their own, which a stand-in must never replace.
     static OWN_LABELS: RefCell<Vec<glib::WeakRef<gtk::Widget>>> = RefCell::default();
-    /// Widgets wearing a stand-in label for a name their layout hides.
     static STAND_INS: RefCell<Vec<glib::WeakRef<gtk::Widget>>> = RefCell::default();
 }
 
@@ -37,7 +35,6 @@ fn holds(list: &RefCell<Vec<glib::WeakRef<gtk::Widget>>>, widget: &gtk::Widget) 
         .any(|kept| kept.upgrade().as_ref() == Some(widget))
 }
 
-/// A label that is the widget's own; [`set_stand_in_label`] leaves it alone.
 pub(super) fn set_own_label(widget: &impl IsA<gtk::Widget>, label: &str) {
     let widget = widget.upcast_ref::<gtk::Widget>();
     OWN_LABELS.with(|own| {
@@ -53,7 +50,6 @@ pub(super) fn set_own_label(widget: &impl IsA<gtk::Widget>, label: &str) {
     set_label(widget, label);
 }
 
-/// Names a widget whose visible name its layout hides, unless it has a label of its own.
 pub(super) fn set_stand_in_label(widget: &impl IsA<gtk::Widget>, label: &str) {
     let widget = widget.upcast_ref::<gtk::Widget>();
     if OWN_LABELS.with(|own| holds(own, widget)) {
@@ -67,8 +63,6 @@ pub(super) fn set_stand_in_label(widget: &impl IsA<gtk::Widget>, label: &str) {
     set_label(widget, label);
 }
 
-/// Drops a stand-in label, so the name is derived from content again; any
-/// other label stays.
 pub(super) fn clear_stand_in_label(widget: &impl IsA<gtk::Widget>) {
     let widget = widget.upcast_ref::<gtk::Widget>();
     let wore_one = STAND_INS.with(|stand_ins| {
@@ -109,7 +103,6 @@ pub(super) fn set_checked(widget: &impl IsA<gtk::Accessible>, checked: bool) {
     qa::record(widget, |naming| naming.checked = Some(checked));
 }
 
-/// Names a widget by the labels' text in order; the widget itself may be one of them.
 pub(super) fn set_labelled_by(widget: &impl IsA<gtk::Accessible>, labels: &[&gtk::Widget]) {
     let related: Vec<&gtk::Accessible> = labels.iter().map(|label| label.upcast_ref()).collect();
     widget.update_relation(&[gtk::accessible::Relation::LabelledBy(&related)]);
@@ -117,8 +110,6 @@ pub(super) fn set_labelled_by(widget: &impl IsA<gtk::Accessible>, labels: &[&gtk
     qa::record_labelled_by(widget, labels);
 }
 
-/// Drops the widget's `labelled-by` relation, such as the one a button's text
-/// label gives it, so its own accessible label names it.
 pub(super) fn clear_labelled_by(widget: &impl IsA<gtk::Accessible>) {
     widget.reset_relation(gtk::AccessibleRelation::LabelledBy);
     #[cfg(feature = "qa")]

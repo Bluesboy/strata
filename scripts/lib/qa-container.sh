@@ -1,10 +1,6 @@
 # shellcheck shell=bash
-# Sourced by scripts/qa.sh and scripts/qa-drive.sh: the engine, pinned image,
-# account files, and run options both use, so a session driven by hand runs
-# exactly where the QA scenarios run. Each function sets variables for its
-# caller; $repository must name the checkout.
+# Sourced by scripts/qa.sh and scripts/qa-drive.sh; $repository must name the checkout.
 
-# Sets engine: STRATA_CONTAINER_ENGINE, else Podman when installed, else Docker.
 qa_container_engine() {
   engine="${STRATA_CONTAINER_ENGINE:-}"
   if [[ -z "$engine" ]]; then
@@ -12,7 +8,6 @@ qa_container_engine() {
   fi
 }
 
-# Sets engine, cargo_cache, image, user_id, group_id, and accounts, or exits.
 qa_container_prepare() {
   qa_container_engine
   if ! command -v "$engine" >/dev/null 2>&1; then
@@ -20,8 +15,6 @@ qa_container_prepare() {
     exit 1
   fi
 
-  # CI points the Cargo home and target directory at the restored quality cache,
-  # which `--all-features` built in the same image ("QA in CI", docs/e2e-testing.md).
   cargo_cache="$(realpath -m --relative-to="$repository" "${STRATA_E2E_CARGO_CACHE:-$repository/target/e2e-container}")"
   if [[ "$cargo_cache" != target/* ]]; then
     echo "STRATA_E2E_CARGO_CACHE must name a directory under the checkout's target/." >&2
@@ -49,11 +42,8 @@ qa_container_prepare() {
   fi
 }
 
-# Sets options: the arguments given, then the shared run options.
 qa_container_options() {
-  # Every run writes its fixture, HOME, and fonts under /tmp; a tmpfs keeps
-  # those writes and their fsyncs off the image's overlay. Nothing there outlives
-  # the container: artifacts and the Cargo cache are under /workspace.
+  # /tmp is a tmpfs; artifacts and the Cargo cache must live under /workspace.
   options=("$@" --platform=linux/amd64 --user "$user_id:$group_id" --shm-size=512m
     --tmpfs /tmp:rw,exec,mode=1777)
   if [[ "$(basename "$engine")" == podman ]]; then
@@ -63,8 +53,6 @@ qa_container_options() {
   fi
 }
 
-# Sets mounts: the checkout, the account files, the working directory, and
-# the build environment every QA container gets.
 qa_container_mounts() {
   mounts=(
     --mount "type=bind,source=$repository,target=/workspace"

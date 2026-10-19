@@ -81,8 +81,6 @@ def open_file_request(
 
 
 def _start_parity_log(display: HeadlessDisplay, chooser: Node) -> None:
-    """Logs input relative to the chooser, as the `--qa` twin's window is it."""
-
     node_id = parity.current_node_id()
     if display.input_connection is None or node_id is None:
         return
@@ -95,8 +93,6 @@ def _start_parity_log(display: HeadlessDisplay, chooser: Node) -> None:
 
 
 def _end_parity_log(display: HeadlessDisplay, chooser: Node | None, backend: ManagedProcess) -> None:
-    """Closes the input log and dumps the chooser's state before the request ends."""
-
     node_id = parity.current_node_id()
     if display.input_connection is not None:
         display.input_connection.stop_input_log()

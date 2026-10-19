@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-//! Resolves a [`Target`] to a widget and a point on the X screen, the way the
-//! Python page object (`tests/e2e/harness/browser.py`) finds a node by its
-//! AT-SPI role and name and aims at its bounds.
+//! Mirrors how the Python page object (`tests/e2e/harness/browser.py`) finds AT-SPI
+//! nodes by role and name and aims at their bounds.
 
 use std::collections::HashMap;
 
@@ -15,13 +14,10 @@ use super::{
 };
 use crate::ui::accessibility_qa as names;
 
-/// Widgets a `remember` kept, by the name it gave them.
 pub(crate) type Memory = HashMap<String, glib::WeakRef<gtk::Widget>>;
 
-/// Boxes and points `settle` and `remember` kept, by name.
 pub(crate) type Boxes = HashMap<String, Rect>;
 
-/// A box on the X screen, in root window coordinates.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Rect {
     pub(crate) x: f64,
@@ -54,7 +50,6 @@ impl Rect {
     }
 }
 
-/// What a target resolved to: the widget, its box, and where a pointer event aims.
 #[derive(Clone, Debug)]
 pub(crate) struct Located {
     pub(crate) widget: gtk::Widget,
@@ -62,8 +57,7 @@ pub(crate) struct Located {
     pub(crate) point: (f64, f64),
 }
 
-/// Why a lookup failed: the target is not there, which `absent` and the
-/// patient lookups accept, or resolving it broke, which is always an error.
+/// `Missing` is accepted by `absent` and the patient lookups; `Broken` is always an error.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum LookupError {
     Missing(String),
@@ -84,14 +78,10 @@ fn missing(message: impl Into<String>) -> LookupError {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Aim {
-    /// The centre, or `at` from the corner.
     Point,
-    /// `Pointer.drag_origin`: a file drag starts on the row's icon, not on
-    /// the inert space in a wide row.
     DragOrigin,
 }
 
-/// What a lookup may refer back to: kept fields, other kept widgets, and kept boxes.
 #[derive(Clone, Copy)]
 pub(crate) struct Kept<'a> {
     pub(crate) memory: &'a Memory,
@@ -99,14 +89,12 @@ pub(crate) struct Kept<'a> {
     pub(crate) boxes: &'a Boxes,
 }
 
-/// The first rendered image at or below `widget`, `source.find(role="image")`.
 fn icon(widget: &gtk::Widget) -> Option<gtk::Widget> {
     presented(widget)
         .into_iter()
         .find(|widget| role_name(widget) == "image" && state::rendered_bounds(widget).is_some())
 }
 
-/// Finds `target` now; callers poll, as the Python lookups wait.
 pub(crate) fn locate(
     window: &gtk::Window,
     injector: &Injector,
@@ -339,7 +327,6 @@ pub(crate) fn locate(
                 .ok_or_else(|| missing("the entry list has no scroll viewport"))?
         }
     };
-    // `Pointer.drag(source, ...)` starts on any source's icon, else its centre.
     if aim == Aim::DragOrigin {
         return drag_origin(widget, injector);
     }
@@ -351,8 +338,7 @@ pub(crate) fn locate(
     })
 }
 
-/// `Pointer.drag_origin`: a file drag starts on the row's icon, not on the
-/// inert space in a wide row.
+/// A file drag starts on the row's icon, not on the inert space in a wide row.
 fn drag_origin(row: gtk::Widget, injector: &Injector) -> Result<Located, LookupError> {
     let rect = screen_rect(icon(&row).as_ref().unwrap_or(&row), injector)?;
     Ok(Located {
@@ -368,8 +354,7 @@ enum Along {
     Y,
 }
 
-/// One coordinate of a point target, in whole pixels as AT-SPI reports a
-/// box, so the arithmetic is the twin's integer arithmetic.
+/// Whole pixels, as AT-SPI reports a box, so the arithmetic is the twin's integer arithmetic.
 fn coordinate(
     window: &gtk::Window,
     injector: &Injector,
@@ -466,9 +451,6 @@ fn background(
     })
 }
 
-/// What a role target asks for: the role (`*` for any), and the name, its
-/// ending or a pattern in it, the description, states, and a widget at or
-/// below it when given, and which match.
 pub(crate) struct Wanted<'a> {
     pub(crate) role: &'a str,
     pub(crate) other_roles: &'a [String],
@@ -481,7 +463,6 @@ pub(crate) struct Wanted<'a> {
     pub(crate) has: Option<Box<Wanted<'a>>>,
 }
 
-/// A role target's `name_matches`, which the protocol already checked compiles.
 pub(crate) fn pattern(pattern: Option<&str>) -> Result<Option<regex::Regex>, LookupError> {
     pattern
         .map(regex::Regex::new)
@@ -489,7 +470,6 @@ pub(crate) fn pattern(pattern: Option<&str>) -> Result<Option<regex::Regex>, Loo
         .map_err(|error| LookupError::Broken(error.to_string()))
 }
 
-/// Whether a widget has a state, as AT-SPI reports it.
 pub(crate) fn has_state(widget: &gtk::Widget, state: StateName) -> bool {
     let now = states(widget);
     let orientation = widget
@@ -509,7 +489,6 @@ pub(crate) fn has_state(widget: &gtk::Widget, state: StateName) -> bool {
 }
 
 impl<'a> Wanted<'a> {
-    /// A role target's criteria; any other target is a broken scenario.
     pub(crate) fn of(target: &'a Target) -> Result<Self, LookupError> {
         let Target::Role {
             role,
@@ -572,8 +551,6 @@ impl<'a> Wanted<'a> {
                 .is_none_or(|description| accessible_description(widget) == description)
     }
 
-    /// The showing match in DFS order `nth` picks, the first without it, as
-    /// `Node.find(role=..., ...)` and `find_all(...)[nth]` return it.
     pub(crate) fn find(&self, root: &gtk::Widget) -> Result<gtk::Widget, LookupError> {
         let found = presented(root)
             .into_iter()
@@ -600,7 +577,6 @@ impl<'a> Wanted<'a> {
         })
     }
 
-    /// `find(..., rendered=False)`: presented, but perhaps scrolled away.
     pub(crate) fn find_presented(&self, root: &gtk::Widget) -> Option<gtk::Widget> {
         let found = presented(root)
             .into_iter()
@@ -609,7 +585,6 @@ impl<'a> Wanted<'a> {
     }
 }
 
-/// `items[index]`, counting back from the end when negative.
 fn pick(mut items: Vec<gtk::Widget>, index: i64) -> Option<gtk::Widget> {
     let length = i64::try_from(items.len()).ok()?;
     let index = if index < 0 { length + index } else { index };
@@ -617,8 +592,6 @@ fn pick(mut items: Vec<gtk::Widget>, index: i64) -> Option<gtk::Widget> {
     (index < items.len()).then(|| items.swap_remove(index))
 }
 
-/// `test_filter_results.result_rows`: the `Search results` rows, or else
-/// every list item in the window, rendered, in DFS order.
 pub(crate) fn result_rows(root: &gtk::Widget) -> Vec<gtk::Widget> {
     let everything = presented(root);
     let (container, row_role) =
@@ -629,8 +602,6 @@ pub(crate) fn result_rows(root: &gtk::Widget) -> Vec<gtk::Widget> {
         .collect()
 }
 
-/// The showing application windows with this title, in GTK's toplevel
-/// order, as `application.find_all(role="frame", name=title)` lists them.
 pub(crate) fn windows_titled(title: &str) -> Vec<gtk::Window> {
     gtk::Window::list_toplevels()
         .into_iter()
@@ -642,15 +613,12 @@ pub(crate) fn windows_titled(title: &str) -> Vec<gtk::Window> {
         .collect()
 }
 
-/// The first showing application window with this title other than `but`.
 pub(crate) fn window_titled(title: &str, but: Option<&gtk::Window>) -> Option<gtk::Window> {
     windows_titled(title)
         .into_iter()
         .find(|window| Some(window) != but)
 }
 
-/// A showing application window with this title, as `application.find(name=title)`
-/// finds a chooser outside the main window.
 fn toplevel(title: &str) -> Option<gtk::Widget> {
     gtk::Window::list_toplevels()
         .into_iter()
@@ -662,8 +630,6 @@ fn toplevel(title: &str) -> Option<gtk::Widget> {
         .map(Cast::upcast)
 }
 
-/// A showing application window with this title other than `main`, the
-/// browser window the run started with.
 fn other_window(main: &gtk::Window, title: &str) -> Option<gtk::Widget> {
     gtk::Window::list_toplevels()
         .into_iter()
@@ -676,9 +642,6 @@ fn other_window(main: &gtk::Window, title: &str) -> Option<gtk::Widget> {
         .map(Cast::upcast)
 }
 
-/// A target presented anywhere, rendered or not, for `presented`: role
-/// targets as `find(role=..., name=..., rendered=False)`, any other target as
-/// it resolves on screen.
 pub(crate) fn presented_target(
     window: &gtk::Window,
     injector: &Injector,
@@ -706,14 +669,11 @@ pub(crate) fn presented_target(
     }
 }
 
-/// The description Strata's naming helpers set, as AT-SPI reports it, or
-/// else a picture's alternative text, which GTK reports as its description;
-/// empty without one.
+/// Falls back to a picture's alternative text, which GTK reports as its description.
 pub(crate) fn accessible_description(widget: &gtk::Widget) -> String {
     names::naming(widget)
         .and_then(|naming| naming.description)
         .or_else(|| {
-            // An entry row is described by its list item, as it is named.
             matches!(
                 widget.accessible_role(),
                 gtk::AccessibleRole::ListItem
@@ -730,8 +690,7 @@ pub(crate) fn accessible_description(widget: &gtk::Widget) -> String {
                 .map(|text| text.to_string())
         })
         .or_else(|| {
-            // GtkMenuButton describes its inner toggle button by its own
-            // description, as it names it by its own name.
+            // GtkMenuButton describes its inner toggle button by its own description.
             widget
                 .is::<gtk::ToggleButton>()
                 .then(|| widget.parent().and_downcast::<gtk::MenuButton>())
@@ -741,8 +700,6 @@ pub(crate) fn accessible_description(widget: &gtk::Widget) -> String {
         .unwrap_or_default()
 }
 
-/// The first showing widget in DFS order with this role and name, as
-/// `Node.find(role=..., name=...)` returns it.
 fn find(root: &gtk::Widget, role: &str, name: &str) -> Result<gtk::Widget, LookupError> {
     first_rendered(root, |widget| {
         role_name(widget) == role && accessible_name(widget) == name
@@ -759,15 +716,12 @@ fn first_rendered(
         .find(|widget| matches(widget) && state::rendered_bounds(widget).is_some())
 }
 
-/// `find(role=..., name=..., rendered=False)`: presented, but perhaps
-/// scrolled away or not yet allocated.
 pub(crate) fn find_presented(root: &gtk::Widget, role: &str, name: &str) -> Option<gtk::Widget> {
     presented(root)
         .into_iter()
         .find(|widget| role_name(widget) == role && accessible_name(widget) == name)
 }
 
-/// `dialog()`: the first dialog on screen, or else the first alert.
 pub(crate) fn open_dialog(presented: &[gtk::Widget]) -> Option<gtk::Widget> {
     ["dialog", "alert"].into_iter().find_map(|role| {
         presented
@@ -777,7 +731,6 @@ pub(crate) fn open_dialog(presented: &[gtk::Widget]) -> Option<gtk::Widget> {
     })
 }
 
-/// The `Search results` list with its row role, or else the results table.
 pub(crate) fn search_results(presented: &[gtk::Widget]) -> Option<(gtk::Widget, &'static str)> {
     [("list", "list item"), ("table", "table cell")]
         .into_iter()
@@ -794,8 +747,6 @@ pub(crate) fn search_results(presented: &[gtk::Widget]) -> Option<(gtk::Widget, 
         })
 }
 
-/// `result(strata, path)`: a result row named after the file whose path
-/// label ends with `path`; without a results collection, any list item.
 fn search_result(root: &gtk::Widget, path: &str) -> Option<gtk::Widget> {
     let everything = presented(root);
     let (container, row_role) =
@@ -839,8 +790,6 @@ fn is_field(widget: &gtk::Widget) -> bool {
             .is_some_and(EditableExt::is_editable)
 }
 
-/// `len(window.find_all(role="text", states={"editable"}))`: the editable
-/// text fields on screen.
 pub(crate) fn editable_fields(window: &gtk::Window) -> usize {
     presented(window.upcast_ref())
         .iter()
@@ -848,8 +797,6 @@ pub(crate) fn editable_fields(window: &gtk::Window) -> usize {
         .count()
 }
 
-/// The text of every editable text field on screen, as
-/// `[node.text for node in window.find_all(role="text", states={"editable"})]`.
 pub(crate) fn editable_texts(window: &gtk::Window) -> Vec<String> {
     presented(window.upcast_ref())
         .iter()
@@ -858,7 +805,6 @@ pub(crate) fn editable_texts(window: &gtk::Window) -> Vec<String> {
         .collect()
 }
 
-/// `editable_field()`: the first editable text on screen holding focus.
 pub(crate) fn focused_field(presented: &[gtk::Widget]) -> Option<gtk::Widget> {
     presented
         .iter()
@@ -868,9 +814,6 @@ pub(crate) fn focused_field(presented: &[gtk::Widget]) -> Option<gtk::Widget> {
         .cloned()
 }
 
-/// The field a check reads: one kept by `remember` (shown or not, as a kept
-/// node still answers), the first on screen with the name, or the focused one.
-/// A name nothing was remembered under is a broken scenario.
 pub(crate) fn field(
     window: &gtk::Window,
     memory: &Memory,
@@ -895,7 +838,6 @@ pub(crate) fn field(
     })
 }
 
-/// A widget's AT-SPI states, as far as a scenario asks about them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct States {
     pub(crate) selected: bool,
@@ -903,12 +845,8 @@ pub(crate) struct States {
     pub(crate) checked: bool,
     pub(crate) pressed: bool,
     pub(crate) sensitive: bool,
-    /// A row that takes the selection; GTK's bridge reports it for list box
-    /// rows whose selection state is defined, and for recorded selections.
     pub(crate) selectable: bool,
-    /// Text the user may edit, as an editable entry or text view.
     pub(crate) editable: bool,
-    /// A widget that can take keyboard focus.
     pub(crate) focusable: bool,
 }
 
@@ -978,8 +916,6 @@ pub(crate) fn states(widget: &gtk::Widget) -> States {
     }
 }
 
-/// Whether a list view's row is selected, which GTK records as the row's
-/// selected state flag and reports as its selected state.
 fn list_row_selected(widget: &gtk::Widget) -> bool {
     matches!(
         widget.accessible_role(),
@@ -987,8 +923,6 @@ fn list_row_selected(widget: &gtk::Widget) -> bool {
     ) && widget.state_flags().contains(gtk::StateFlags::SELECTED)
 }
 
-/// Whether a `GtkNotebook` tab is the current page's, which GTK records as
-/// the tab's selected state; none for any other widget.
 fn notebook_tab_selected(widget: &gtk::Widget) -> Option<bool> {
     if widget.accessible_role() != gtk::AccessibleRole::Tab {
         return None;
@@ -1005,7 +939,6 @@ fn notebook_tab_selected(widget: &gtk::Widget) -> Option<bool> {
     Some(notebook.current_page() == Some(page))
 }
 
-/// Text a widget shows, as AT-SPI's text interface reads it.
 pub(crate) fn text_content(widget: &gtk::Widget) -> Option<String> {
     if let Some(label) = widget.downcast_ref::<gtk::Label>() {
         return Some(label.text().to_string());
@@ -1023,9 +956,7 @@ pub(crate) fn text_content(widget: &gtk::Widget) -> Option<String> {
         .map(|editable| editable.text().to_string())
 }
 
-/// The bounds a widget is drawn at, on the X screen: its box in its native
-/// surface, the surface's own content offset, and the surface's screen
-/// origin. Popovers are their own native surfaces, so this covers them too.
+/// Popovers are their own native surfaces, hence the surface offset and screen origin.
 pub(crate) fn screen_rect(widget: &gtk::Widget, injector: &Injector) -> Result<Rect, LookupError> {
     let broken = |message: &str| LookupError::Broken(message.to_owned());
     let bounds =
@@ -1048,8 +979,6 @@ pub(crate) fn screen_rect(widget: &gtk::Widget, injector: &Injector) -> Result<R
     })
 }
 
-/// A widget's box on the X screen whether or not it is showing yet, as
-/// AT-SPI reports a node's extents for a widget scrolled away or not mapped.
 pub(crate) fn extents(widget: &gtk::Widget, injector: &Injector) -> Result<Rect, LookupError> {
     let broken = |message: &str| LookupError::Broken(message.to_owned());
     let native = widget
@@ -1073,8 +1002,6 @@ pub(crate) fn extents(widget: &gtk::Widget, injector: &Injector) -> Result<Rect,
     })
 }
 
-/// The widgets AT-SPI presents under `root`, `root` first, in DFS order:
-/// hidden widgets and everything inside them are left out.
 pub(crate) fn presented(root: &gtk::Widget) -> Vec<gtk::Widget> {
     let mut found = Vec::new();
     let mut stack = vec![root.clone()];
@@ -1094,8 +1021,7 @@ pub(crate) fn presented(root: &gtk::Widget) -> Vec<gtk::Widget> {
     found
 }
 
-/// The AT-SPI role name the Python harness matches, with `push button`
-/// spelled `button` as `tree.Node.role` does.
+/// AT-SPI role names as the Python harness's `tree.Node.role` spells them.
 pub(crate) fn role_name(widget: &gtk::Widget) -> &'static str {
     use gtk::AccessibleRole as Role;
     if widget.is::<gtk::ScrolledWindow>() {
@@ -1185,10 +1111,7 @@ fn named_from_content(widget: &gtk::Widget) -> bool {
     )
 }
 
-/// The accessible name as AT-SPI reports it: the label Strata's naming
-/// helpers set (on the list item, for an entry row), a label's own text, or
-/// the children's names for roles named from content. Tooltips never name a
-/// widget here; a control that needs a name gets an explicit label.
+/// Tooltips never name a widget here; a control that needs a name gets an explicit label.
 pub(crate) fn accessible_name(widget: &gtk::Widget) -> String {
     let mut naming = Vec::new();
     if let Some(name) = own_name(widget, &mut naming) {
@@ -1200,8 +1123,7 @@ pub(crate) fn accessible_name(widget: &gtk::Widget) -> String {
     String::new()
 }
 
-/// `naming` holds the widgets whose labelled-by relation is being followed,
-/// so a relation that leads back to one of them cannot recurse forever.
+/// `naming` guards against labelled-by relations that lead back to a widget being named.
 fn own_name(widget: &gtk::Widget, naming: &mut Vec<gtk::Widget>) -> Option<String> {
     let recorded = |widget: &gtk::Widget| {
         names::naming(widget)

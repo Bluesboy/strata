@@ -1,12 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Real X input sent through XTEST from inside the process, so GTK routes it
-//! exactly as it routes a person's input: focus walks, grabs, and gestures
-//! included. The same extension backs `tests/e2e/harness/xtest.py`.
-//!
-//! With `STRATA_INPUT_LOG` set to a path, every event is appended there as a
-//! line in the format `docs/e2e-testing.md` defines, for comparing with the
-//! Python harness's input.
+//! With `STRATA_INPUT_LOG` set, each event is appended in the format `docs/e2e-testing.md` defines.
 
 use std::{
     cell::{Cell, RefCell},
@@ -32,10 +26,8 @@ use super::protocol::Modifier;
 pub(crate) struct Injector {
     connection: RustConnection,
     root: xproto::Window,
-    /// Keysym to keycode and whether the second (shifted) level produces it.
     keymap: HashMap<u32, (u8, bool)>,
     log: Option<RefCell<File>>,
-    /// The main window's screen origin, which logged pointer positions are relative to.
     log_origin: Cell<(i16, i16)>,
     last_release: Cell<Option<Instant>>,
 }
@@ -50,7 +42,6 @@ pub(crate) enum Event {
 }
 
 impl Injector {
-    /// Connects to `DISPLAY`, the display GTK is using.
     pub(crate) fn connect() -> Result<Self, String> {
         let (connection, screen) =
             x11rb::connect(None).map_err(|error| format!("cannot open the X display: {error}"))?;
@@ -94,17 +85,14 @@ impl Injector {
         self.log_origin.set(origin);
     }
 
-    /// When a click last came up; a drag waits out the double-click time after it.
     pub(crate) fn last_release(&self) -> Option<Instant> {
         self.last_release.get()
     }
 
-    /// Only a tap counts, as only `Pointer._tap` sets `_last_release`.
     pub(crate) fn record_release(&self) {
         self.last_release.set(Some(Instant::now()));
     }
 
-    /// The keycode for a keysym and whether Shift must be held for it.
     pub(crate) fn keycode(&self, keysym: u32) -> Result<(u8, bool), String> {
         self.keymap
             .get(&keysym)
@@ -120,9 +108,7 @@ impl Injector {
         self.log(event)
     }
 
-    /// Sends the event for the server to generate `delay` after the last
-    /// one, without waiting for it, so neither this process nor its main loop
-    /// can hold it back, as the twin's own sleep before the next event cannot.
+    /// Server-timed delay, so neither this process nor its main loop can hold the event back.
     pub(crate) fn send_after(
         &self,
         event: Event,
@@ -134,7 +120,6 @@ impl Injector {
         self.log(event)
     }
 
-    /// Waits until the server has generated every event sent so far.
     pub(crate) fn sync(&self) -> Result<(), String> {
         self.connection.sync().map_err(|error| error.to_string())
     }
@@ -201,7 +186,6 @@ impl Injector {
         Ok((reply.root_x, reply.root_y))
     }
 
-    /// Where a GDK surface's top-left corner is on the X screen.
     pub(crate) fn surface_origin(&self, surface: &gdk::Surface) -> Result<(i16, i16), String> {
         let reply = self
             .connection
@@ -212,7 +196,6 @@ impl Injector {
         Ok((reply.dst_x, reply.dst_y))
     }
 
-    /// The X screen's width and height.
     pub(crate) fn screen_size(&self) -> Result<(u16, u16), String> {
         self.connection
             .setup()
@@ -223,9 +206,6 @@ impl Injector {
             .ok_or_else(|| "the X screen is unknown".to_owned())
     }
 
-    /// The screen's pixels in a box, row by row, read from the root window as
-    /// a screenshot reads them (`XGetImage`), so what other windows cover
-    /// shows too.
     pub(crate) fn grab(
         &self,
         x: i16,
@@ -300,7 +280,6 @@ impl Injector {
         Ok(pixels)
     }
 
-    /// Resizes a surface's X window, as `resize_surface` in `xtest.py` does.
     pub(crate) fn resize(
         &self,
         surface: &gdk::Surface,
@@ -326,8 +305,7 @@ fn xid(surface: &gdk::Surface) -> Result<xproto::Window, String> {
     u32::try_from(surface.xid()).map_err(|_| "the X window id does not fit 32 bits".to_owned())
 }
 
-/// Read once at startup, before a scenario switches layouts, so key names
-/// keep meaning US key positions: under Russian, `j` presses the key that types о.
+/// Read once at startup, before a scenario switches layouts, so key names keep US positions.
 fn read_keymap(connection: &RustConnection) -> Result<HashMap<u32, (u8, bool)>, String> {
     let setup = connection.setup();
     let (first, last) = (setup.min_keycode, setup.max_keycode);
@@ -356,8 +334,6 @@ fn read_keymap(connection: &RustConnection) -> Result<HashMap<u32, (u8, bool)>, 
     Ok(keymap)
 }
 
-/// GDK keyvals are X keysyms. A single character names its own key: Latin-1
-/// keysyms are their code points, the rest are X's Unicode keysyms.
 pub(crate) fn keysym(name: &str) -> Result<u32, String> {
     let mut characters = name.chars();
     if let (Some(character), None) = (characters.next(), characters.next()) {

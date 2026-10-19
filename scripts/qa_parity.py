@@ -1,32 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Proves the `--qa` scenarios and their Python twins agree.
-
-For every scenario in tests/qa/scenarios/<folder>/ that names a `twin` (or the ones named,
-each by its `mutation` patch or by its own name), inside the pinned container runners and
-one after the other:
-
-- pass parity: both sides pass on the unmodified tree, run by run;
-- fail parity: under the scenario's mutation patch, each run fails on both
-  sides or on neither, and at least one run fails on both;
-- failure-signature parity: where both fail, the Python wait message equals
-  the `message` of the QA step that failed;
-- input parity: the key and pointer-button lines of the two input logs agree
-  in order, pointer positions within one pixel;
-- final-state parity: the compared keys of the final state snapshots agree.
-
-A scenario without a `mutation`, or any scenario under `--baseline`, gets
-baseline parity: pass, input, and state only. A scenario without a `twin` has
-nothing to compare: it never runs here, and the summary lists it as "no twin".
-
-QA runs map to pytest node ids through the `(twin ...)` on their PASS and
-failed lines. Reports go to target/qa-parity: one `<unit>.md` per scenario,
-named after its patch or else after the scenario, and `summary.md`. See
-"QA parity" in docs/e2e-testing.md.
-
-`scripts/e2e-mutation-check.sh --qa` reuses the `scenario`, `twins`, and
-`verdict` subcommands for pass and fail parity alone.
-"""
+"""Proves the `--qa` scenarios and their Python twins agree."""
 
 from __future__ import annotations
 
@@ -50,21 +24,14 @@ MUTATIONS = REPOSITORY / "tests/e2e/mutations"
 OUTPUT = REPOSITORY / "target/qa-parity"
 QA_ARTIFACTS = REPOSITORY / "target/qa-artifacts"
 PIXEL_TOLERANCE = 1
-# "Replies and the state snapshot" in docs/e2e-testing.md.
 COMPARED_STATE = ("view_mode", "directory", "panes", "focused", "focused_pane", "dialog")
-# What a scenario's `state_parity_ignore` may name: a compared key, or a
-# compared key of each pane.
 IGNORABLE_STATE = COMPARED_STATE + ("panes.selected", "panes.focused")
-# `state_parity_ignore: ["*"]` leaves the whole final state out, for a twin
-# that ends its own application before the state can be read.
 WHOLE_STATE = "*"
-# Both runners then name each fixture directory after the twin's node id.
 PARITY_FIXTURES = {"STRATA_PARITY_FIXTURES": "1"}
 # Same file naming as `node_file_name` in tests/e2e/harness/parity.py.
 UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
-# pytest-xdist's `loadgroup` appends `@<group>` to the node id of a test with an
-# `xdist_group` marker, as conftest gives the visual baselines; the Python side
-# reports and names its logs under that id, and the QA twin names the bare one.
+# pytest-xdist's `loadgroup` appends `@<group>` to an `xdist_group` test's node id;
+# the Python side logs under that id, the QA twin under the bare one.
 XDIST_GROUP = re.compile(r"@[^@\[\]/]+$")
 
 RUN = r"(?P<scenario>[^/\s]+)/(?P<run>\S+) \(twin (?P<twin>.+?)\)"
@@ -81,10 +48,6 @@ INPUT_POINTER = re.compile(r"^pointer (-?\d+) (-?\d+) button (\d+) (down|up)$")
 INPUT_MOTION = re.compile(r"^motion (-?\d+) (-?\d+)$")
 
 
-# ------------------------------------------------------------------ scenarios
-
-# The scenario steps that send synthetic input; a scenario with none of them
-# agrees on input when neither side logged any.
 INPUT_COMMANDS = frozenset({
     "key", "type", "click", "click_result_rows", "select", "select_with_keyboard",
     "open_menu", "move", "move_by", "wheel", "drag", "button_down", "button_up",
@@ -98,18 +61,12 @@ class Scenario:
     mutation: str | None
     state_parity_ignore: tuple[str, ...] = ()
     sends_input: bool = True
-    # Per run label, the (1-based number, expected event) pairs whose pointer
-    # position is not compared.
     input_parity_ignore: tuple[tuple[str, tuple[tuple[int, str], ...]], ...] = ()
-    # Why the scenario stays out of the default QA run and out of parity.
     skip: str | None = None
-    # Whether the header names a Python twin; a scenario without one has no pair.
     twin: bool = True
 
     @property
     def unit(self) -> str:
-        """What names the scenario on the command line, in reports, and in CI shards."""
-
         return self.mutation or self.name
 
 
@@ -131,10 +88,7 @@ def scenarios() -> list[Scenario]:
 
 
 def skip_reason(header: dict) -> str | None:
-    """Why a scenario stays out of the default run and out of parity, if it does.
-
-    `tests/qa.rs` rejects the same values when it loads the scenario.
-    """
+    """`tests/qa.rs` rejects the same values when it loads the scenario."""
 
     reason = header.get("skip")
     if reason is None:
@@ -147,8 +101,6 @@ def skip_reason(header: dict) -> str | None:
 
 
 def sends_input(path: Path) -> bool:
-    """Whether any step of the scenario sends synthetic input."""
-
     steps = path.read_text(encoding="utf-8").splitlines()[1:]
     return any(
         INPUT_COMMANDS & json.loads(line).keys() for line in steps if line.strip()
@@ -174,17 +126,10 @@ DIGIT_KEYCODES = frozenset(range(10, 20))
 
 
 def input_parity_ignore(header: dict) -> tuple[tuple[str, tuple[tuple[int, str], ...]], ...]:
-    """The input events a scenario's input parity compares without their position or key.
+    """Input events compared without their position or key; `tests/qa.rs` rejects the same values.
 
-    Each entry names one run and, for each such event, its 1-based number
-    among the run's key and pointer events (motion lines aside) on the Python
-    side and the event expected there: `button 1 down` (compared without its
-    pointer position), `key down` (without its keycode), or `typed digits`, a
-    run of digit key presses that may differ in length between the sides, as
-    a random number typed into a field. The event itself, and every other
-    event, is still compared, so a step added before it cannot shift the
-    exemption onto another event. `tests/qa.rs` rejects the same values when
-    it loads the scenario.
+    The event itself is still compared, so a step added before it cannot shift
+    the exemption onto another event.
     """
 
     entries = header.get("input_parity_ignore", [])
@@ -226,10 +171,7 @@ def input_parity_ignore(header: dict) -> tuple[tuple[str, tuple[tuple[int, str],
 
 
 def state_parity_ignore(header: dict) -> tuple[str, ...]:
-    """The compared state a scenario's final-state parity leaves out.
-
-    `tests/qa.rs` rejects the same values when it loads the scenario.
-    """
+    """`tests/qa.rs` rejects the same values when it loads the scenario."""
 
     ignored = header.get("state_parity_ignore", [])
     if not isinstance(ignored, list) or not all(isinstance(key, str) for key in ignored):
@@ -262,8 +204,6 @@ def scenario_for(patch: str) -> Scenario:
 
 
 def scenario_named(name: str) -> Scenario:
-    """The scenario a mutation patch belongs to, or else the scenario of that name."""
-
     found = scenarios()
     by_patch = [scenario for scenario in found if scenario.mutation == name]
     if len(by_patch) > 1:
@@ -276,8 +216,7 @@ def scenario_named(name: str) -> Scenario:
     return by_name[0]
 
 
-# File names stay well inside the 255-byte limit; a longer node id keeps its
-# start and a digest of the whole, as `tests/e2e/harness/parity.py` names it.
+# Names stay inside the 255-byte limit as `tests/e2e/harness/parity.py` names them.
 NODE_FILE_NAME_LIMIT = 200
 NODE_FILE_NAME_KEPT = 180
 
@@ -290,17 +229,11 @@ def node_file_name(node_id: str) -> str:
     return f"{name[:NODE_FILE_NAME_KEPT]}-{digest}"
 
 
-# -------------------------------------------------------------------- results
-
 @dataclass
 class Result:
-    """One run on one side: `pass`, `fail`, `error`, `known bug`, or `missing`."""
-
     status: str
     signature: str = ""
     detail: str = ""
-    # The node id the Python side ran under, where it differs from the twin's
-    # (an xdist group suffix); its input log and state dump are named after it.
     node: str = ""
 
 
@@ -315,10 +248,8 @@ class QaRun:
 def parse_qa_log(text: str) -> dict[str, QaRun]:
     """QA runs by twin node id.
 
-    `tests/qa.rs` prints a `RUN` line for every planned run before any runs,
-    then a PASS, KNOWN BUG, or failed line for each. A planned run without a
-    result line stays `missing`, so a truncated run can never drop out.
-    Parity does not accept known bugs: a twin pair must agree outright.
+    A planned `RUN` without a result line stays `missing`, so a truncated run
+    never drops out. Parity does not accept known bugs.
     """
 
     runs: dict[str, QaRun] = {}
@@ -344,8 +275,6 @@ def parse_qa_log(text: str) -> dict[str, QaRun]:
 
 
 def qa_signature(result: dict) -> tuple[str, str]:
-    """The failed step's twin message, and where it is, from a run's result.json."""
-
     failures = result.get("failures") or []
     if not failures:
         return "", ""
@@ -377,8 +306,6 @@ def add_qa_details(runs: dict[str, QaRun], artifacts: Path) -> None:
 
 
 def parse_junit(report: Path) -> dict[str, Result]:
-    """Python results by node id."""
-
     try:
         root = ET.parse(report).getroot()
     except (ET.ParseError, OSError):
@@ -406,8 +333,6 @@ def parse_junit(report: Path) -> dict[str, Result]:
 
 
 def python_signature(message: str) -> str:
-    """A `strata.wait` message, or else an assertion's message or expression."""
-
     if match := WAITING_FOR.search(message):
         return normalise(match["message"])
     return normalise(EXCEPTION_PREFIX.sub("", first_line(message)))
@@ -421,8 +346,6 @@ def normalise(text: str) -> str:
     return " ".join(text.split())
 
 
-# ---------------------------------------------------------------- comparisons
-
 @dataclass
 class Comparison:
     agree: bool
@@ -434,13 +357,10 @@ def compare_input(
 ) -> Comparison:
     """Key and pointer-button lines in order; pointer positions within a pixel.
 
-    A run that only moves the pointer, as a hover does, compares its motion
-    lines the same way instead. Two empty logs agree only for a scenario that
-    sends no input at all. Each `(number, "button 1 down")` in `positions` must
-    be that pointer event on both sides, and is compared without its coordinates;
-    a `"key down"` without its keycode; and `"typed digits"` starts a run of
-    digit key presses on each side, of any length, after which the logs are
-    compared again from the ends of both runs. Numbers count Python's events.
+    A pointer-only run (a hover) compares its motion lines instead. Two empty
+    logs agree only for a scenario that sends no input. Numbers in `positions`
+    count Python's events; after `"typed digits"` the logs are compared again
+    from the ends of both digit runs.
     """
 
     def events(text: str, side: str) -> tuple[list[tuple], list[tuple]]:
@@ -472,8 +392,6 @@ def compare_input(
         return Comparison(False, "input_parity_ignore leaves no event position compared")
 
     def digits(events: list[tuple], start: int) -> int:
-        """How many events from `start` are digit key presses, each down then up."""
-
         end = start
         while (
             end + 1 < len(events)
@@ -536,7 +454,6 @@ def compare_input(
         )
     if expected and not visited - set(expected):
         return Comparison(False, "input_parity_ignore leaves no event position compared")
-    # A named position inside a run of typed digits was skipped, never checked.
     skipped = sorted(set(expected) - visited)
     if skipped:
         return Comparison(
@@ -583,8 +500,6 @@ def compare_state(python: dict | None, qa: dict | None, ignore: tuple[str, ...] 
         )
     return Comparison(True, ignoring.removeprefix("; "))
 
-
-# ------------------------------------------------------------------- verdicts
 
 @dataclass
 class RunPair:
@@ -655,8 +570,6 @@ def signature_parity(found: list[RunPair]) -> Comparison:
     return Comparison(True, f"{len(both)} runs")
 
 
-# ---------------------------------------------------------------- the runners
-
 def run_logged(command: list[str], log: Path, environment: dict[str, str]) -> int:
     log.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
@@ -703,8 +616,6 @@ def load_qa_status(destination: Path) -> int | None:
 
 
 def exit_accounted(status: int | None, runs) -> Comparison:
-    """qa.sh fails exactly when a run did; anything else is unaccounted for."""
-
     if status is None:
         return Comparison(False, "qa.sh's exit status was not recorded")
     failing = any(run.result.status != "pass" for run in runs)
@@ -751,8 +662,6 @@ def git(*arguments: str) -> subprocess.CompletedProcess:
 
 
 class Mutation:
-    """Applies a patch and restores exactly the files it touched."""
-
     def __init__(self, name: str) -> None:
         self.patch = MUTATIONS / f"{name}.patch"
         if not self.patch.is_file():
@@ -782,10 +691,7 @@ class Mutation:
             raise SystemExit(f"could not restore {self.files} after {self.patch.name}:\n{left}")
 
 
-# --------------------------------------------------------------------- report
-
 CHECKS = ("pass", "fail", "signature", "input", "state")
-# What a scenario without a mutation, or a `--baseline` run, is held to.
 BASELINE_CHECKS = ("pass", "input", "state")
 
 
@@ -950,20 +856,12 @@ def write_summary(reports: list[PairReport], elapsed: float | None, extra: list[
     return text
 
 
-# ----------------------------------------------------------------------- main
-
 def chosen_scenarios(names: list[str]) -> list[Scenario]:
-    """The named scenarios, or every one; a skipped scenario, or one without a
-    twin, never takes part."""
-
     found = [scenario_named(name) for name in names] if names else scenarios()
     return [scenario for scenario in found if scenario.skip is None and scenario.twin]
 
 
 def skipped_lines(names: list[str]) -> list[str]:
-    """The summary's note on each chosen scenario that takes no part: one without
-    a twin, and a skipped one with its reason."""
-
     found = [scenario_named(name) for name in names] if names else scenarios()
     return [
         f"No twin, not compared: {scenario.name}"
@@ -982,8 +880,6 @@ def baseline_pairs(scenario: Scenario, qa: dict[str, QaRun], python: dict[str, R
 
 
 def collect(chosen: list[Scenario], baseline_only: bool = False) -> None:
-    """Runs both sides, unmodified and under each patch, into target/qa-parity."""
-
     baseline = OUTPUT / "baseline"
     shutil.rmtree(baseline, ignore_errors=True)
     print("== unmodified tree: QA scenarios", flush=True)
@@ -1008,8 +904,6 @@ def collect(chosen: list[Scenario], baseline_only: bool = False) -> None:
 
 
 def evaluate(chosen: list[Scenario], output: Path = OUTPUT, baseline_only: bool = False) -> list[PairReport]:
-    """Compares what `collect` saved under `output`; writes `<unit>.md` there for each pair."""
-
     baseline = output / "baseline"
     qa, python = load_qa(baseline), load_python(baseline)
     baseline_exit = exit_accounted(load_qa_status(baseline), qa.values())
@@ -1055,8 +949,7 @@ def parity(names: list[str], rerun: bool = True, baseline_only: bool = False) ->
     # A report left from an earlier run must never stand in for this one.
     for stale in [OUTPUT / "summary.md"] + [OUTPUT / f"{scenario.unit}.md" for scenario in chosen]:
         stale.unlink(missing_ok=True)
-    # Nothing to run when every named scenario lacks a twin or is skipped;
-    # qa.sh without names would run them all.
+    # qa.sh without names would run every scenario.
     if rerun and chosen:
         try:
             collect(chosen, baseline_only)
@@ -1072,10 +965,6 @@ def parity(names: list[str], rerun: bool = True, baseline_only: bool = False) ->
     return 0 if all(report.agree for report in reports) else 1
 
 
-# ------------------------------------------------------------------------- CI
-
-# A pull request changing any of these runs parity in CI: everything that
-# decides what either twin does. Entries ending in "/" are directories.
 PARITY_PATHS = (
     "src/", "data/", "build.rs", "Cargo.toml", "Cargo.lock",
     "tests/e2e/", "tests/qa/", "tests/qa.rs", "tests/fixtures/",
@@ -1084,8 +973,6 @@ PARITY_PATHS = (
     "scripts/e2e.sh", "scripts/e2e-native.sh", "scripts/e2e_base.py",
     "scripts/e2e_bundle.py", "scripts/e2e_images.py", ".github/workflows/ci.yml",
 )
-# A shard rebuilds both sides for its baseline and again for each patch, so
-# more shards finish sooner at the cost of more runners.
 CI_SHARDS = 10
 # `qa-parity-<attempt>-shard-<index>`; a re-run attempt replaces only its own shards.
 SHARD_DIRECTORY = re.compile(r"(?:(\d+)-)?shard-(\d+)$")
@@ -1101,10 +988,6 @@ def touches_parity(paths: list[str]) -> bool:
 
 
 def ci_units() -> list[str]:
-    """What CI shards by: each mutation scenario's patch, which gets full
-    parity, and each other scenario's name, which gets baseline parity; a
-    scenario without a twin has no pair."""
-
     found = [scenario for scenario in scenarios() if scenario.twin]
     if not found:
         raise SystemExit("no QA scenarios to compare")
@@ -1126,8 +1009,6 @@ def shard_units(units: list[str], shards: int) -> list[list[str]]:
 
 
 def ci_plan(base: str | None) -> int:
-    """GitHub outputs: whether parity runs, and the shard matrix."""
-
     shards = shard_units(ci_units(), CI_SHARDS)
     run = True
     if base is not None:
@@ -1143,10 +1024,7 @@ def ci_plan(base: str | None) -> int:
 
 
 def aggregate(root: Path) -> int:
-    """One verdict over the CI shards' target/qa-parity trees, saved under `root`
-    in directories ending `[<attempt>-]shard-<index>`; each shard's newest attempt
-    counts, and a shard that uploaded nothing or did not finish disagrees.
-    The combined summary goes to `root/summary.md`, leaving target/qa-parity alone."""
+    """Each shard's newest attempt counts; a shard that uploaded nothing or did not finish disagrees."""
 
     by_unit = {scenario.unit: scenario for scenario in scenarios()}
     newest: dict[int, tuple[int, Path]] = {}
@@ -1191,8 +1069,6 @@ def aggregate(root: Path) -> int:
 
 
 def verdict(stage: str, qa_log: Path, junit: Path, qa_status: int) -> int:
-    """Pass or fail parity for `e2e-mutation-check.sh --qa`."""
-
     qa = parse_qa_log(qa_log.read_text(encoding="utf-8", errors="replace"))
     found = pairs(qa, parse_junit(junit))
     for pair in found:

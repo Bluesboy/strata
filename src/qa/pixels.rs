@@ -1,13 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-//! Screen pixels compared the way the Python scenarios compare screenshots
-//! with PIL, for the few behaviours only visible on screen: hover feedback
-//! and a drag's source label.
-
-/// Screen pixels in a box, row by row.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Capture {
-    /// The box's top-left corner on the X screen.
     pub(crate) x: i64,
     pub(crate) y: i64,
     pub(crate) width: usize,
@@ -28,9 +22,6 @@ pub(crate) fn luma([red, green, blue]: [u8; 3]) -> u8 {
     u8::try_from(weighted >> 16).unwrap_or(u8::MAX)
 }
 
-/// `text_position`: per row, how far the pixels stray from the row's median
-/// luma, and the weighted mean row of that ink, independent of selection
-/// colour and opacity. The position is `None` when there is no ink at all.
 pub(crate) fn text_position(capture: &Capture) -> (Option<f64>, u64) {
     let mut weights = Vec::with_capacity(capture.height);
     for row in 0..capture.height {
@@ -64,9 +55,6 @@ pub(crate) fn text_position(capture: &Capture) -> (Option<f64>, u64) {
     (Some(position), contrast)
 }
 
-/// `visibly_hovered`: whether any pixel differs once the square from 2
-/// pixels above and left of `pointer` to 32 below and right (inclusive, as
-/// `ImageDraw.rectangle` fills) is blacked out of both captures.
 pub(crate) fn differs_beside_pointer(
     before: &Capture,
     after: &Capture,

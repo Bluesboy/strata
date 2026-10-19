@@ -1,11 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""`tests/fixtures/harness.json` is the one definition both harnesses read.
-
-The Python harness takes its fixture tree, preferences, GTK settings, static
-environment, and keyboard layouts from it, and the `--qa` runner
-(`tests/qa.rs`) materialises the same values, so these checks guard what the
-manifest produces here rather than a second copy of it.
-"""
+"""`tests/fixtures/harness.json` is the one definition both harnesses read."""
 
 from __future__ import annotations
 

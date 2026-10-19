@@ -1,11 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""The shared harness manifest, `tests/fixtures/harness.json`.
-
-It is the single definition of the fixture tree, seeded preferences, GTK
-settings, static environment, and keyboard layouts. This harness and the
-`--qa` runner (`tests/qa.rs`) both read it, so neither depends on two
-generators agreeing.
-"""
+"""The shared harness manifest, `tests/fixtures/harness.json`, also read by `tests/qa.rs`."""
 
 from __future__ import annotations
 

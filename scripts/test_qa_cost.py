@@ -13,13 +13,12 @@ from qa_cost import durations, scores, with_cost, write
 class ScoreTests(unittest.TestCase):
     def test_a_run_scores_its_median_over_the_median_of_all_medians(self):
         found = scores({
-            "a/columns": [10.0, 30.0, 11.0],  # median 11
-            "b/columns": [5.0, 6.0, 4.0],  # median 5
-            "c/list": [2.0, 2.2],  # median 2.1
-            "d/icons": [0.01, 0.02, 0.01],  # median 0.01
+            "a/columns": [10.0, 30.0, 11.0],
+            "b/columns": [5.0, 6.0, 4.0],
+            "c/list": [2.0, 2.2],
+            "d/icons": [0.01, 0.02, 0.01],
             "e/icons": [5.5],
         })
-        # The typical run is the median of 11, 5, 2.1, 0.01, and 5.5: 5.
         self.assertEqual(found, {
             "a/columns": 2.2, "b/columns": 1.0, "c/list": 0.4, "d/icons": 0.1, "e/icons": 1.1,
         })

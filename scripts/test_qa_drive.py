@@ -13,7 +13,6 @@ DRIVE = (REPOSITORY / "scripts/qa-drive.sh").read_text(encoding="utf-8")
 
 
 def runner_pairs(constant):
-    """The `("KEY", "value")` pairs of a `const NAME: [(&str, &str); N]` array."""
     match = re.search(rf"^const {constant}: \[\(&str, &str\); \d+\] = \[(.*?)\];", RUNNER, re.M | re.S)
     if match is None:
         raise AssertionError(f"tests/qa.rs has no {constant}")
@@ -82,7 +81,6 @@ class QaDriveMatchesTheRunner(unittest.TestCase):
         self.assertEqual(drive_value("fixture_prefix"), match.group(1))
 
     def test_home_is_seeded_and_the_application_launched_as_the_runner_does(self):
-        # Each pair: what tests/qa.rs does, and how qa-drive.sh does the same.
         for runner, drive in (
             ('writeln!(output, "{key} = {}", render_value(value))', 'f"{key} = {toml(value)}\\n"'),
             ('home.join("config/gtk-4.0")', '{home}/config/gtk-4.0/settings.ini'),

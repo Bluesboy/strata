@@ -23,8 +23,6 @@ GTK_SETTINGS: str = MANIFEST["gtk_settings"]
 # inherits a default change. Scenario-specific values are layered on top.
 DEFAULT_PREFERENCES: dict[str, object] = MANIFEST["preferences"]
 
-# Locale, rendering, and backend pins; the per-test HOME and XDG paths are
-# added by `TestEnvironment.variables`.
 STATIC_VARIABLES: dict[str, str] = MANIFEST["environment"]
 
 
@@ -61,16 +59,14 @@ class TestEnvironment:
     """A throwaway HOME the application under test may write to freely."""
 
     root: Path = field(init=False)
-    # A display's own helper environment, which keeps a random name under
-    # parity so the scenario's environment can take the test's.
+    # A display's helper environment keeps a random name, leaving the parity name to the test's.
     helper: bool = False
     # Variables a scenario adds before the application starts.
     extra_variables: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        # pytest names the running test as "<node id> (<phase>)". Under
-        # parity the root is named after it, as the `--qa` twin names its
-        # own, so a typed home path is the same on both sides.
+        # PYTEST_CURRENT_TEST is "<node id> (<phase>)"; under parity the root is
+        # named after the node id, as the `--qa` twin names its own.
         current = os.environ.get("PYTEST_CURRENT_TEST")
         if not self.helper and os.environ.get(PARITY_FIXTURES_VARIABLE) == "1" and current:
             self.root = Path("/tmp") / parity_environment_name(current.rsplit(" ", 1)[0])

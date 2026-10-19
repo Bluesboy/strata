@@ -1,17 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Runs the `.jsonl` scenarios in `tests/qa/scenarios/<folder>/` against
-//! `strata --qa`.
-//!
-//! Each run gets its own Xvfb, HOME, XDG directories, and fixture tree, seeded
-//! from `tests/fixtures/harness.json` exactly as the Python harness seeds
-//! them. App commands stream to the process; `layout` and `fs` steps run here.
-//! Every run is a test of its own, named `<scenario>/<run>`, and the costliest
-//! runs, by their header's `cost`, start first (see `harness`).
-//! Run through `./scripts/qa.sh`; see `docs/e2e-testing.md`.
-
-// The process's own command parser, so a malformed step fails when the
-// scenario loads, not as a scenario failure a `known_bug` could excuse.
+// The process's own parser, so a malformed step fails at load, not as a failure `known_bug` could excuse.
 #[path = "../src/qa/protocol.rs"]
 #[expect(dead_code, reason = "the runner only validates commands")]
 mod protocol;
@@ -51,10 +40,7 @@ const BINARY: &str = env!("CARGO_BIN_EXE_strata");
 /// `tree.DEFAULT_TIMEOUT`, as long as a Python `strata.wait` waits.
 const DEFAULT_WAIT: Duration = Duration::from_millis(15_000);
 const LAUNCH_TIMEOUT: Duration = Duration::from_secs(90);
-/// Covers the slowest command without a `timeout_ms`: `select` waits for its
-/// entry twice and for the selection twice.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(90);
-/// Covers the process's own wait plus the drains around it.
 const WAIT_MARGIN: Duration = Duration::from_secs(30);
 const EXIT_TIMEOUT: Duration = Duration::from_secs(10);
 /// `TERMINATE_GRACE_SECONDS` in `tests/e2e/harness/process.py`.
@@ -65,7 +51,6 @@ const DISPLAY_TRIES: u32 = 256;
 const XVFB_START_TIMEOUT: Duration = Duration::from_secs(15);
 const DEFAULT_LAYOUT: &str = "us";
 const ALL_MODIFIERS: u16 = 0xff;
-/// The error `strata --qa` replies with before it exits on a harness bug.
 const CONTROLLER_PANIC: &str = "the QA controller panicked";
 const RUNNER_COMMANDS: [&str; 24] = [
     "layout",
@@ -93,14 +78,9 @@ const RUNNER_COMMANDS: [&str; 24] = [
     "zipcrypto",
     "fail",
 ];
-/// `services::remote_download::DOWNLOAD_PREFIX`: what a portal download's
-/// directory is named with, the only kind a `portal_response` may discard.
+/// `services::remote_download::DOWNLOAD_PREFIX`; only such directories may be discarded.
 const DOWNLOAD_PREFIX: &str = "strata-download-";
-/// `subprocess.run([strata, *arguments], check=True, timeout=30)`: another
-/// `strata` a twin starts, which hands its arguments to the running one.
 const LAUNCH_TIMEOUT_ARGUMENTS: Duration = Duration::from_secs(30);
-/// Runner steps that only keep or switch state, which no `known_bug_step`
-/// may name.
 const KEEPING_STEPS: [&str; 11] = [
     "layout",
     "flag",
@@ -114,18 +94,12 @@ const KEEPING_STEPS: [&str; 11] = [
     "http",
     "foreign_stop",
 ];
-/// What a run-time note stands for while steps are checked before the launch.
 const NOTED_PLACEHOLDER: &str = "noted";
-/// `ffmpeg` writing a generated media file, as a twin's `subprocess.run(..., timeout=30)`;
-/// also ImageMagick's conversion and `dbus-send`.
 const FFMPEG_TIMEOUT: Duration = Duration::from_secs(30);
-/// `screenshots.capture`'s `subprocess.run(..., timeout=15)` around `import`.
 const CAPTURE_TIMEOUT: Duration = Duration::from_secs(15);
-/// How long the private session bus may take to listen, as `HeadlessDisplay`
-/// waits `startup_timeout` for it.
 const BUS_START_TIMEOUT: Duration = Duration::from_secs(30);
-/// `SESSION_BUS_CONFIG` in `tests/e2e/harness/display.py`: a session bus with
-/// no service directories, so nothing on it is D-Bus-activatable.
+/// `SESSION_BUS_CONFIG` in `tests/e2e/harness/display.py`: no service directories, so
+/// nothing on the bus is D-Bus-activatable.
 const SESSION_BUS_CONFIG: &str = r#"<!DOCTYPE busconfig PUBLIC
  "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
  "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
@@ -139,18 +113,9 @@ const SESSION_BUS_CONFIG: &str = r#"<!DOCTYPE busconfig PUBLIC
   </policy>
 </busconfig>
 "#;
-/// A step key the runner reads and strips: the modes the step runs in.
 const STEP_MODES: &str = "modes";
-/// A step key the runner reads and strips: the header variants the step runs
-/// in, as a twin's `if target == "row-space"` branches.
 const STEP_VARIANTS: &str = "variants";
-/// A step key the runner reads and strips: a predicate the step runs only
-/// while it holds, checked through the process's `holds` just before, as a
-/// twin's `if node.has_state(...)` branches.
 const STEP_WHEN: &str = "when";
-/// Step keys the runner reads and strips: the step runs only if, or only
-/// unless, an earlier `expect` kept as that name held, as a twin's
-/// `if _focus_returned(...)` or `except TreeTimeout:` branches.
 const STEP_IF: &str = "if";
 const STEP_UNLESS: &str = "unless";
 const MODES: [(&str, &str); 3] = [("columns", "Columns"), ("icons", "Icons"), ("list", "List")];
@@ -166,23 +131,15 @@ const IGNORABLE_STATE: [&str; 8] = [
     "panes.selected",
     "panes.focused",
 ];
-/// Synthetic input the process sent, in the format `docs/e2e-testing.md` defines.
 const INPUT_LOG: &str = "input.log";
-/// The `app` snapshot after the last step, compared with the twin's final state.
 const STATE_FILE: &str = "state.json";
-/// The run's twin, errors, and failed steps, for `scripts/qa_parity.py`.
 const RESULT_FILE: &str = "result.json";
-/// Set to `1` by `scripts/qa_parity.py`: each run names its fixture directory
-/// after its twin's node id, as the twin does, so typed paths and pane names
-/// are the same on both sides.
+/// Set by `scripts/qa_parity.py`: fixture directories are named after the twin's node id.
 const PARITY_FIXTURES: &str = "STRATA_PARITY_FIXTURES";
-/// Set to `1` by `./scripts/qa.sh` when the command line names scenarios, so a
-/// scenario the header's `skip` keeps out of the default run still runs.
+/// Set by `./scripts/qa.sh` when scenarios are named, so a `skip` scenario still runs.
 const NAMED: &str = "STRATA_QA_NAMED";
-/// How long the final state may keep changing before it is taken anyway.
 const STATE_SETTLE_TIMEOUT: Duration = Duration::from_secs(5);
 const STATE_SETTLE_INTERVAL: Duration = Duration::from_millis(250);
-/// Per-test paths the manifest leaves out of its static environment.
 const XDG_DIRECTORIES: [(&str, &str); 5] = [
     ("HOME", "home"),
     ("XDG_CONFIG_HOME", "config"),
@@ -190,8 +147,6 @@ const XDG_DIRECTORIES: [(&str, &str); 5] = [
     ("XDG_CACHE_HOME", "cache"),
     ("XDG_STATE_HOME", "state"),
 ];
-/// Variables the runner sets for every run, which a header's `env` may not
-/// replace (nor the [`XDG_DIRECTORIES`] or [`QA_ENVIRONMENT`] ones).
 const RUNNER_OWNED_ENVIRONMENT: [&str; 7] = [
     "DISPLAY",
     "DBUS_SESSION_BUS_ADDRESS",
@@ -201,14 +156,11 @@ const RUNNER_OWNED_ENVIRONMENT: [&str; 7] = [
     "STRATA_STATE_DUMP",
     SHADER_CACHE_VARIABLE,
 ];
-/// No AT-SPI here: the process reads its own widget tree. A session bus
-/// address that cannot connect keeps GLib from autolaunching one.
+/// No AT-SPI: the process reads its own widget tree.
 const QA_ENVIRONMENT: [(&str, &str); 2] = [("GTK_A11Y", "none"), ("NO_AT_BRIDGE", "1")];
-/// Points every run's Mesa at one cache, so each launch reuses the shaders the
-/// first compiled instead of rebuilding them in its fresh `XDG_CACHE_HOME`.
+/// One Mesa shader cache for every run, so launches do not recompile shaders in their
+/// fresh `XDG_CACHE_HOME`.
 const SHADER_CACHE_VARIABLE: &str = "MESA_SHADER_CACHE_DIR";
-/// The directory [`SHADER_CACHE_VARIABLE`] names, made by the first launch
-/// and removed when the runner exits.
 static SHADER_CACHE: Mutex<Option<tempfile::TempDir>> = Mutex::new(None);
 
 fn shader_cache() -> Result<PathBuf, String> {
@@ -224,8 +176,6 @@ fn shader_cache() -> Result<PathBuf, String> {
         .map_err(|error| format!("cannot create the shader cache: {error}"))?;
     Ok(cache.insert(directory).path().to_owned())
 }
-
-// --------------------------------------------------------------- policy
 
 fn main() -> std::process::ExitCode {
     let arguments = match harness::Arguments::parse(std::env::args().skip(1)) {
@@ -270,9 +220,6 @@ fn require_container() {
     );
 }
 
-// ------------------------------------------------------------- manifest
-
-/// `tests/fixtures/harness.json`, shared with the Python harness.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Manifest {
@@ -294,12 +241,11 @@ struct Layout {
     variants: String,
 }
 
-/// Keeps document order, so `settings.toml` comes out as the Python harness writes it.
+/// Keeps document order, so `settings.toml` matches what the Python harness writes.
 #[derive(Clone, Debug, Default)]
 struct OrderedMap(Vec<(String, Value)>);
 
 impl OrderedMap {
-    /// Like Python's `dict.update`: replaced keys keep their place, new keys go last.
     fn update(&mut self, key: &str, value: Value) {
         match self.0.iter_mut().find(|(existing, _)| existing == key) {
             Some(entry) => entry.1 = value,
@@ -433,8 +379,6 @@ fn listing(root: &Path) -> String {
     lines.join("\n")
 }
 
-// ------------------------------------------------------------- scenario
-
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Header {
@@ -444,80 +388,37 @@ struct Header {
     prefs: Map<String, Value>,
     #[serde(default = "default_layout")]
     layout: String,
-    /// The pytest node each run ports, if any; `$mode` and variant
-    /// `$variables` are replaced per run, and a variant may name its own.
     twin: Option<String>,
     mutation: Option<String>,
     known_bug: Option<String>,
-    /// The file line of the step a `known_bug` run must fail at; a failure
-    /// anywhere else is an error.
     known_bug_step: Option<usize>,
-    /// Runs of the file that differ in preferences, layout, or `$variables`.
     #[serde(default)]
     variants: Vec<Variant>,
-    /// A manifest tree's name, or a tree written out here; see [`expand_tree`].
     tree: Option<Value>,
-    /// Solid-colour PNGs written into the tree after its times are pinned, as
-    /// a Python fixture saves a PIL image after `FixtureTree.create`.
     #[serde(default)]
     images: BTreeMap<String, Image>,
-    /// Lines of the manifest's GTK `settings.ini` given another value, as a
-    /// twin's `test_environment` override rewrites them.
     #[serde(default)]
     gtk_settings: BTreeMap<String, String>,
-    /// Compared state keys final-state parity leaves out for this scenario,
-    /// where the app itself ends nondeterministically; `scripts/qa_parity.py`
-    /// reads them.
     #[serde(default)]
     state_parity_ignore: Vec<String>,
-    /// Input events of one run whose pointer position input parity leaves
-    /// out, where the app itself puts the target in either of two places
-    /// under both harnesses; `scripts/qa_parity.py` reads them.
     #[serde(default)]
     input_parity_ignore: Vec<InputParityIgnore>,
-    /// `fs` actions taken before the launch, as a twin's fixture writes files
-    /// before `strata` starts: an executable in the tree, or desktop entries
-    /// and actions under `$data` and `$config`.
     #[serde(default)]
     setup: Vec<Value>,
-    /// `fs` actions taken once setup has begun, however the run ends, as a
-    /// twin's `finally:` restores what it changed: `chmod` back to a readable mode.
     #[serde(default)]
     teardown: Vec<Value>,
-    /// Variables the application's environment gets on top of the
-    /// manifest's, `$variables` replaced, as a twin's `test_environment`
-    /// override returns `{**variables(), "PATH": ...}`.
     #[serde(default)]
     env: BTreeMap<String, String>,
-    /// A private session bus for the application and `dbus_send` steps, as
-    /// the Python harness's `HeadlessDisplay` starts one; without it the
-    /// application gets a bus address that cannot connect.
     #[serde(default)]
     session_bus: bool,
-    /// The run starts `strata --qa --portal`, the FileChooser portal
-    /// backend, instead of the browser, as `open_file_request` starts
-    /// `strata --portal`; its window comes with a `portal_open` request.
     #[serde(default)]
     portal: bool,
-    /// A fixed fixture directory, `/tmp/<name>`, in place of a fresh one, as
-    /// `FixtureTree.create_at` builds a golden screenshot's tree where its path
-    /// renders the same every time; it must not exist yet, and runs that
-    /// claim one take turns.
     fixture_root: Option<String>,
-    /// Why the scenario stays out of the default `./scripts/qa.sh` run and out
-    /// of parity, such as an app race that makes it pass or fail by chance;
-    /// it still runs when named on the command line (`STRATA_QA_NAMED=1`).
     skip: Option<String>,
-    /// Each run's wall-clock time relative to a typical run's, by run label,
-    /// which `scripts/qa_cost.py` measures and writes; the costliest runs
-    /// start first, and a run without one starts before them.
     cost: Option<BTreeMap<String, f64>>,
-    /// The scenario's rated value, an object [`check_quality`] reads; the
-    /// `qa-quality` skill defines the scale.
     quality: Option<Value>,
 }
 
-/// `{"impact":1-5,"coverage":1-5,"criticality":1-5,"diagnostic":1-5,"score":0-100,"note":"..."}`.
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 struct Quality {
@@ -529,9 +430,6 @@ struct Quality {
     note: String,
 }
 
-/// One run's pointer events whose position is not compared, each named by
-/// its 1-based number among the run's key and pointer events and the event
-/// expected there, so a step added before it cannot shift the exemption.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct InputParityIgnore {
@@ -543,7 +441,6 @@ struct InputParityIgnore {
 #[serde(deny_unknown_fields)]
 struct IgnoredEvent {
     position: usize,
-    /// `button <n> down` or `button <n> up`.
     event: String,
 }
 
@@ -553,19 +450,11 @@ struct Image {
     width: u32,
     height: u32,
     rgb: [u8; 3],
-    /// For an fs `image` over a numbered range: this much wider per number,
-    /// as `Image.new("RGB", (320 + index, 180), ...)` in a loop.
     #[serde(default)]
     width_step: u32,
-    /// For an fs `image`: a cached thumbnail written right after each file,
-    /// as a twin's loop saves the source and then its thumbnail.
     thumbnail: Option<Thumbnail>,
 }
 
-/// A freedesktop cached thumbnail: a solid-colour PNG named after the MD5 of
-/// the source's URI in `cache`, with `Thumb::URI` and `Thumb::MTime` text
-/// chunks, as the twins write one with `PngImagePlugin.PngInfo`; `mode` sets
-/// the cache directory's mode, as `mkdir(parents=True, mode=0o700)`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Thumbnail {
@@ -576,7 +465,6 @@ struct Thumbnail {
     mode: Option<String>,
 }
 
-/// `Image.open(path).convert("RGB").getpixel(at) == rgb`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PixelAt {
@@ -584,8 +472,6 @@ struct PixelAt {
     rgb: [u8; 3],
 }
 
-/// `int(path.stat().st_mtime)`: seconds since the epoch, or a local time as
-/// `int(datetime(2001, 9, 9, 1, 46, 40).timestamp())` reads it.
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(untagged)]
 enum Mtime {
@@ -593,20 +479,15 @@ enum Mtime {
     Local { local: [i32; 6] },
 }
 
-/// A gzipped tar of `[name, text]` members in order, each with this mode and
-/// modification time, as `tarfile.open(path, "w:gz").addfile(info, ...)`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TarGz {
     mode: String,
     mtime: i64,
     members: Vec<(String, TarText)>,
-    /// The byte at this index from the end flipped (`^= 0xFF`) after
-    /// compressing, as `damaged[-8] ^= 0xFF` breaks the gzip trailer's CRC.
     flip_from_end: Option<usize>,
 }
 
-/// A member's text, or one text repeated, as `b"x" * 50_000`.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum TarText {
@@ -623,9 +504,6 @@ impl TarText {
     }
 }
 
-/// The first desktop file `[Default Applications]` lists in a
-/// `mimeapps.list` for the content type GIO gives a file, as
-/// `ConfigParser()["Default Applications"][content_type].split(";")[0]`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DefaultApp {
@@ -634,10 +512,6 @@ struct DefaultApp {
     is: String,
 }
 
-/// The stub terminal launcher's `cwd<TAB>arguments` lines, as
-/// `test_terminal` asserts on them: `count` lines, all the same, each
-/// `--dir=` a folder whose resolved path is the resolved working directory
-/// and lies inside `within`; or the first line's `--dir=` resolving to `first_dir`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Launches {
@@ -646,9 +520,6 @@ struct Launches {
     first_dir: Option<String>,
 }
 
-/// Every line of the files in a directory whose names end with `suffix`
-/// that starts with `prefix` becomes `with`, as the trash scenario rewrites
-/// each `.trashinfo` file's `DeletionDate=` line.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ReplaceLines {
@@ -668,17 +539,10 @@ struct Variant {
     layout: Option<String>,
     #[serde(default)]
     vars: BTreeMap<String, String>,
-    /// This variant's pytest node, when the header's pattern does not fit it.
     twin: Option<String>,
-    /// This variant's fixture tree in place of the header's, as an indirect
-    /// `fixture_tree` parametrization gives each case its own.
     tree: Option<Value>,
-    /// `fs` actions taken after the header's `setup`, before the launch, as
-    /// such a case's fixture writes its own file's bytes.
     #[serde(default)]
     setup: Vec<Value>,
-    /// `fs` actions taken after the header's `teardown`, however the run
-    /// ends, as such a case's `finally:` restores its own directory.
     #[serde(default)]
     teardown: Vec<Value>,
 }
@@ -689,11 +553,9 @@ fn default_layout() -> String {
 
 struct Scenario {
     header: Header,
-    /// With their line numbers in the file.
     steps: Vec<(usize, Value)>,
 }
 
-/// Every scenario file, each in a folder of `tests/qa/scenarios` (see [`check_folder`]).
 fn scenario_files() -> Vec<PathBuf> {
     let directory = Path::new(REPOSITORY).join("tests/qa/scenarios");
     let mut files = Vec::new();
@@ -727,8 +589,6 @@ fn scenario_name(path: &Path) -> String {
         .to_owned()
 }
 
-/// The header alone, which names a scenario's runs and their costs; the
-/// steps are checked when a run loads the whole file.
 fn read_header(path: &Path) -> Result<Header, String> {
     let text = fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
     let first = text
@@ -740,8 +600,6 @@ fn read_header(path: &Path) -> Result<Header, String> {
 
 const SCENARIO_IGNORED: &str = "QA scenarios run in the pinned container through ./scripts/qa.sh";
 
-/// The unit tests, then one test per run of every scenario file, each named
-/// `<scenario>/<run>`, so the runs of one scenario spread over the threads.
 fn planned_tests() -> Vec<harness::Test> {
     let mut tests: Vec<harness::Test> = UNIT_TESTS
         .iter()
@@ -897,8 +755,7 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
         }
     }
     gtk_settings(&manifest().gtk_settings, &header.gtk_settings)?;
-    // `["*"]` leaves the whole state out, for a twin that ends its own
-    // application before its state can be read; `scripts/qa_parity.py` agrees.
+    // `["*"]` ignores the whole state; `scripts/qa_parity.py` agrees.
     let whole_state = header.state_parity_ignore == ["*"];
     if whole_state && header.mutation.is_some() {
         return Err(
@@ -927,7 +784,6 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
                     .to_owned(),
             );
         }
-        // The top-level keys alone; ignoring all of them would compare nothing.
         if IGNORABLE_STATE
             .iter()
             .filter(|key| !key.contains('.'))
@@ -1060,8 +916,6 @@ fn load_scenario(path: &Path) -> Result<Scenario, String> {
     Ok(Scenario { header, steps })
 }
 
-/// Run labels are distinct, as each names a test, and a `cost` gives every
-/// run, and nothing else, a positive number.
 fn check_cost(header: &Header) -> Result<(), String> {
     let mut labels: Vec<String> = runs(header).into_iter().map(|run| run.label).collect();
     labels.sort();
@@ -1088,7 +942,6 @@ fn check_cost(header: &Header) -> Result<(), String> {
     Ok(())
 }
 
-/// Lowercase ASCII words of letters and digits, joined by `separator`.
 fn is_name(name: &str, separator: char) -> bool {
     !name.is_empty()
         && name.split(separator).all(|word| {
@@ -1099,9 +952,6 @@ fn is_name(name: &str, separator: char) -> bool {
         })
 }
 
-/// A scenario with a `twin` lives in the folder named after its twin's test
-/// file; one without lives in a feature-area folder named in snake_case,
-/// without the `test_` prefix that a twin's file carries.
 fn check_folder(folder: &str, header: &Header) -> Result<(), String> {
     if header.twin.is_some() {
         for run in runs(header) {
@@ -1127,8 +977,6 @@ fn check_folder(folder: &str, header: &Header) -> Result<(), String> {
     Ok(())
 }
 
-/// An object whose four ratings are 1 to 5, whose score is the one
-/// [`quality_score`] gives them, and whose note is one line.
 fn check_quality(quality: &Value) -> Result<Quality, String> {
     if !quality.is_object() {
         return Err(format!("quality is an object, not {quality}"));
@@ -1174,9 +1022,6 @@ fn quality_score(quality: &Quality) -> u8 {
         .expect("ratings from 1 to 5 score at most 100")
 }
 
-/// `input_parity_ignore` names distinct runs of the scenario, each with
-/// distinct event numbers from 1, and only in a scenario without a mutation,
-/// as `input_parity_ignore` in `scripts/qa_parity.py` checks.
 fn check_input_parity_ignore(header: &Header) -> Result<(), String> {
     if header.input_parity_ignore.is_empty() {
         return Ok(());
@@ -1227,7 +1072,6 @@ fn check_input_parity_ignore(header: &Header) -> Result<(), String> {
     Ok(())
 }
 
-/// The view a mode draws, as `view_mode` predicates and `$view` spell it.
 fn view_name(mode: &str) -> Result<&'static str, String> {
     MODES
         .iter()
@@ -1236,18 +1080,13 @@ fn view_name(mode: &str) -> Result<&'static str, String> {
         .ok_or_else(|| format!("unknown mode {mode:?}"))
 }
 
-/// The steps one run executes: its mode's, with `$variables` replaced and the
-/// runner-only `modes` key removed. Every step is checked here, before
-/// anything launches.
 fn run_steps(
     scenario: &Scenario,
     run: &Run,
     variables: &[(String, String)],
 ) -> Result<Vec<(usize, Value)>, String> {
     let mut steps = Vec::new();
-    // Each note a step keeps, with a stand-in of its type for checking later steps.
     let mut notes: Vec<(String, Value)> = Vec::new();
-    // The names earlier `expect` steps keep whether they held under.
     let mut flags: Vec<String> = Vec::new();
     for (line, step) in &scenario.steps {
         let mut step = substitute(step, variables);
@@ -1270,7 +1109,6 @@ fn run_steps(
         }
         let checked = substitute_notes(&step, &notes);
         check_step(&checked).map_err(|error| format!("line {line}: {error}"))?;
-        // An each step's own item variables stand in for what each run reads.
         let checked = match checked.get("each") {
             Some(source) => {
                 let source = source.as_str().unwrap_or_default();
@@ -1332,8 +1170,6 @@ fn run_steps(
     Ok(steps)
 }
 
-/// The name a `note` or `increment` step keeps its result under, with a
-/// stand-in of the result's type: a list for list accessors, else text.
 fn kept_note(step: &Value, notes: &[(String, Value)]) -> Result<Option<(String, Value)>, String> {
     let name = || step["as"].as_str().unwrap_or_default().to_owned();
     if step.get("note").is_some() {
@@ -1350,7 +1186,6 @@ fn kept_note(step: &Value, notes: &[(String, Value)]) -> Result<Option<(String, 
         } else if value == protocol::Accessor::EditableFields {
             json!(0)
         } else if value == protocol::Accessor::Number {
-            // A positive stand-in, so a noted size checks as a `resize` width.
             json!(1)
         } else if value.is_list() && pick.is_none() {
             json!([NOTED_PLACEHOLDER])
@@ -1363,7 +1198,6 @@ fn kept_note(step: &Value, notes: &[(String, Value)]) -> Result<Option<(String, 
         && step.get("as").is_some()
         && log.get("contains").is_none()
     {
-        // A count or a picked pid is a number; the pids a pattern finds a list.
         let placeholder = if log.get("matches").is_some() && log.get("pick").is_none() {
             json!([1])
         } else {
@@ -1423,8 +1257,6 @@ fn kept_note(step: &Value, notes: &[(String, Value)]) -> Result<Option<(String, 
     Ok(None)
 }
 
-/// A `slice` step: `names[len(names) // 2:len(names) // 2 + middle]`, then
-/// `names[pick]`, of a list a note kept, as a twin reuses one `rows` list.
 fn slice(names: &[Value], middle: Option<u64>, pick: Option<i64>) -> Result<Value, String> {
     let mut names = names.to_vec();
     if let Some(count) = middle.map(|count| usize::try_from(count).unwrap_or(usize::MAX)) {
@@ -1442,8 +1274,6 @@ fn slice(names: &[Value], middle: Option<u64>, pick: Option<i64>) -> Result<Valu
         .ok_or_else(|| format!("index {pick} is outside {names:?}"))
 }
 
-/// A `$name` left in any string once variables and notes were replaced;
-/// `$$` is a literal `$`.
 fn unknown_variable(value: &Value) -> Option<String> {
     match value {
         Value::String(text) => {
@@ -1471,8 +1301,6 @@ fn unknown_variable(value: &Value) -> Option<String> {
     }
 }
 
-/// Replaces notes kept while the run goes: a string that is exactly `$name`
-/// becomes the note's value, list or not; elsewhere `$name` is its text.
 fn substitute_notes(value: &Value, notes: &[(String, Value)]) -> Value {
     if notes.is_empty() {
         return value.clone();
@@ -1507,7 +1335,6 @@ fn substitute_notes(value: &Value, notes: &[(String, Value)]) -> Value {
     }
 }
 
-/// A note as a twin's f-string shows it: text as is, a list as `['a', 'b']`.
 fn python_text(value: &Value) -> String {
     match value {
         Value::String(text) => text.clone(),
@@ -1527,8 +1354,6 @@ fn python_text(value: &Value) -> String {
     }
 }
 
-/// `f"folder-{int(name.removeprefix('folder-')) + 1:03}"`: the text with its
-/// trailing number one higher, zero-padded to the same width.
 fn increment(text: &str) -> Result<String, String> {
     let digits = text.chars().rev().take_while(char::is_ascii_digit).count();
     let (prefix, number) = text.split_at(text.len() - digits);
@@ -1538,7 +1363,6 @@ fn increment(text: &str) -> Result<String, String> {
     Ok(format!("{prefix}{:0width$}", value + 1, width = digits))
 }
 
-/// `Path(name).parent`, as a twin removes `output.parent`.
 fn parent(text: &str) -> Result<String, String> {
     Path::new(text)
         .parent()
@@ -1546,7 +1370,6 @@ fn parent(text: &str) -> Result<String, String> {
         .ok_or_else(|| format!("{text:?} has no parent"))
 }
 
-/// `Path(name).stem`: the name without its last extension.
 fn stem(text: &str) -> Result<String, String> {
     Path::new(text)
         .file_stem()
@@ -1573,7 +1396,6 @@ fn check_step(step: &Value) -> Result<(), String> {
     if step.get("holds").is_some() {
         return Err("holds is the runner's own check; a step uses when".to_owned());
     }
-    // An `if` or `unless` comes off first, whatever the step it guards.
     for key in [STEP_IF, STEP_UNLESS] {
         if let Some(flag) = step.get(key) {
             let named = match flag {
@@ -1674,9 +1496,6 @@ fn check_step(step: &Value) -> Result<(), String> {
             )
         };
     }
-    // A flag that is never set would leave both an `if` and an `unless` step
-    // out, so the expect that keeps it must run or, when an `if` or `unless`
-    // leaves it out, keep false.
     let keeps_flag = step.get("expect").is_some()
         || step
             .get("log")
@@ -1875,7 +1694,6 @@ fn check_step(step: &Value) -> Result<(), String> {
     protocol::parse_command(&step.to_string()).map(|_| ())
 }
 
-/// The names an `if` or `unless` gives: one, or a list.
 fn flag_names(value: Option<&Value>) -> Vec<&str> {
     match value {
         Some(Value::Array(flags)) => flags.iter().filter_map(Value::as_str).collect(),
@@ -1884,9 +1702,6 @@ fn flag_names(value: Option<&Value>) -> Vec<&str> {
     }
 }
 
-/// `{"launch":["$fixture/a"]}`: another `strata` with these arguments, which
-/// hands them to the running one and exits; `percent_path` decodes `%XX`
-/// escapes into raw bytes, for arguments that are not UTF-8.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LaunchStep {
@@ -1895,11 +1710,6 @@ struct LaunchStep {
     percent_path: bool,
 }
 
-/// A `restart` that starts the application otherwise, as a twin stops it
-/// and starts `strata <directory>` itself: in this directory, with these
-/// variables added, and with standard output and error left `closed` or
-/// `null` (`STRATA_QA_STREAMS`), as `subprocess.Popen` with a pipe it
-/// closes, or `DEVNULL`.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Relaunch {
@@ -1941,7 +1751,6 @@ impl Relaunch {
     }
 }
 
-/// `open_file_request(..., title=..., options=...)`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PortalOpenStep {
@@ -1958,9 +1767,6 @@ struct PortalResponseStep {
     message: Option<String>,
 }
 
-/// `assert not response.done()`, or `tree.wait_until(response.done, ...)`
-/// and then the answer: its status, the chosen files' names as a set or
-/// their paths in order, and the first path kept as a note.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PortalCheck {
@@ -1969,15 +1775,11 @@ struct PortalCheck {
     names: Option<Vec<String>>,
     paths: Option<Vec<String>>,
     keep: Option<String>,
-    /// The first chosen file is such a PNG, as `Image.open(output)` is checked.
     png: Option<PngCheck>,
-    /// Then its download directory is removed however the check went, as
-    /// the twin's `finally: shutil.rmtree(output.parent)`.
     #[serde(default)]
     discard: bool,
 }
 
-/// `image_server(body)`, the body in base64, its URL kept as a note.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct HttpStep {
@@ -1986,7 +1788,6 @@ struct HttpStep {
     name: String,
 }
 
-/// `assert len(requests) == count, message`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct HttpRequestsStep {
@@ -1994,9 +1795,6 @@ struct HttpRequestsStep {
     message: Option<String>,
 }
 
-/// Starts the foreign drag source on these paths and waits for its button,
-/// as `strata.wait(lambda: tree.desktop().find(role="button", name="Foreign
-/// file selection"), message)`, keeping its box in the process under `as`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ForeignStep {
@@ -2015,7 +1813,6 @@ struct ForeignPaths {
     move_only: bool,
 }
 
-/// Waits for the foreign drag source's button to show this label.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ForeignLabelStep {
@@ -2024,8 +1821,6 @@ struct ForeignLabelStep {
     message: Option<String>,
 }
 
-/// `_write_zipcrypto(path, password, member, contents, deflated=...)` and
-/// `_zipcrypto_crc_collision(path)`, the colliding password kept under `as`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ZipCryptoStep {
@@ -2045,8 +1840,6 @@ struct ZipCryptoArchive {
     deflated: bool,
 }
 
-/// What a run started besides the application, ended once its final state
-/// is read, as a twin's `finally:` blocks and context managers end them.
 #[derive(Default)]
 struct Peers {
     portal: Option<peers::PortalRequest>,
@@ -2087,15 +1880,12 @@ fn runs(header: &Header) -> Vec<Run> {
         .collect()
 }
 
-/// Where a run's files live, for the built-in `$variables`.
 struct Places<'a> {
     fixture: &'a Path,
-    /// The directory the run's XDG directories are made in.
     scratch_home: &'a Path,
 }
 
 impl Places<'_> {
-    /// The directory the application sees as `variable`, from [`XDG_DIRECTORIES`].
     fn xdg(&self, variable: &str) -> PathBuf {
         let (_, directory) = XDG_DIRECTORIES
             .iter()
@@ -2105,7 +1895,6 @@ impl Places<'_> {
     }
 }
 
-/// Stand-ins for checking steps before anything is created.
 fn placeholders() -> Places<'static> {
     Places {
         fixture: Path::new("/tmp/strata-qa-fixture-placeholder"),
@@ -2113,12 +1902,6 @@ fn placeholders() -> Places<'static> {
     }
 }
 
-/// A run's `$variables`, plus the built-ins: `$root`, the fixture directory's
-/// name, which is also its pane's name; `$fixture`, its absolute path;
-/// `$home`, `$data`, `$config`, and `$cache`, the run's HOME and XDG data,
-/// config, and cache directories; `$environment`,
-/// the directory holding them, a twin's `test_environment.root`; `$view`, the
-/// run's view as `view_mode` names it; and `$mode`, its mode.
 fn variables(run: &Run, places: &Places) -> Vec<(String, String)> {
     let mut variables: Vec<(String, String)> = run.variant.vars.clone().into_iter().collect();
     let root = places
@@ -2159,9 +1942,6 @@ fn variables(run: &Run, places: &Places) -> Vec<(String, String)> {
     variables
 }
 
-/// The interpreter a twin's `sys.executable` names in the pinned image: the
-/// E2E virtual environment's `bin/python`, which `scripts/e2e-native.sh` runs
-/// pytest with, or else `python3`.
 fn python() -> String {
     std::env::var("STRATA_E2E_VENV").map_or_else(
         |_| "python3".to_owned(),
@@ -2169,8 +1949,6 @@ fn python() -> String {
     )
 }
 
-/// `urllib.parse.quote_from_bytes(path)`: every byte but ASCII letters,
-/// digits, `_.-~`, and `/` as `%XX`, as `pathlib.Path.as_uri` escapes a path.
 fn quote_path(bytes: &[u8]) -> String {
     let mut quoted = String::with_capacity(bytes.len());
     for byte in bytes {
@@ -2183,14 +1961,11 @@ fn quote_path(bytes: &[u8]) -> String {
     quoted
 }
 
-/// The exact pytest node id a run ports, if the scenario has a twin.
 fn twin(header: &Header, run: &Run) -> Option<String> {
     let pattern = run.variant.twin.as_deref().or(header.twin.as_deref())?;
     Some(substitute_text(pattern, &variables(run, &placeholders())))
 }
 
-/// `<scenario>/<run>`, then ` (twin <node id>)` when the scenario has a twin,
-/// as the `RUN`, `PASS`, `KNOWN BUG`, and failure lines name a run.
 fn run_name(scenario: &str, header: &Header, run: &Run) -> String {
     match twin(header, run) {
         Some(node) => format!("{scenario}/{} (twin {node})", run.label),
@@ -2198,7 +1973,6 @@ fn run_name(scenario: &str, header: &Header, run: &Run) -> String {
     }
 }
 
-/// Replaces `$name` in every string of a step; longer names first so `$next` never eats `$nextish`.
 fn substitute(value: &Value, variables: &[(String, String)]) -> Value {
     match value {
         Value::String(text) => Value::String(substitute_text(text, variables)),
@@ -2218,8 +1992,8 @@ fn substitute(value: &Value, variables: &[(String, String)]) -> Value {
     }
 }
 
-/// `$name` is a whole token: `$view` leaves `$viewport` alone. `$$` stays
-/// as it is for [`unescape`], so a later pass cannot read `$$E` as `$E`.
+/// `$name` is a whole token. `$$` stays for [`unescape`], so a later pass cannot read
+/// `$$E` as `$E`.
 fn substitute_text(text: &str, variables: &[(String, String)]) -> String {
     let identifier = |character: char| character.is_ascii_alphanumeric() || character == '_';
     let mut output = String::with_capacity(text.len());
@@ -2247,7 +2021,6 @@ fn substitute_text(text: &str, variables: &[(String, String)]) -> String {
     output
 }
 
-/// Every `$$` as the literal `$` it stands for, once nothing is left to replace.
 fn unescape(value: &Value) -> Value {
     match value {
         Value::String(text) => Value::String(text.replace("$$", "$")),
@@ -2262,20 +2035,13 @@ fn unescape(value: &Value) -> Value {
     }
 }
 
-// --------------------------------------------------------------- display
-
-/// Held by a run whose header names a `fixture_root`, from before the
-/// directory is made until it is removed.
 static FIXED_FIXTURES: Mutex<()> = Mutex::new(());
 
-/// A header `fixture_root`'s name: `/tmp/<name>` and nothing deeper.
 fn fixed_fixture_name(root: &str) -> Option<&str> {
     let name = root.strip_prefix("/tmp/")?;
     (!name.is_empty() && !name.contains('/') && name != "." && name != "..").then_some(name)
 }
 
-/// Where the next display search starts, so concurrent starts try different
-/// numbers instead of queueing for the lowest free one.
 static NEXT_DISPLAY: AtomicU32 = AtomicU32::new(0);
 /// Held around every spawn, so only Xvfb ever inherits its `-displayfd` pipe.
 static SPAWN: Mutex<()> = Mutex::new(());
@@ -2285,9 +2051,6 @@ fn spawn(command: &mut Command) -> Result<Child, String> {
     command.spawn().map_err(|error| error.to_string())
 }
 
-/// Waits up to `timeout` for `child` to exit, woken by its pidfd as soon as it
-/// does; `None` while it still runs, or when it cannot be waited for. Without
-/// a pidfd it checks every [`POLL_INTERVAL`].
 fn wait_for_exit(child: &mut Child, timeout: Duration) -> Option<ExitStatus> {
     use rustix::event::{PollFd, PollFlags, Timespec, poll};
     let deadline = Instant::now() + timeout;
@@ -2346,10 +2109,8 @@ struct Display {
 }
 
 impl Display {
-    /// An explicit number keeps clear of other displays; `-displayfd` confirms
-    /// that this server, not a concurrently starting one, owns it. Concurrent
-    /// starts begin their search at different numbers, and one that loses a
-    /// number to another server tries the next.
+    /// `-displayfd` confirms this server, not a concurrently starting one, owns the number;
+    /// one that loses a number to another server tries the next.
     fn start(log: PathBuf) -> Result<Self, String> {
         let first = NEXT_DISPLAY.fetch_add(1, Ordering::Relaxed);
         for offset in 0..DISPLAY_TRIES {
@@ -2453,7 +2214,6 @@ impl Display {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
-    /// Locks `group`; of the `affect` modifiers, locks those in `locks` and unlocks the rest.
     fn lock(&self, group: u8, affect: u16, locks: u16) -> Result<(), String> {
         xkb::latch_lock_state(
             &self.connection,
@@ -2470,7 +2230,6 @@ impl Display {
         self.connection.sync().map_err(|error| error.to_string())
     }
 
-    /// As `harness/keyboard_layout.py` does: load the layouts, then lock the group.
     fn switch_layout(&self, layout: &Layout) -> Result<(), String> {
         let mut arguments = vec!["-layout", layout.layouts.as_str()];
         if !layout.variants.is_empty() {
@@ -2485,7 +2244,7 @@ impl Display {
         self.lock(layout.group, caps, caps)
     }
 
-    /// setxkbmap keeps locks, so they go first; then US without variants, verified.
+    /// setxkbmap keeps locks, so they are cleared first.
     fn restore_layout(&self) -> Result<(), String> {
         self.lock(0, ALL_MODIFIERS, 0)?;
         self.setxkbmap(&["-layout", DEFAULT_LAYOUT])?;
@@ -2544,15 +2303,11 @@ impl Display {
     }
 }
 
-// ------------------------------------------------------------- baselines
-
-/// `CHANNEL_TOLERANCE` in `tests/e2e/harness/screenshots.py`: a pixel differs
-/// when any channel moves by more than this.
+/// `CHANNEL_TOLERANCE` in `tests/e2e/harness/screenshots.py`.
 const CHANNEL_TOLERANCE: u8 = 24;
-/// `DIFFERENT_PIXEL_BUDGET`: the share of differing pixels a match allows.
+/// `DIFFERENT_PIXEL_BUDGET` in `tests/e2e/harness/screenshots.py`.
 const DIFFERENT_PIXEL_BUDGET: f64 = 0.005;
 
-/// `screenshots.Comparison`, for a `baseline` step.
 #[derive(Debug, PartialEq)]
 struct Comparison {
     name: String,
@@ -2562,9 +2317,6 @@ struct Comparison {
 }
 
 impl Comparison {
-    /// The twin's assertion message: `Comparison.summary`, then where the
-    /// images are (the run's artifact directory, which a failed run always
-    /// writes) and how the Python suite regenerates them.
     fn failure(&self, artifacts: &Path) -> String {
         format!(
             "{}: {} ({:.3}% of pixels differ, budget {:.3}%)\n\
@@ -2579,8 +2331,6 @@ impl Comparison {
     }
 }
 
-/// `BASELINE_DIRECTORY`: the committed images for the GTK the application
-/// links, as the twin names its `RENDERING_PROFILE` after PyGObject's GTK.
 fn baseline_directory() -> PathBuf {
     Path::new(REPOSITORY)
         .join("tests/e2e/baselines")
@@ -2591,14 +2341,11 @@ fn baseline_directory() -> PathBuf {
         ))
 }
 
-/// `compare_to_baseline` without its update mode: a QA run never writes a
-/// baseline. The capture is kept beside the artifacts as `<name>.actual.png`,
-/// and a mismatch adds `<name>.expected.png` and `<name>.diff.png`.
+/// Unlike the Python `compare_to_baseline`, a QA run never writes a baseline.
 fn compare_to_baseline(name: &str, actual: &Path, artifacts: &Path) -> Result<Comparison, String> {
     compare_in(&baseline_directory(), name, actual, artifacts)
 }
 
-/// [`compare_to_baseline`] against the images in `directory`.
 fn compare_in(
     directory: &Path,
     name: &str,
@@ -2660,8 +2407,6 @@ fn compare_in(
     Ok(comparison(matched, fraction, detail.to_owned()))
 }
 
-/// Per pixel, whether any channel of `ImageChops.difference` exceeds
-/// `CHANNEL_TOLERANCE`, as the twin's `lighter` of the three bands thresholds it.
 fn differing_pixels(baseline: &image::RgbImage, candidate: &image::RgbImage) -> Vec<bool> {
     baseline
         .pixels()
@@ -2676,7 +2421,6 @@ fn differing_pixels(baseline: &image::RgbImage, candidate: &image::RgbImage) -> 
         .collect()
 }
 
-/// `different / (mask.width * mask.height)`.
 fn different_fraction(mask: &[bool]) -> f64 {
     let different = mask.iter().filter(|differs| **differs).count();
     #[expect(
@@ -2687,8 +2431,6 @@ fn different_fraction(mask: &[bool]) -> f64 {
     fraction
 }
 
-/// `_write_diff`: the two images blended half and half, with every differing
-/// pixel painted (255, 0, 128).
 fn diff_image(
     baseline: &image::RgbImage,
     candidate: &image::RgbImage,
@@ -2714,7 +2456,6 @@ impl Drop for Display {
     }
 }
 
-/// The private session bus `HeadlessDisplay._start_session_bus` starts.
 struct Bus {
     daemon: Child,
     address: String,
@@ -2767,10 +2508,6 @@ impl Drop for Bus {
     }
 }
 
-// ----------------------------------------------------------- application
-
-/// What every launch of a run's application shares, so a `restart` starts
-/// it again exactly as before.
 struct Launch<'a> {
     manifest: &'a Manifest,
     home: &'a Path,
@@ -2779,10 +2516,8 @@ struct Launch<'a> {
     runtime: &'a Path,
     log: PathBuf,
     input_log: &'a Path,
-    /// The header's `env`, with `$variables` replaced.
     extra: Vec<(String, String)>,
     bus: Option<&'a str>,
-    /// `strata --qa --portal` in place of the browser on the fixture.
     portal: bool,
 }
 
@@ -2791,9 +2526,6 @@ impl Launch<'_> {
         Application::start(self, &Relaunch::default())
     }
 
-    /// The environment a twin's helper process gets: `process_environment()`,
-    /// the test environment's variables, and the display's, as
-    /// `test_file_manager_interface.call_file_manager` builds it.
     fn helper_environment(&self) -> Vec<(String, String)> {
         let mut variables = vec![("PATH".to_owned(), std::env::var("PATH").unwrap_or_default())];
         for (variable, directory) in XDG_DIRECTORIES {
@@ -2826,18 +2558,15 @@ struct Application {
     stdin: Option<ChildStdin>,
     replies: Receiver<String>,
     log: PathBuf,
-    /// False once a reply timed out or the process went away.
     responsive: bool,
 }
 
 impl Application {
     fn start(launch: &Launch, relaunch: &Relaunch) -> Result<Self, String> {
         let log = launch.log.clone();
-        // A fresh log per launch, as `ManagedProcess.spawn` opens it "wb".
         let output = File::create(&log).map_err(|error| error.to_string())?;
         let mut command = Command::new(BINARY);
-        // Its own group, as `ManagedProcess.spawn` starts a session, so a
-        // restart can signal the application and whatever it started.
+        // Its own process group, so a restart can signal the application and whatever it started.
         std::os::unix::process::CommandExt::process_group(&mut command, 0);
         command.arg("--qa");
         match (&relaunch.directory, launch.portal) {
@@ -2928,8 +2657,6 @@ impl Application {
         self.receive(timeout)
     }
 
-    /// `harness.process.terminate`: SIGTERM to the group, a grace period,
-    /// then SIGKILL and another, as `application.stop()` ends a twin's app.
     fn terminate_group(&mut self) {
         let group = rustix::process::Pid::from_child(&self.child);
         for signal in [rustix::process::Signal::TERM, rustix::process::Signal::KILL] {
@@ -2962,35 +2689,14 @@ fn tail(path: &Path) -> String {
     lines[lines.len().saturating_sub(40)..].join("\n")
 }
 
-// ------------------------------------------------------------ filesystem
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FsStep {
     fs: FsCheck,
     timeout_ms: Option<u64>,
-    /// What the step waits for, as the Python twin's `strata.wait` message says it.
     message: Option<String>,
 }
 
-/// One check or action about `path`, relative to the fixture root unless
-/// absolute: wait for `exists`, `text`, `names`, `is` (`file`, `dir`, or
-/// `symlink`), `empty`, the same bytes (`copy_of`) or size (`size_of`) as
-/// another file; compare with an earlier listing (`unchanged`); or act at
-/// once: `write` text (a last component like `{000..179}.txt` writes one file
-/// per number, with `{}` in the text replaced by it), `remember` the tree's
-/// listing under a name, `mkdir` (`Path.mkdir()`, with `parents` as
-/// `mkdir(parents=True)`; a last component like `folder-{000..159}` makes one
-/// directory per number), `chmod` to an octal mode, `populate` a tree there
-/// and pin its times as `FixtureTree.populate` does, save a solid-colour PNG
-/// (`image`), run `ffmpeg -v error -y <ffmpeg...> <path>`, both in place as
-/// the twins write, or link a fresh directory on another file system there
-/// (`volume`, the directory to make it in, named after `prefix`), removed
-/// when the run ends; make a symbolic link to a target (`symlink`); copy a
-/// program found on `PATH` with its mode and times (`program`, as
-/// `shutil.copy2(shutil.which(...))`); wait until the text `has` some parts
-/// and lacks others, until no name `names_without` a part, or until GIO says
-/// whether the file can go to the Trash (`can_trash`).
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FsCheck {
@@ -3013,8 +2719,6 @@ struct FsCheck {
     ffmpeg: Option<Vec<String>>,
     volume: Option<String>,
     prefix: Option<String>,
-    /// Files written into a fresh volume before it is linked, as a twin's
-    /// fixture fills its temporary directory before `symlink_to`.
     #[serde(default, rename = "with")]
     volume_files: BTreeMap<String, String>,
     symlink: Option<String>,
@@ -3029,113 +2733,55 @@ struct FsCheck {
     minus: Vec<String>,
     #[serde(default)]
     plus: Vec<String>,
-    /// `path.unlink()`, or `shutil.rmtree(path)` for a directory.
     remove: Option<bool>,
-    /// `path.rename(root / rename)`.
     rename: Option<String>,
-    /// Keeps `path.read_bytes()` under a name, as a twin keeps `original`.
     keep_bytes: Option<String>,
-    /// Waits until the file's bytes are those kept under a name.
     bytes_of: Option<String>,
-    /// `len(path.read_text().splitlines())`: exactly, or `{"at_least":1}`; a
-    /// missing file has no lines.
     lines: Option<LineCount>,
-    /// A stored zip archive of `[name, contents]` entries in order, as
-    /// `zipfile.ZipFile(path, "w")` writes them with `writestr`: text, or
-    /// `{"image":{...}}` for a solid-colour PNG.
     zip: Option<Vec<(String, ZipEntry)>>,
-    /// `path.open("wb").truncate(size)`: a sparse file this many bytes long.
     truncate: Option<u64>,
-    /// `path.write_bytes((repository / name).read_bytes())`, in one write.
     from_repository: Option<String>,
-    /// The path names a source file, and the step reads its cached
-    /// thumbnail in this directory instead, for `exists`, `is`, `pixel`,
-    /// `keep_mtime`, and `mtime_of`.
     cached_in: Option<String>,
-    /// Waits until every entry of the directory but those ending in
-    /// `except_suffix` has a cached thumbnail here, as `_folder_cached`.
     all_cached_in: Option<String>,
     except_suffix: Option<String>,
-    /// Writes a cached thumbnail for the file at the path.
     thumbnail: Option<Thumbnail>,
     pixel: Option<PixelAt>,
-    /// Keeps `path.stat().st_mtime_ns` under a name.
     keep_mtime: Option<String>,
-    /// Waits until the modification time is the one kept under a name.
     mtime_of: Option<String>,
-    /// `path.stat().st_mode & 0o111 == 0o111`.
     executable: Option<bool>,
     mtime: Option<Mtime>,
-    /// The bytes in hexadecimal, written in one write.
     hex: Option<String>,
-    /// The bytes in base64, written in one write.
     base64: Option<String>,
-    /// `path.open("a").write(text)`.
     append: Option<String>,
-    /// `harness.raw_photo.write_raw_photo(path)`: the synthetic DNG.
     raw_photo: Option<bool>,
     tar_gz: Option<TarGz>,
-    /// The zip's member names are exactly these, in order, and each holds
-    /// the bytes of the named fixture file, as `archive.namelist()` and
-    /// `archive.read(name)` are compared.
     zip_members: Option<Vec<(String, String)>>,
-    /// The same for a gzipped tar, as `getnames()` and `extractfile(...)`.
     tar_members: Option<Vec<(String, String)>>,
-    /// `zipfile.is_zipfile(path)`.
     is_zip: Option<bool>,
     default_app: Option<DefaultApp>,
-    /// The file's lines, each read with `Gio.File.new_for_commandline_arg`,
-    /// are as many as these paths and include each, as the Open With twins
-    /// compare what the recording launcher received.
     opened: Option<Vec<String>>,
-    /// Values at dotted keys of the parsed TOML, as `saved["run"]["args"] == [...]`.
     toml: Option<Map<String, Value>>,
-    /// The parsed TOML equals that of the bytes kept under a name.
     toml_like: Option<String>,
-    /// Values at top-level keys of the parsed JSON, as `json.loads(...)["paths"] == [...]`.
     json: Option<Map<String, Value>>,
-    /// The same, comparing each list as a set, as `set(record["paths"]) == {...}`.
     json_set: Option<Map<String, Value>>,
     launches: Option<Launches>,
     replace_lines: Option<ReplaceLines>,
-    /// A one-page PDF showing a solid-colour image of this size at 72 dpi,
-    /// as PIL saves an RGB image to a `.pdf` path.
     pdf_image: Option<Image>,
-    /// `[magick or convert, *arguments, path]`, as the HEIC fixture converts.
     magick: Option<Vec<String>>,
-    /// The path's `%XX` escapes stand for raw bytes, for names that are not
-    /// UTF-8, as a twin opens `documents + b"/bad\xe8name.txt"`.
     #[serde(default)]
     percent_path: bool,
-    /// `path.write_bytes(os.urandom(size))`: this many random bytes in one write.
     random: Option<u64>,
-    /// `path.stat().st_size == size`.
     size: Option<u64>,
-    /// No name in the directory matches this pattern, `*` standing for any
-    /// run of characters, as `not list(path.glob(".strata-compression-*"))`.
     glob_none: Option<String>,
-    /// `path.read_text().splitlines()` equals these, a missing file having
-    /// none, as `test_sidebar_pinning.bookmarks` reads them.
     lines_equal: Option<Vec<String>>,
-    /// The list at each dotted key of the parsed TOML starts with these,
-    /// as `tomllib.loads(...)["sidebar_order"][:2] == [...]`.
     toml_prefix: Option<Map<String, Value>>,
-    /// With `toml_like`: only these keys are compared, as a twin compares
-    /// `preferences.get(key) == original.get(key)` for a few.
     #[serde(default)]
     toml_keys: Vec<String>,
-    /// A PNG of this size whose pixel lies within bounds, as a twin opens
-    /// `Image.open(output)` and checks its format, size, and colour.
     png: Option<PngCheck>,
-    /// The zip's member holds the bytes of the named fixture file, as
-    /// `archive.read("todo.txt") == fixture.path("todo.txt").read_bytes()`.
     zip_member: Option<(String, String)>,
-    /// The last of `path.read_text().splitlines()`, as `bookmarks(strata)[-1]`.
     last_line: Option<String>,
 }
 
-/// `png.format == "PNG"`, `png.size == size`, and each channel of the RGB
-/// pixel at `at` between `min` and `max`, as `red > 240 and green < 10`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PngCheck {
@@ -3152,8 +2798,6 @@ enum ZipEntry {
     Image {
         image: Image,
     },
-    /// `zipfile.ZipInfo(name, date_time=...)` with `external_attr = mode << 16`,
-    /// written with `writestr(info, text)`.
     Member {
         text: String,
         date_time: [u16; 6],
@@ -3177,8 +2821,6 @@ impl LineCount {
     }
 }
 
-/// Parts the text must contain and parts it must not; an unreadable file
-/// contains nothing, as `_settings_has_key` treats an `OSError`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Has {
@@ -3256,29 +2898,19 @@ enum FsKind<'a> {
     LastLine(&'a str),
 }
 
-/// What fs steps keep while a run goes: `fixture.listing()` taken by
-/// `remember`, by name, and the directories `volume` made, removed with it.
 #[derive(Default)]
 struct FsState {
     listings: BTreeMap<String, String>,
-    /// File contents taken by `keep_bytes`, by name.
     bytes: BTreeMap<String, Vec<u8>>,
-    /// `set(fixture.names(path))` taken by `remember_names`, by name.
     names: BTreeMap<String, Vec<String>>,
     volumes: Vec<tempfile::TempDir>,
-    /// Where `remove` and `rename` may act: the fixture, the run's HOME and
-    /// XDG directories, and its scratch directory.
     roots: Vec<PathBuf>,
-    /// A read error a polled check met, which ends the wait at once, as the
-    /// twin's `read_text()` or `read_bytes()` raises.
     fatal: Option<String>,
-    /// Modification times taken by `keep_mtime`, in nanoseconds, by name.
     mtimes: BTreeMap<String, u128>,
 }
 
-/// Whether `path` lies inside one of `roots`: its parent directory with every
-/// link resolved, then its own last component unresolved, so neither `..`
-/// nor a linked directory reaches outside.
+/// Resolves links in the parent but not the last component, so neither `..` nor a
+/// linked directory reaches outside.
 fn contained(path: &Path, roots: &[PathBuf]) -> Result<(), String> {
     let outside = || format!("{} lies outside the run's directories", path.display());
     let name = path
@@ -3654,8 +3286,6 @@ impl FsCheck {
         if let Some(cache) = &self.cached_in {
             path = cached_thumbnail(Path::new(cache), &path);
         }
-        // The batch-six actions and record checks stay inside the run's
-        // directories, as remove and rename do.
         let roots = state.roots.clone();
         let guarded = matches!(
             self.kind()?,
@@ -3706,7 +3336,6 @@ impl FsCheck {
                 state.names.insert(name.to_owned(), sorted_names(&path)?);
                 Ok(())
             }
-            // `set(fixture.names()) == original - {...} | {...}`.
             FsKind::NamesFrom(name) => {
                 let mut expected: Vec<String> = state
                     .names
@@ -3724,7 +3353,6 @@ impl FsCheck {
                     .then_some(())
                     .ok_or(format!("names are {actual:?}, not {expected:?}"))
             }
-            // `Path.is_file()` and `is_dir()` follow links; `is_symlink()` does not.
             FsKind::Is(kind) => {
                 let holds = match kind {
                     "file" => path.is_file(),
@@ -3733,7 +3361,6 @@ impl FsCheck {
                 };
                 holds.then_some(()).ok_or(format!("is not a {kind}"))
             }
-            // `not (path.exists() and any(path.iterdir()))`: a missing directory is empty.
             FsKind::Empty(empty) => {
                 let actual = match fs::read_dir(&path) {
                     Ok(entries) => entries.count() == 0,
@@ -3773,7 +3400,6 @@ impl FsCheck {
                     .then_some(())
                     .ok_or(format!("the size is {copy}, not {source}"))
             }
-            // `path.write_text(...)` per name, as a twin's loop writes numbered files.
             FsKind::Write(text) => {
                 let parent = path.parent().unwrap_or(root);
                 let name = path
@@ -3781,7 +3407,6 @@ impl FsCheck {
                     .map(|name| name.to_string_lossy().into_owned())
                     .unwrap_or_default();
                 for (name, number) in numbered(&name)? {
-                    // A plain name is written as given, so one that is not UTF-8 survives.
                     let (target, text) = match number {
                         Some(number) => {
                             (parent.join(&name), text.replace("{}", &number.to_string()))
@@ -3794,8 +3419,6 @@ impl FsCheck {
             }
             FsKind::Chmod(mode) => fs::set_permissions(&path, fs::Permissions::from_mode(mode))
                 .map_err(|error| error.to_string()),
-            // `tempfile.TemporaryDirectory(prefix="strata-drop-volume-", dir=...)`,
-            // which must lie on another device than the fixture, then linked in.
             FsKind::Volume(directory, prefix, files) => {
                 let volume = tempfile::Builder::new()
                     .prefix(prefix)
@@ -3825,8 +3448,6 @@ impl FsCheck {
                 std::os::unix::fs::symlink(target, &path).map_err(|error| error.to_string())
             }
             FsKind::Program(name) => copy_program(name, &path),
-            // The twin's `TemporaryDirectory` ends with its fixture, before the
-            // state dump, and leaves the link dangling.
             FsKind::RemoveVolume => {
                 let target = fs::read_link(&path).map_err(|error| error.to_string())?;
                 let index = state
@@ -3866,8 +3487,6 @@ impl FsCheck {
                     .then_some(())
                     .ok_or(format!("names {found:?} contain {part:?}"))
             }
-            // `Gio.File.query_info(FILE_ATTRIBUTE_ACCESS_CAN_TRASH)`, as the twin's
-            // precondition asks GIO itself.
             FsKind::CanTrash(expected) => {
                 use gtk::gio::prelude::FileExt as _;
                 let actual = gtk::gio::File::for_path(&path)
@@ -3882,7 +3501,6 @@ impl FsCheck {
                     .then_some(())
                     .ok_or(format!("can_trash is {actual}"))
             }
-            // A name that is not UTF-8 has no range to expand.
             FsKind::Mkdir { parents } if self.percent_path => {
                 let made = if parents {
                     fs::create_dir_all(&path)
@@ -4438,8 +4056,6 @@ impl FsCheck {
                     .then_some(())
                     .ok_or(format!("the bytes differ from {name:?}"))
             }
-            // A missing file has no lines yet; an unreadable or non-UTF-8 one is
-            // an error, as `read_text()` raises.
             FsKind::Lines(count) => {
                 let lines = match fs::read_to_string(&path) {
                     Ok(text) => text.lines().count(),
@@ -4459,8 +4075,6 @@ impl FsCheck {
     }
 }
 
-/// `output.suffix == ".png"`, then `Image.open(output)`: its format, its
-/// size, and each channel of one pixel within bounds.
 fn check_png(path: &Path, check: &PngCheck) -> Result<(), String> {
     if path.extension().is_none_or(|extension| extension != "png") {
         return Err(format!("{} has no .png suffix", path.display()));
@@ -4485,8 +4099,6 @@ fn check_png(path: &Path, check: &PngCheck) -> Result<(), String> {
         .ok_or(format!("the pixel is {pixel:?}"))
 }
 
-/// `fnmatch` for a pattern whose only wildcard is `*`, as `Path.glob`
-/// matches a name in one directory.
 fn glob_matches(pattern: &str, name: &str) -> bool {
     let mut parts = pattern.split('*');
     let first = parts.next().unwrap_or_default();
@@ -4506,7 +4118,6 @@ fn glob_matches(pattern: &str, name: &str) -> bool {
     rest.len() >= last.len() && rest.ends_with(last)
 }
 
-/// A solid-colour PNG's bytes, as `Image.new("RGB", size, colour).save(...)`.
 fn png(image: &Image) -> Result<Vec<u8>, String> {
     let mut png = std::io::Cursor::new(Vec::new());
     image::RgbImage::from_pixel(image.width, image.height, image::Rgb(image.rgb))
@@ -4515,7 +4126,6 @@ fn png(image: &Image) -> Result<Vec<u8>, String> {
     Ok(png.into_inner())
 }
 
-/// The bytes a path with `%XX` escapes stands for.
 fn percent_decoded(path: &str) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::with_capacity(path.len());
     let mut rest = path.as_bytes();
@@ -4536,8 +4146,6 @@ fn percent_decoded(path: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-/// Where the freedesktop cache keeps a file's thumbnail: the MD5 of its
-/// URI, as `hashlib.md5(path.as_uri().encode()).hexdigest() + ".png"`.
 fn cached_thumbnail(cache: &Path, source: &Path) -> PathBuf {
     let uri = file_uri(source);
     let digest = gtk::glib::compute_checksum_for_string(gtk::glib::ChecksumType::Md5, &uri)
@@ -4546,13 +4154,10 @@ fn cached_thumbnail(cache: &Path, source: &Path) -> PathBuf {
     cache.join(format!("{digest}.png"))
 }
 
-/// `path.as_uri()`.
 fn file_uri(path: &Path) -> String {
     format!("file://{}", quote_path(path.as_os_str().as_encoded_bytes()))
 }
 
-/// A solid-colour cached thumbnail for `source`, tagged with its URI and
-/// whole-second modification time, written in one write.
 fn write_thumbnail(thumbnail: &Thumbnail, source: &Path, roots: &[PathBuf]) -> Result<(), String> {
     let cache = Path::new(&thumbnail.cache);
     fs::create_dir_all(cache).map_err(|error| format!("{}: {error}", cache.display()))?;
@@ -4590,7 +4195,6 @@ fn write_thumbnail(thumbnail: &Thumbnail, source: &Path, roots: &[PathBuf]) -> R
     fs::write(cached_thumbnail(cache, source), bytes).map_err(|error| error.to_string())
 }
 
-/// `path.stat().st_mtime_ns`.
 fn modified_nanos(path: &Path) -> Result<u128, String> {
     Ok(fs::metadata(path)
         .and_then(|metadata| metadata.modified())
@@ -4600,15 +4204,12 @@ fn modified_nanos(path: &Path) -> Result<u128, String> {
         .as_nanos())
 }
 
-/// `int(datetime(...).timestamp())`: a naive date and time read in the
-/// runner's local time zone, as the twin's process reads it.
 fn local_epoch([year, month, day, hour, minute, second]: [i32; 6]) -> Result<i64, String> {
     gtk::glib::DateTime::from_local(year, month, day, hour, minute, f64::from(second))
         .map(|time| time.to_unix())
         .map_err(|error| error.to_string())
 }
 
-/// Member names in order, each with the bytes of the fixture file it names.
 fn archive_matches(
     root: &Path,
     members: &[(String, String)],
@@ -4628,7 +4229,6 @@ fn archive_matches(
     Ok(())
 }
 
-/// A TOML document as JSON, as `tomllib.loads` reads it into a dict.
 fn parsed_toml(text: &str) -> Result<Value, String> {
     let table: toml::Table = text
         .parse()
@@ -4636,8 +4236,6 @@ fn parsed_toml(text: &str) -> Result<Value, String> {
     serde_json::to_value(table).map_err(|error| error.to_string())
 }
 
-/// The synthetic linear DNG `tests/e2e/harness/raw_photo.py` writes: a
-/// 600x400 RGB raw with EXIF and GPS data and a 300x200 preview first.
 fn raw_photo() -> Vec<u8> {
     type Tag = (u16, u16, u32, Vec<u8>);
     fn short(tag: u16, value: u16) -> Tag {
@@ -4787,9 +4385,6 @@ fn raw_photo() -> Vec<u8> {
     data
 }
 
-/// A one-page PDF of a solid-colour image as PIL saves an RGB image to a
-/// `.pdf` path: a JPEG (`DCTDecode`) image drawn over a page of the image's
-/// size at 72 dpi.
 fn pdf_image(image: &Image) -> Result<Vec<u8>, String> {
     let mut jpeg = Vec::new();
     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 75)
@@ -4849,8 +4444,6 @@ fn pdf_image(image: &Image) -> Result<Vec<u8>, String> {
     Ok(pdf)
 }
 
-/// `[shutil.which("magick") or shutil.which("convert"), *arguments, output]`,
-/// as the HEIC fixture runs ImageMagick with a 30 s timeout.
 fn magick(arguments: &[String], output: &Path) -> Result<(), String> {
     let found = |name: &str| {
         std::env::var_os("PATH")
@@ -4896,8 +4489,6 @@ fn magick(arguments: &[String], output: &Path) -> Result<(), String> {
     }
 }
 
-/// `shutil.copy2(shutil.which(name), path)`: the program's bytes, mode, and
-/// access and modification times.
 fn copy_program(name: &str, path: &Path) -> Result<(), String> {
     let source = std::env::var_os("PATH")
         .into_iter()
@@ -4921,7 +4512,6 @@ fn copy_program(name: &str, path: &Path) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-/// Sorted with hidden files, as `FixtureTree.names` lists them.
 fn sorted_names(path: &Path) -> Result<Vec<String>, String> {
     let mut names: Vec<String> = fs::read_dir(path)
         .map_err(|error| error.to_string())?
@@ -4962,16 +4552,12 @@ fn ffmpeg(arguments: &[String], output: &Path) -> Result<(), String> {
     }
 }
 
-// ------------------------------------------------------------------ runs
-
-/// `errors` are the harness's own problems (setup, launch, layouts,
-/// teardown, artifacts) and always fail a run, even one marked `known_bug`;
-/// `failures` are the scenario's, each with the file line of its step.
+/// `errors` are the harness's own problems and fail a run even when it is `known_bug`;
+/// `failures` are the scenario's.
 #[derive(Default)]
 struct Outcome {
     errors: Vec<String>,
     failures: Vec<(Option<usize>, String)>,
-    /// Where the run's artifacts went, when it wrote them.
     artifacts: Option<PathBuf>,
     last_tree: Option<String>,
     transcript: String,
@@ -4983,8 +4569,6 @@ impl Outcome {
     }
 }
 
-/// One run of a scenario: `PASS` or `KNOWN BUG` under its test's line, or
-/// what failed, with the artifacts' path.
 fn run_scenario(path: &Path, label: &str) -> harness::Outcome {
     require_container();
     let scenario =
@@ -5044,7 +4628,6 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
         .tempdir_in("/tmp")
         .expect("the run's scratch directory should be created");
     let parity = std::env::var_os(PARITY_FIXTURES).is_some_and(|value| value == "1");
-    // A scenario without a twin has no counterpart to share fixture names with.
     let parity_name = |prefix: &str| {
         twin(&scenario.header, run)
             .filter(|_| parity)
@@ -5055,7 +4638,7 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
         .fixture_root
         .as_deref()
         .and_then(fixed_fixture_name);
-    // Held until the run's fixture is gone, as the twins share one worker.
+    // Held until the run's fixture is gone.
     let _fixed_claim = fixed_name.map(|_| {
         FIXED_FIXTURES
             .lock()
@@ -5079,8 +4662,6 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
             };
         }
     };
-    // The twin's `TestEnvironment` root, which holds HOME and the XDG
-    // directories, is named alike, so a typed home path is the same too.
     let parity_home = parity_name("strata-home-").map(|name| {
         tempfile::Builder::new()
             .prefix(&name)
@@ -5119,7 +4700,6 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
         ],
         ..FsState::default()
     };
-    // Once setup has begun, teardown runs however the run ends.
     let teardown = |fs_state: &mut FsState| -> Vec<String> {
         scenario
             .header
@@ -5228,14 +4808,10 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
     let collect =
         failed || std::env::var_os("STRATA_QA_KEEP_ARTIFACTS").is_some_and(|value| value == "1");
     let mut final_state = Value::Null;
-    if collect {
-        // The window as the run left it, for final-state parity with the twin.
-        if application.responsive {
-            final_state = settled_state(&mut application);
-        }
+    if collect && application.responsive {
+        final_state = settled_state(&mut application);
     }
-    // A pending portal request is closed, the image server stopped, and a
-    // foreign drag source ended only once the final state is read.
+    // Peers end only once the final state is read.
     drop(peers);
     if collect {
         if outcome.last_tree.is_none()
@@ -5301,9 +4877,8 @@ fn execute(scenario: &Scenario, run: &Run, manifest: &Manifest) -> Outcome {
     outcome
 }
 
-/// `parity_fixture_name` in `tests/e2e/harness/fixtures.py`, and with
-/// `strata-home-` `parity_environment_name` in `harness/environment.py`,
-/// derive the same names.
+/// Must derive the same names as `parity_fixture_name` in `tests/e2e/harness/fixtures.py`
+/// and `parity_environment_name` in `harness/environment.py`.
 fn parity_name(prefix: &str, twin: &str) -> String {
     use sha2::Digest as _;
     let digest = sha2::Sha256::digest(twin.as_bytes());
@@ -5314,8 +4889,7 @@ fn parity_name(prefix: &str, twin: &str) -> String {
     name
 }
 
-/// The snapshot once two reads in a row agree, so an operation's late
-/// selection or focus change is not compared half done; the twin waits alike.
+/// Two equal reads in a row, so a late selection or focus change is not compared half done.
 fn settled_state(application: &mut Application) -> Value {
     let deadline = Instant::now() + STATE_SETTLE_TIMEOUT;
     let mut previous = Value::Null;
@@ -5336,9 +4910,6 @@ fn pretty(value: &Value) -> String {
     serde_json::to_string_pretty(value).unwrap_or_default() + "\n"
 }
 
-/// What `scripts/qa_parity.py` reads back: the twin this run ports, and the
-/// step each failure stopped at, with the step itself so its `message` can be
-/// matched against the twin's.
 fn run_result(
     scenario: &Scenario,
     run: &Run,
@@ -5416,8 +4987,6 @@ fn seed(
     Ok(())
 }
 
-/// The manifest's `settings.ini` with each named key's line rewritten, as
-/// `settings.write_text(settings.read_text().replace("key=old", "key=new"))`.
 fn gtk_settings(base: &str, changes: &BTreeMap<String, String>) -> Result<String, String> {
     let mut lines: Vec<String> = base.lines().map(str::to_owned).collect();
     for (key, value) in changes {
@@ -5434,10 +5003,6 @@ fn gtk_settings(base: &str, changes: &BTreeMap<String, String>) -> Result<String
     Ok(text)
 }
 
-/// A header `tree`: a manifest tree's name, or a tree in the manifest's
-/// shape where a name like `{000..199}.txt` stands for one file per number,
-/// zero-padded to the width written, whose text has `{}` replaced by the
-/// number, as a Python fixture's comprehension writes them.
 fn expand_tree(tree: &Value, manifest: &Manifest) -> Result<Value, String> {
     match tree {
         Value::String(name) => manifest
@@ -5481,9 +5046,6 @@ fn expand_directory(directory: &Value) -> Result<Value, String> {
     Ok(Value::Object(expanded))
 }
 
-/// A file's text written in parts: each a string, or `{"repeat":"record-{},{}\n",
-/// "from":0,"to":999}`, the text once per number with `{}` replaced by it, as
-/// a fixture joins `f"record-{index},{index}\n" for index in range(1000)`.
 fn file_parts(name: &str, parts: &[Value]) -> Result<String, String> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -5509,13 +5071,10 @@ fn file_parts(name: &str, parts: &[Value]) -> Result<String, String> {
     Ok(text)
 }
 
-/// A name, or the names a `{000..199}` range in it stands for.
 fn expand_name(name: &str) -> Result<Vec<String>, String> {
     Ok(numbered(name)?.into_iter().map(|(name, _)| name).collect())
 }
 
-/// Each name a `{first..last}` range stands for, zero-padded to the width
-/// `first` is written in, with its number; a name without one stands alone.
 fn numbered(name: &str) -> Result<Vec<(String, Option<u32>)>, String> {
     let range = name.split_once('{').and_then(|(prefix, rest)| {
         let (range, suffix) = rest.split_once('}')?;
@@ -5554,19 +5113,14 @@ fn switch(manifest: &Manifest, display: &Display, name: &str) -> Result<(), Stri
 }
 
 struct Context<'a> {
-    /// With their file lines.
     steps: &'a [(usize, Value)],
     initial_layout: &'a str,
     manifest: &'a Manifest,
     display: &'a Display,
     fixture: &'a Path,
-    /// The manifest's pinned time, which an fs `populate` gives its tree.
     fixture_time: SystemTime,
-    /// Where `screenshot` steps save, copied into the artifacts when a run keeps them.
     screens: &'a Path,
-    /// The run's artifact directory, which a baseline failure names.
     artifacts: &'a Path,
-    /// How the application started, for `restart`, `dbus_send`, `log`, and `proc`.
     launch: &'a Launch<'a>,
 }
 
@@ -5608,8 +5162,6 @@ fn drive(
         let step = &unescape(&substitute_notes(step, &notes));
         let label = format!("line {line} {step}");
         let mut object = step.as_object().cloned().unwrap_or_default();
-        // An `if` runs the step unless one of its flags did not hold, an
-        // `unless` unless one did; an expect or flag it leaves out keeps false.
         let condition = |key: &str, object: &mut Map<String, Value>, held: bool| {
             let names = object.remove(key);
             flag_names(names.as_ref())
@@ -5658,8 +5210,7 @@ fn drive(
             continue;
         }
         if let Some(condition) = object.get("flag") {
-            // With a timeout it polls, as a twin's `try: strata.wait(..., timeout=5)
-            // except TreeTimeout: pass`, and never fails.
+            // Polls up to its timeout and never fails.
             let probe = json!({ "holds": condition });
             let deadline = Instant::now()
                 + object
@@ -5938,7 +5489,6 @@ fn drive(
                 Some(ms) => (Duration::from_millis(ms) + WAIT_MARGIN).max(COMMAND_TIMEOUT),
                 None => COMMAND_TIMEOUT,
             };
-            // No reply at all is the harness failing, not the scenario.
             match application.send(step, timeout) {
                 Ok(reply) => {
                     let result = reply["result"].clone();
@@ -5972,14 +5522,11 @@ fn drive(
     outcome
 }
 
-/// Why a step the runner takes with another process went wrong: the
-/// scenario's failure, or the harness's error.
 enum PeerError {
     Failed(String),
     Harness(String),
 }
 
-/// Polls until `ready`, failing as a twin's `strata.wait(..., message)` times out.
 fn wait_until(
     timeout: Option<u64>,
     message: Option<&str>,
@@ -6000,9 +5547,6 @@ fn wait_until(
     Ok(())
 }
 
-/// The runner's steps with processes and services besides the
-/// application: `None` for any other step, else whether it went well and,
-/// for one that told the process something, that request and its reply.
 fn peer_step(
     application: &mut Application,
     peers: &mut Peers,
@@ -6143,8 +5687,6 @@ fn peer_step(
     })
 }
 
-/// `subprocess.run([strata, *arguments], env=..., cwd=fixture, check=True,
-/// timeout=30, capture_output=True)`.
 fn launch_instance(launch: &Launch, step: &LaunchStep) -> Result<(), String> {
     use std::os::unix::ffi::OsStringExt as _;
     let arguments = step
@@ -6192,8 +5734,6 @@ fn launch_instance(launch: &Launch, step: &LaunchStep) -> Result<(), String> {
     }
 }
 
-/// `assert not response.done()`, or the wait for the answer and the
-/// twin's assertions on it.
 fn portal_response(
     request: &mut peers::PortalRequest,
     step: &PortalResponseStep,
@@ -6291,8 +5831,7 @@ fn portal_response(
     checked
 }
 
-/// A step that went wrong is the scenario's failure, unless the controller
-/// panicked: that is the harness's error, which no `known_bug` excuses.
+/// A controller panic is the harness's error, which no `known_bug` excuses.
 fn file_failure(outcome: &mut Outcome, line: usize, label: &str, error: &str) {
     let failure = format!("{label}: {error}");
     if error.contains(CONTROLLER_PANIC) {
@@ -6302,8 +5841,6 @@ fn file_failure(outcome: &mut Outcome, line: usize, label: &str, error: &str) {
     }
 }
 
-/// Logs the exchange, keeps expect mismatches and criticals as failures, and
-/// stops the run on anything else that went wrong.
 fn record(
     outcome: &mut Outcome,
     line: Option<usize>,
@@ -6359,8 +5896,6 @@ fn record(
     }
 }
 
-/// Steps were checked when the run's steps were built, so a bad body here
-/// would be a runner bug. An action runs once; a check is polled.
 fn wait_for_fs(
     step: &Value,
     fixture: &Path,
@@ -6401,9 +5936,6 @@ fn wait_for_fs(
     }
 }
 
-/// `dbus-send --session <arguments>` against the run's private bus, with
-/// the environment `test_file_manager_interface.call_file_manager` builds,
-/// failing as `subprocess.run(..., check=True, timeout=30)` does.
 fn dbus_send(launch: &Launch, arguments: &[String]) -> Result<(), String> {
     if launch.bus.is_none() {
         return Err("dbus_send needs the header's session_bus".to_owned());
@@ -6439,11 +5971,6 @@ fn dbus_send(launch: &Launch, arguments: &[String]) -> Result<(), String> {
     }
 }
 
-/// One process step run once per item of a noted list, as a twin loops
-/// `for name in names: strata.wait(...)`: `$<as>` in `step` is the item, and
-/// each `derive` variable is the last number in the item's stem plus
-/// `number_plus`, between `prefix` and `suffix`, as
-/// `f"{320 + int(Path(name).stem.removeprefix('photo-'))}×180"`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct EachStep {
@@ -6467,7 +5994,6 @@ struct Derived {
 }
 
 impl EachStep {
-    /// The step for one item; a stand-in item derives stand-in text.
     fn expand(&self, item: &Value) -> Result<Value, String> {
         let text = match item {
             Value::String(text) => text.clone(),
@@ -6507,14 +6033,6 @@ impl EachStep {
     }
 }
 
-/// A step reading the application's own log, as a twin reads
-/// `strata.application.log()` with its colour codes stripped: how often a
-/// line occurs (`count`), the numbers a pattern's first group finds
-/// (`matches`, as `re.findall`), or whether it mentions something
-/// (`contains`). With `as` it keeps the count or the numbers (one of them
-/// with `pick`) as a note, or whether it mentions it as a flag; without, it
-/// waits until the count, or how many numbers there are, is `equals`,
-/// `at_least`, or `at_most` a number or a noted list's length, plus `plus`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LogStep {
@@ -6539,7 +6057,6 @@ struct LogQuery {
     plus: i64,
 }
 
-/// What a `log` step keeps for later steps.
 enum Kept {
     Nothing,
     Flag(String, bool),
@@ -6547,7 +6064,6 @@ enum Kept {
 }
 
 impl LogStep {
-    /// The shape rules, checked before the run starts.
     fn check(&self) -> Result<(), String> {
         let query = &self.log;
         let kinds = [&query.count, &query.matches, &query.contains]
@@ -6696,11 +6212,6 @@ impl LogStep {
     }
 }
 
-/// A step about processes, as a twin reads `/proc` and signals a worker:
-/// waits until none of the noted pids is still running (`gone`), checks a
-/// pid's parent is the application (`parent_is_app`, `PPid:` in its
-/// `status`), or sends it SIGKILL at once (`kill`), which refuses any pid
-/// that is not the application's child.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProcStep {
@@ -6800,13 +6311,8 @@ impl ProcStep {
     }
 }
 
-// ------------------------------------------------------- scenario checks
-
-/// The runner's own tests, which `cargo test` runs everywhere. This target has
-/// its own harness, so `#[test]` here is stripped without a warning and never
-/// runs: a test runs only when listed here, and
-/// `no_test_attribute_hides_a_runner_test` rejects the attribute, and
-/// `#[cfg(test)]`, which is never set either.
+/// This target has its own harness, so `#[test]` and `#[cfg(test)]` code never runs;
+/// a test runs only when listed here.
 macro_rules! unit_tests {
     ($($name:ident),* $(,)?) => {
         const UNIT_TESTS: &[(&str, fn())] = &[$((stringify!($name), $name)),*];
@@ -6852,7 +6358,6 @@ fn every_scenario_file_is_planned_and_well_formed() {
     if let Some(pair) = names.windows(2).find(|pair| pair[0] == pair[1]) {
         panic!("two scenario files are named {}", pair[0]);
     }
-    // Every run of every file is a test of its own, and nothing else is.
     let scenarios: Vec<(String, &PathBuf, Scenario)> = files
         .iter()
         .map(|path| {
@@ -8003,7 +7508,6 @@ fn the_harness_starts_costly_runs_first_and_names_select_whole_scenarios() {
         order,
         ["b/columns", "unit_test", "a/list", "ab/list", "a/columns"]
     );
-    // While one exclusive run is going, the next free run starts instead.
     assert_eq!(harness::next_to_start(&tests, false), Some(0));
     assert_eq!(harness::next_to_start(&tests, true), Some(1));
     assert_eq!(harness::next_to_start(&tests[2..3], true), None);
@@ -8123,7 +7627,6 @@ fn waiting_for_exit_wakes_on_the_exit_and_gives_up_at_the_timeout() {
 }
 
 fn no_test_attribute_hides_a_runner_test() {
-    // `#[cfg(test)]` is never set here either, so it hides code the same way.
     let attributes = [concat!("#[", "test"), concat!("#[", "cfg(test)")];
     let mut sources = vec![Path::new(REPOSITORY).join("tests/qa.rs")];
     for entry in

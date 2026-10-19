@@ -20,12 +20,12 @@ from .manifest import MANIFEST
 FIXTURE_MTIME: int = MANIFEST["mtime"]
 
 # Names are chosen to sort predictably and to avoid colliding with the
-# directories a scenario creates. Defined in `tests/fixtures/harness.json`.
+# directories a scenario creates.
 CANONICAL_TREE: dict[str, object] = MANIFEST["trees"]["canonical"]
 
 
-# Set to `1` by `scripts/qa_parity.py`: a scenario's tree is named after its
-# node id, as its `--qa` twin names its own, so typed paths and pane names match.
+# Set to `1` by `scripts/qa_parity.py` to name each tree after its node id, as
+# the `--qa` twin names its own.
 PARITY_FIXTURES_VARIABLE = "STRATA_PARITY_FIXTURES"
 
 
@@ -43,7 +43,6 @@ class FixtureTree:
 
     @classmethod
     def create(cls, layout: dict[str, object] | None = None) -> "FixtureTree":
-        # pytest names the running test as "<node id> (<phase>)".
         current = os.environ.get("PYTEST_CURRENT_TEST")
         if os.environ.get(PARITY_FIXTURES_VARIABLE) == "1" and current:
             node_id = current.rsplit(" ", 1)[0]

@@ -7,12 +7,7 @@
 #
 #   ./scripts/e2e-mutation-check.sh              # every mutation
 #   ./scripts/e2e-mutation-check.sh clipboard    # one of them
-#   ./scripts/e2e-mutation-check.sh --qa [name]  # the Python twins and the
-#                                                # `--qa` scenario together
-#
-# With --qa, each patch runs the QA scenario whose header names it and the
-# Python twins its runs print; both must pass unmodified and, run by run, fail
-# together under the patch. A run where only one side fails is a parity failure.
+#   ./scripts/e2e-mutation-check.sh --qa [name]  # with the `--qa` scenario twins
 set -euo pipefail
 
 repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,7 +15,6 @@ mutations="$repository/tests/e2e/mutations"
 
 # Each patch maps to the scenario that hits the mutated line, not the whole
 # workflow file. Shrinking other tests in those files is fine while these fail.
-# With --qa the twins come from the QA scenario instead.
 declare -A SCENARIOS=(
   [drag-and-drop]="tests/e2e/scenarios/test_drag_and_drop.py::test_dragging_a_file_onto_a_folder_moves_it"
   [clipboard]="tests/e2e/scenarios/test_clipboard.py::test_copy_leaves_the_source_in_place"
@@ -102,7 +96,6 @@ for name in "${selected[@]}"; do
     qa_baseline_status=0
     "$repository/scripts/qa.sh" "$qa_scenario" >"$reports/$name-qa-baseline.log" 2>&1 \
       || qa_baseline_status=$?
-    # The twins of every planned run, whether or not it reported a result.
     mapfile -t twins < <(python3 "$repository/scripts/qa_parity.py" twins "$reports/$name-qa-baseline.log")
     if ((${#twins[@]} == 0)); then
       echo "   the QA scenario printed no runs; see $reports/$name-qa-baseline.log" >&2

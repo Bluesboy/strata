@@ -38,8 +38,6 @@ class Layout:
 
 
 def _layout(name: str) -> Layout:
-    """A layout as `tests/fixtures/harness.json` defines it."""
-
     definition = MANIFEST["layouts"][name]
     return Layout(
         name,

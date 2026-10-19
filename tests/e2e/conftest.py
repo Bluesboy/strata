@@ -96,7 +96,6 @@ def headless_display() -> HeadlessDisplay:
 @pytest.fixture(scope="session")
 def xtest(headless_display: HeadlessDisplay) -> XTestConnection:
     connection = XTestConnection(headless_display.display)
-    # The portal scenarios drive no `strata` fixture and log their input here.
     headless_display.input_connection = connection
     try:
         yield connection
@@ -147,8 +146,7 @@ def test_environment() -> TestEnvironment:
 def preferences(request: pytest.FixtureRequest) -> dict[str, object]:
     """Overrides a scenario applies before the application starts.
 
-    Parametrise it with `@pytest.mark.preferences(browser_mode="icons")`, or
-    indirectly with `@pytest.mark.parametrize("preferences", [...], indirect=True)`.
+    Parametrise it with `@pytest.mark.preferences(browser_mode="icons")`.
     """
 
     return dict(getattr(request, "param", {}))

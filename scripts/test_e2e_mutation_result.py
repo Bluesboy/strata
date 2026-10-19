@@ -46,8 +46,6 @@ class MutationRunnerTests(unittest.TestCase):
 
     def test_qa_mode_requires_both_sides_to_fail_run_by_run(self):
         twin = "tests/e2e/scenarios/test_clipboard.py::test_copy_leaves_the_source_in_place"
-        # Columns fails on both sides under the patch. Icons fails in QA, and in
-        # Python only when the twin also fails; a truncated QA log never reports it.
         cases = [
             ("python fails in icons", True, True, 0),
             ("only QA fails in icons", False, True, 1),

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Window state read from the widget tree by the names Strata's accessibility
-//! helpers set, mirroring the Python harness's AT-SPI page object
-//! (`tests/e2e/harness/browser.py`).
+//! Mirrors the Python harness's AT-SPI page object (`tests/e2e/harness/browser.py`).
 
 use std::{collections::HashMap, fmt::Write as _};
 
@@ -16,30 +14,21 @@ use super::{
 };
 use crate::ui::accessibility_qa::{self as names, Mark};
 
-/// What the harness can see, as plain data so predicates are testable without GTK.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Observation {
-    /// In left-to-right visual order.
     pub(crate) panes: Vec<PaneObservation>,
     pub(crate) focused_entry: Option<String>,
     pub(crate) focused_pane: Option<usize>,
     pub(crate) window_width: Option<i32>,
-    /// The open dialog's name, `dialog().name`.
     pub(crate) dialog: Option<String>,
-    /// The open menu's items, `menu_items()`.
     pub(crate) menu: Option<Vec<String>>,
-    /// Every name and text inside the open quick preview, in tree order.
     pub(crate) preview: Option<Vec<String>>,
-    /// Whether the folder peek is on screen.
     pub(crate) peek: bool,
-    /// The rows of a `Search results` collection, when one is on screen.
     pub(crate) results: Option<Vec<String>>,
-    /// The focused editable field, `editable_field()`.
     pub(crate) field: Option<FieldState>,
 }
 
-/// What an editable field shows, read through `gtk::Editable` as AT-SPI's
-/// text interface reads it: offsets count characters.
+/// Offsets count characters, as AT-SPI's text interface does.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub(crate) struct FieldState {
     pub(crate) name: String,
@@ -47,7 +36,6 @@ pub(crate) struct FieldState {
     pub(crate) caret: i32,
     pub(crate) selection: Option<[i32; 2]>,
     pub(crate) focused: bool,
-    /// AT-SPI's `showing`; a diagnostic the snapshot leaves out.
     #[serde(skip)]
     pub(crate) showing: bool,
 }
@@ -69,7 +57,6 @@ impl FieldState {
     }
 }
 
-/// Whether a field matches every property a check gives.
 pub(crate) fn field_matches(check: &FieldCheck, field: Option<&FieldState>) -> bool {
     let Some(field) = field else {
         return false;
@@ -89,23 +76,16 @@ pub(crate) fn field_matches(check: &FieldCheck, field: Option<&FieldState>) -> b
         && check.showing.is_none_or(|showing| showing == field.showing)
 }
 
-/// `assert_editor_constrained`: the editor starts inside the pane and the
-/// window and is no wider than the window to the right of the pane's edge.
-/// Boxes are `[x, y, width, height]` in window coordinates.
 pub(crate) fn within_viewport(editor: [i64; 4], pane_x: i64, window_width: i64) -> bool {
     let [x, _, width, height] = editor;
     height > 0 && pane_x <= x && x < window_width && 0 < width && width <= window_width - pane_x
 }
 
-/// The narrow-window creation check: the editor is wider than one pixel,
-/// starts at or right of `max(pane_x, 0)`, and ends inside the window.
-/// Boxes are `[x, y, width, height]` in window coordinates.
 pub(crate) fn within_window(editor: [i64; 4], pane_x: i64, window_width: i64) -> bool {
     let [x, _, width, _] = editor;
     width > 1 && x >= pane_x.max(0) && x + width <= window_width
 }
 
-/// A box with width and height inside another, on both axes or one.
 pub(crate) fn inside(inner: [i64; 4], outer: [i64; 4], axis: Option<PointAxis>) -> bool {
     let [x, y, width, height] = inner;
     let [outer_x, outer_y, outer_width, outer_height] = outer;
@@ -120,28 +100,20 @@ pub(crate) fn inside(inner: [i64; 4], outer: [i64; 4], axis: Option<PointAxis>) 
         }
 }
 
-/// Every run of whitespace as one space, so `"doesn't support Trash"`
-/// matches as `re.search(r"doesn't\s+support\s+Trash", ...)` would.
 pub(crate) fn collapse_whitespace(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// `on_screen(node)`: a box `[x, y, width, height]` with height, inside the
-/// window's height.
 pub(crate) fn on_screen(bounds: [i64; 4], window: [i64; 4]) -> bool {
     let [_, y, _, height] = bounds;
     height > 0 && y >= window[1] && y + height <= window[1] + window[3]
 }
 
-/// Whether a box `[x, y, width, height]` holds a point, its far edges excluded.
 pub(crate) fn contains(bounds: [i64; 4], point: (i64, i64)) -> bool {
     let [x, y, width, height] = bounds;
     x <= point.0 && point.0 < x + width && y <= point.1 && point.1 < y + height
 }
 
-/// The middle of the entries lying wholly inside a scroll viewport,
-/// `[(name, [x, y, width, height]), ...]` in visual order, once the first of
-/// them is no longer `unless_first`: the scrolling scenario's `middle_entry`.
 pub(crate) fn middle_visible(
     entries: &[(String, [i64; 4])],
     viewport: [i64; 4],
@@ -163,7 +135,6 @@ pub(crate) fn middle_visible(
 pub(crate) struct PaneObservation {
     pub(crate) name: String,
     pub(crate) view: &'static str,
-    /// In visual order: top to bottom, then left to right.
     pub(crate) entries: Vec<EntryObservation>,
 }
 
@@ -196,7 +167,6 @@ pub(crate) struct PaneState {
     pub(crate) focused: Option<String>,
 }
 
-/// The snapshot of no window at all, as AT-SPI reads a closed window's tree.
 pub(crate) fn empty_app_state() -> serde_json::Value {
     serde_json::json!({
         "view_mode": null,
@@ -213,8 +183,7 @@ pub(crate) fn empty_app_state() -> serde_json::Value {
 }
 
 impl Observation {
-    /// Columns keeps parent panes on screen, so the pane holding keyboard focus
-    /// is the current one; otherwise the deepest pane is.
+    /// Columns keeps parent panes on screen, so the focused pane is the current one.
     pub(crate) fn directory(&self) -> Option<&str> {
         self.focused_pane
             .and_then(|index| self.panes.get(index))
@@ -226,7 +195,7 @@ impl Observation {
         self.panes.first().map(|pane| pane.view)
     }
 
-    /// The named pane, or the deepest; the last match wins, as in the Python harness.
+    /// The last match wins, as in the Python harness.
     pub(crate) fn pane(&self, directory: Option<&str>) -> Option<&PaneObservation> {
         match directory {
             None => self.panes.last(),
@@ -243,8 +212,6 @@ impl Observation {
         })
     }
 
-    /// The named entry in the named pane, or in the first pane listing it,
-    /// as `_entry_or_none` finds it.
     pub(crate) fn entry(&self, name: &str, directory: Option<&str>) -> Option<&EntryObservation> {
         let panes: Vec<&PaneObservation> = match directory {
             Some(_) => self.pane(directory).into_iter().collect(),
@@ -261,7 +228,6 @@ impl Observation {
             .is_some_and(|entry| entry.selected)
     }
 
-    /// `matches(directory)`: the search results, or else the pane's own entries.
     pub(crate) fn matches(&self, directory: Option<&str>) -> Vec<String> {
         self.results
             .clone()
@@ -274,7 +240,6 @@ impl Observation {
             .map(|pane| pane.name.as_str())
     }
 
-    /// `all_selected_names()`: every pane's selection, left to right.
     pub(crate) fn all_selected(&self) -> Vec<String> {
         self.panes
             .iter()
@@ -514,13 +479,11 @@ impl Observation {
     }
 }
 
-/// An observation plus the widgets behind it, for aiming pointer input.
 pub(crate) struct Scene {
     pub(crate) observation: Observation,
     widgets: Vec<PaneWidgets>,
 }
 
-/// One pane's widgets, parallel to its [`PaneObservation`].
 pub(crate) struct PaneWidgets {
     pub(crate) pane: gtk::Widget,
     pub(crate) container: Option<gtk::Widget>,
@@ -543,7 +506,6 @@ impl Scene {
         })
     }
 
-    /// The named pane, the last match winning, or the deepest.
     pub(crate) fn pane_index(&self, directory: Option<&str>) -> Option<usize> {
         let panes = &self.observation.panes;
         match directory {
@@ -556,14 +518,11 @@ impl Scene {
         self.pane_index(directory)
             .and_then(|index| self.widgets.get(index))
     }
-    /// The widgets of the pane at this index, left to right.
     pub(crate) fn pane_widgets_at(&self, index: usize) -> Option<&PaneWidgets> {
         self.widgets.get(index)
     }
 }
 
-/// Bounds relative to the widget's own native surface, when the widget is
-/// showing, visible, and finitely sized (AT-SPI's "rendered").
 pub(crate) fn rendered_bounds(widget: &gtk::Widget) -> Option<graphene::Rect> {
     if !widget.is_mapped() || !widget.is_visible() {
         return None;
@@ -599,8 +558,7 @@ struct Row {
     name: String,
 }
 
-/// Entry names live on list items; the row widget carrying the item's focus
-/// and selected states is the parent of the item's child.
+/// The row widget carrying a list item's focus and selected states is the parent of its child.
 fn rows() -> HashMap<usize, Row> {
     names::entries()
         .into_iter()
@@ -612,7 +570,6 @@ fn rows() -> HashMap<usize, Row> {
         .collect()
 }
 
-/// The entry name of a row widget, which Strata gives its list item.
 pub(crate) fn row_name(widget: &gtk::Widget) -> Option<String> {
     names::entries().into_iter().find_map(|(item, naming)| {
         let row = item.child()?.parent()?;
@@ -623,7 +580,6 @@ pub(crate) fn row_name(widget: &gtk::Widget) -> Option<String> {
     })
 }
 
-/// The entry description of a row widget, which Strata gives its list item.
 pub(crate) fn row_description(widget: &gtk::Widget) -> Option<String> {
     names::entries().into_iter().find_map(|(item, naming)| {
         let row = item.child()?.parent()?;
@@ -631,7 +587,6 @@ pub(crate) fn row_description(widget: &gtk::Widget) -> Option<String> {
     })
 }
 
-/// Whether a row widget's list item is selected; false for anything else.
 pub(crate) fn row_selected(widget: &gtk::Widget) -> bool {
     names::entries().into_iter().any(|(item, _)| {
         item.child()
@@ -718,7 +673,6 @@ fn rendered_with_role<'a>(
     })
 }
 
-/// `context_menu()` and `menu_items()`: the first menu on screen and its plain items.
 fn open_menu(presented: &[gtk::Widget]) -> Option<Vec<String>> {
     let menu = rendered_with_role(presented, "menu").next()?;
     let inside = targets::presented(menu);
@@ -729,8 +683,6 @@ fn open_menu(presented: &[gtk::Widget]) -> Option<Vec<String>> {
     )
 }
 
-/// `Strata.preview` finds the drawer by `ui::preview::PREVIEW_LABEL`;
-/// `preview_shows` reads every name and text below the drawer, shown or not.
 fn open_preview(presented: &[gtk::Widget]) -> Option<Vec<String>> {
     let label = crate::i18n::tr(crate::ui::PREVIEW_LABEL);
     let drawer = presented.iter().find(|widget| {
@@ -750,7 +702,6 @@ fn open_preview(presented: &[gtk::Widget]) -> Option<Vec<String>> {
     Some(shown)
 }
 
-/// The named rows of the results list, or of the results grid's table.
 fn search_results(presented: &[gtk::Widget]) -> Option<Vec<String>> {
     let (results, row_role) = targets::search_results(presented)?;
     let inside = targets::presented(&results);
@@ -822,8 +773,7 @@ fn pane_entries(
     (entries, widgets)
 }
 
-/// False while a recycled row's name label still shows the previous name,
-/// as `_row_label_matches` in `tests/e2e/harness/browser.py` decides.
+/// False while a recycled row's label still shows the previous name.
 fn row_label_matches(row: &gtk::Widget, name: &str) -> bool {
     let presented = targets::presented(row);
     // List metadata may precede the name; the thumbnail identifies its caption.
@@ -845,8 +795,6 @@ fn row_label_matches(row: &gtk::Widget, name: &str) -> bool {
     label.is_none_or(|label| targets::accessible_name(&label) == name)
 }
 
-/// Whether the window can be driven: a pane with its entry list on screen,
-/// as `tests/e2e/harness/application.py` waits for before a scenario starts.
 pub(crate) fn is_ready(window: &gtk::Window) -> bool {
     window.is_mapped()
         && descendants(window.upcast_ref()).iter().any(|widget| {
@@ -857,12 +805,9 @@ pub(crate) fn is_ready(window: &gtk::Window) -> bool {
 
 const MAX_TREE_DEPTH: usize = 64;
 
-/// A readable dump of the showing widget tree, for timeouts and artifacts.
 pub(crate) fn dump(window: &gtk::Window) -> String {
     let rows = rows();
     let mut output = String::new();
-    // The window's focus even when it sits on a widget that is not mapped,
-    // which the tree below leaves out.
     if let Some(focus) = gtk::prelude::GtkWindowExt::focus(window) {
         let _ = writeln!(
             output,

@@ -1,11 +1,9 @@
 # SPDX-License-Identifier: MIT
-"""Runs a foreign drag source and reports its button for the QA runner.
+"""Runs a foreign drag source and prints its button for the QA runner.
 
-`python foreign_drag_source.py <file_drag_source.py> [its arguments...]` runs
-the fixture unchanged and prints, on stdout, what the Python harness reads
-of it through AT-SPI: `bounds X Y WIDTH HEIGHT` (the button's box on the X
-screen) whenever it changes, and `label TEXT` after each label change, as
-`tree.desktop().find(role="button", name="Foreign drag finished")` sees it.
+Stdout gets `bounds X Y WIDTH HEIGHT` whenever the button's screen box changes
+and `label TEXT` after each label change, as the Python harness reads them
+through AT-SPI.
 """
 
 import ctypes

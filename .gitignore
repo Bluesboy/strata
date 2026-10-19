@@ -21,15 +21,13 @@ packaging/aur/*/*.pkg.tar.zst
 /.pytest_cache/
 /tests/e2e/.pytest_cache/
 
-# Restored coding-agent skills (see skills-lock.json); the project's own
-# skills under .agents/skills/qa-* are committed.
+# Restored coding-agent skills (see skills-lock.json)
 /.agents/*
 !/.agents/skills/
 /.agents/skills/*
 !/.agents/skills/qa-scenarios/
 !/.agents/skills/qa-drive/
 !/.agents/skills/qa-quality/
-# Links to them for Claude Code; any other skill link is local.
 /.claude/skills/*
 !/.claude/skills/qa-scenarios
 !/.claude/skills/qa-drive

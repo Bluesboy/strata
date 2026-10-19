@@ -5,10 +5,6 @@ AT-SPI's own `GenerateMouseEvent` never replies on a headless server, so input
 goes straight to XTEST — the same mechanism `at-spi2-registryd` would have
 used. AT-SPI still locates and inspects controls; this module resolves native
 surface origins and delivers input at coordinates derived from accessible bounds.
-
-While an input log is open (`start_input_log`), every synthetic event is
-appended to it in the format `docs/e2e-testing.md` defines for the `--qa`
-runner's input log, so the two harnesses' input can be compared.
 """
 
 from __future__ import annotations
@@ -76,8 +72,6 @@ class KeyboardState(NamedTuple):
     locked_modifiers: int
 
 
-# Set to a directory, each scenario appends its synthetic input to
-# `<directory>/<test id>.log` (see `conftest.py`).
 INPUT_LOG_VARIABLE = "STRATA_INPUT_LOG"
 OriginProvider = Callable[[], tuple[int, int]]
 

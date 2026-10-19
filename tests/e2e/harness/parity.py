@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: MIT
-"""Input logs and final-state dumps for QA parity, shared by every scenario kind.
+"""Input logs and final-state dumps for QA parity.
 
-All of it is inert unless `STRATA_INPUT_LOG` or `STRATA_STATE_DUMP` names a
-directory; see "Input log" in `docs/e2e-testing.md`.
+Inert unless `STRATA_INPUT_LOG` or `STRATA_STATE_DUMP` names a directory.
 """
 
 from __future__ import annotations
@@ -17,35 +16,24 @@ from typing import Callable
 
 from .xtest import INPUT_LOG_VARIABLE, XTestConnection
 
-# Set to a directory, each scenario writes its final window state, the
-# `--qa` reply snapshot's shape, to `<directory>/<test id>.json`.
 STATE_DUMP_VARIABLE = "STRATA_STATE_DUMP"
-# How long the final state may keep changing before it is dumped anyway.
 STATE_SETTLE_TIMEOUT = 5.0
 STATE_SETTLE_INTERVAL = 0.25
-# Input logs and state dumps are named after the node id, kept below the
-# 255-byte file name limit; `scripts/qa_parity.py` derives the same names.
 NODE_FILE_NAME_LIMIT = 200
 NODE_FILE_NAME_KEPT = 180
 
 
 def node_file_name(node_id: str) -> str:
-    """The file a scenario's input log and state dump are named after.
-
-    `scripts/qa_parity.py` derives the same name from a twin's node id.
-    """
+    """`scripts/qa_parity.py` derives the same name from a twin's node id."""
 
     name = re.sub(r"[^A-Za-z0-9._-]+", "_", node_id)
     if len(name) <= NODE_FILE_NAME_LIMIT:
         return name
-    # Inside the 255-byte file name limit, still unique per node.
     digest = hashlib.sha256(node_id.encode()).hexdigest()[:16]
     return f"{name[:NODE_FILE_NAME_KEPT]}-{digest}"
 
 
 def current_node_id() -> str | None:
-    """The running test's node id, as pytest names it in `PYTEST_CURRENT_TEST`."""
-
     current = os.environ.get("PYTEST_CURRENT_TEST")
     return current.rsplit(" ", 1)[0] if current else None
 
@@ -64,8 +52,7 @@ def settled_snapshot(
 ) -> dict[str, object]:
     """The snapshot once two reads in a row agree, as the `--qa` runner takes it.
 
-    A node can vanish mid-read while the window is still changing, which only
-    means the state has not settled yet, as `tree.wait_until` treats it; once
+    A node vanishing mid-read only means the state has not settled; once
     `finished()` says the window or its process is gone, a failed read is final.
     """
 
@@ -75,7 +62,6 @@ def settled_snapshot(
         try:
             state = read()
         except AssertionError:
-            # `Application.root` found no window or no application to read.
             raise
         except Exception:
             if time.monotonic() >= deadline or finished():

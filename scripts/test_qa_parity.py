@@ -111,7 +111,6 @@ class SignatureTests(unittest.TestCase):
         self.assertEqual(results[f"{TWIN}[icons]"].signature, "cut must not touch the filesystem")
         self.assertEqual(results[f"{TWIN}[list]"].status, "error")
         self.assertEqual(results[f"{TWIN}[columns]"].node, "")
-        # An xdist group's suffix leaves the twin's id; the logs keep the one it ran under.
         grouped = results[f"{TWIN}[a@b]"]
         self.assertEqual((grouped.status, grouped.node), ("pass", f"{TWIN}[a@b]@visual-baselines"))
         bare = results[f"{TWIN}[c@d]"]

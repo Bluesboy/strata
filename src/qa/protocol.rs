@@ -1,13 +1,5 @@
 // SPDX-License-Identifier: MIT
 
-//! One JSON command per line in, one [`Reply`] per line out.
-//!
-//! A command is an object with exactly one command key (see [`COMMANDS`])
-//! whose value is its main argument, plus that command's optional fields. Add
-//! a command by adding its fields struct and a [`parse_command`] arm; add a
-//! predicate with a [`Check`] variant; add a target kind to [`TARGET_KINDS`]
-//! and [`Target`].
-//!
 //! `tests/qa.rs` compiles this file too, so the runner rejects a malformed
 //! step when it loads a scenario instead of the process rejecting it mid-run.
 
@@ -29,7 +21,6 @@ pub(crate) enum Command {
         chord: Chord,
         repeat: u32,
     },
-    /// One key per character, as `Keyboard.type_text` types.
     Type(String),
     Click {
         target: Target,
@@ -37,115 +28,63 @@ pub(crate) enum Command {
         count: u32,
         modifiers: Vec<Modifier>,
         at: Option<At>,
-        /// A box kept by `remember`: the aim's left edge is never left of its own.
         left_bound: Option<String>,
-        /// `click_releasing_modifiers_before_up`: the modifiers come up between
-        /// the button's press and release.
         release_modifiers_first: bool,
     },
-    /// Clicks, in DFS order, each of `test_filter_results.result_rows` whose
-    /// states match when its turn comes, as `for row in rows: if
-    /// row.has_state("selected"): pointer.click(row, modifiers=...)`.
     ClickResultRows {
         states: RowStates,
         modifiers: Vec<Modifier>,
     },
-    /// Click an entry until it reports itself selected, as `select_entry` does.
     Select(EntryTarget),
-    /// Home, then the next-entry key until the entry has focus, as
-    /// `select_entry_with_keyboard` does.
     SelectWithKeyboard {
         name: String,
         message: Option<String>,
     },
-    /// Clicks the target until `until` holds, clicking again after a second
-    /// while it stays closed, as `open_appearance_menu` does.
     OpenMenu {
         target: Target,
         until: Predicate,
         message: Option<String>,
-        /// The target's states that count as open, so no second click comes:
-        /// `checked`, as `open_appearance_menu`, or also `pressed`, as
-        /// `test_accessibility._open_choice` asks.
         open_states: Vec<StateName>,
     },
-    /// Waits for a showing application window with this title and drives it
-    /// from then on, as `open_file_request` finds the portal's chooser by
-    /// `application.find(name=title)`; for a run with no browser window.
     Adopt {
         title: String,
         timeout: Duration,
         message: Option<String>,
     },
-    /// Keeps a box on the X screen under a name, for `kept` targets: what
-    /// the runner read of another process's window, as a twin reads a
-    /// foreign drag source's `screen_bounds()`.
     Keep {
         rect: [i64; 4],
         name: String,
     },
-    /// `test_text_size._reveal_page_control`: finds the control presented,
-    /// then turns the wheel in its scroll pane's right gutter, in bigger
-    /// steps while it is far away, until the pane shows all of it, and
-    /// settles it.
     RevealControl {
         target: Target,
     },
-    /// `Strata.reveal`: finds the control presented and, unless the window
-    /// and its scroll pane show all of it, turns the wheel at the window's
-    /// centre up to twelve times, then waits for it to be on screen.
     Reveal {
         target: Target,
     },
-    /// The control's default accessible action, without pointer input, as
-    /// `Node.activate` invokes it; the control need not be on screen.
     Activate {
         target: Target,
         message: Option<String>,
     },
-    /// Whether a predicate holds now, as `result`; never a failure. The
-    /// runner uses it for a step's `when`.
     Holds(Predicate),
-    /// Keeps what a target names now, as a scenario keeps a node in a
-    /// variable: a field's widget, which `{"field":"<name>"}` refers to later,
-    /// or any other target's box, which `left_bound` and `moved` refer to.
     Remember {
         target: Target,
         name: String,
     },
-    /// A value read from the window, returned as `result` for the runner to
-    /// keep under `name`, as a twin keeps `names = strata.entry_names()`.
     Note {
         value: Accessor,
         dir: Option<String>,
-        /// Polls until the value is not null, as `strata.wait(accessor)` returns it.
         wait: Option<Duration>,
         message: Option<String>,
-        /// For a list: only the part from this name through `through`.
         from: Option<String>,
         through: Option<String>,
-        /// For `middle_visible`: no answer while the first visible entry is this one.
         unless_first: Option<String>,
-        /// For `scroll_target`, the box the scroll must carry above the
-        /// viewport; for `bounds`, the box to print.
         of: Option<Target>,
-        /// For a list: `names[len(names) // 2:len(names) // 2 + middle]`.
         middle: Option<usize>,
-        /// For a list: `sorted(set(names) | set(plus))`.
         plus: Vec<String>,
-        /// For a list: `sorted(names)`.
         sorted: bool,
-        /// For a list: one name, `names[pick]`, counting back when negative.
         pick: Option<i64>,
-        /// For `number`, what to work out.
         expr: Option<Expr>,
-        /// For `number` with `until_found`: bounds the number itself must be
-        /// within, so the value kept is the one the satisfying poll read, as
-        /// `strata.wait(lambda: (width := saved()) > 300 and width)` keeps it.
         until: Vec<Bound>,
-        /// For a list with `until_found`: the list must match these names,
-        /// so the value kept is the one the satisfying poll read, as
-        /// `strata.wait(lambda: names if len(names := ...) > 16 else None)`.
         until_names: Option<Names>,
     },
     Move {
@@ -153,7 +92,6 @@ pub(crate) enum Command {
         at: Option<At>,
         left_bound: Option<String>,
     },
-    /// `Pointer.move_to` the pointer's own position plus an offset.
     MoveBy {
         x: i16,
         y: i16,
@@ -164,59 +102,32 @@ pub(crate) enum Command {
         clicks: u32,
         down: bool,
         modifiers: Vec<Modifier>,
-        /// Turns the wheel only while this does not hold, checking before
-        /// each turn: up to `tries` turns, as a twin's bounded loop does, or
-        /// else until the timeout, polling as `strata.wait` does.
         until: Option<Repeat>,
     },
-    /// Presses `keys` in turn up to `times` rounds, stopping after a round
-    /// once the predicate holds, checked right after the last key, as a
-    /// twin's `for _ in range(2): press(...); if node.has_state(...): break`.
     KeysUntil {
         predicate: Predicate,
         keys: Vec<Chord>,
         times: u32,
-        /// Checks before each round instead, as `for _ in range(30): if
-        /// node.has_state(...): break; press(...)` checks before pressing.
         check_first: bool,
-        /// After each round, waits this long for the focused widget to change,
-        /// failing with the message, as `_tab_to` waits for `focused_node()`
-        /// to differ from the one before its Tab.
         await_focus_change: Option<(Duration, Option<String>)>,
-        /// Fails with this message when every round ran and the predicate
-        /// never held, as a loop's `else: raise AssertionError(...)`.
         exhausted: Option<String>,
     },
-    /// Presses or releases one key with no pause, as `connection.key(keysym,
-    /// True)` does: a modifier name (`ctrl`) or a key name (`Escape`).
     KeyDown(String),
     KeyUp(String),
-    /// Checks a predicate every `every` for `duration` and fails as soon as
-    /// it does not hold, as a twin asserts through a sustained hover.
     During {
-        /// Checked in order each time, each failing with its own message,
-        /// as a twin's loop body asserts one thing after another.
         checks: Vec<(Predicate, Option<String>)>,
         duration: Duration,
         every: Duration,
     },
-    /// Keeps the screen's pixels in a target's box, inset on every side, as a
-    /// twin crops a screenshot to compare with a later one.
     Capture {
         target: Target,
         inset: u16,
         name: String,
     },
-    /// The glyph position and contrast in a kept box, from a fresh screen
-    /// grab, as `test_drag_animation.text_position` measures a label.
     MeasureText {
         kept: String,
         name: String,
     },
-    /// Lets go of a held drag, after an Escape press when asked, and samples
-    /// a kept box 60, 120, and 180 ms later, checking each sample as
-    /// `test_drag_completion_keeps_the_source_label_in_place` does; the
-    /// release instant is kept under `name` for `elapsed`.
     DropSamples {
         kept: String,
         resting: String,
@@ -232,30 +143,19 @@ pub(crate) enum Command {
         steps: u32,
         release: bool,
         modifiers: Vec<Modifier>,
-        /// `drag_points(after_press=...)`: checked right after the press, in
-        /// order; a mismatch lets go of the button and fails the step.
         after_press: Vec<PressCheck>,
     },
-    /// Presses a button where the pointer is, as `connection.button(n, True)`.
     ButtonDown(u8),
-    /// Lets go of a held button, as `connection.button(n, False)`.
     ButtonUp(u8),
-    /// Sets the first horizontal or vertical scroll bar's value, as
-    /// `Atspi.Value.set_current_value` sets it, with no pointer input.
     SetScrollbar {
         orientation: Orientation,
         value: f64,
     },
-    /// `time.sleep`: the main loop keeps running.
     Sleep(Duration),
-    /// The main window's X size; without a height, its current one, as
-    /// `resize_surface(width, height, 600, height)` keeps it.
     Resize {
         width: u16,
         height: Option<u16>,
     },
-    /// Waits for a target to stop moving and remembers where it came to rest,
-    /// under `name` when given.
     Settle {
         target: Target,
         timeout: Duration,
@@ -265,35 +165,17 @@ pub(crate) enum Command {
         predicate: Predicate,
         timeout: Duration,
         message: Option<String>,
-        /// Polls in a row the predicate must hold, as a twin's steady-sample wait.
         samples: usize,
-        /// Settled before each poll, as a twin's condition calls
-        /// `strata.settle(node)` before it reads the screen.
         settle: Option<Target>,
-        /// Must not hold at any poll, the last included, as a twin records
-        /// what each poll saw and asserts on the record afterwards; failing
-        /// with `never_message`.
         never: Option<Box<(Predicate, Option<String>)>>,
     },
-    /// `message` names the twin's assertion, as a wait's names its `strata.wait`.
-    /// With a timeout it polls until every predicate holds, as a twin's
-    /// `try: strata.wait(...) except TreeTimeout: failures.append(...)` does,
-    /// and reports the mismatches when time runs out; with `hold` too they
-    /// must hold that long in a row, else hold once more when time runs out,
-    /// as `test_preview_media_controls._settles` decides.
     Expect {
         predicates: Vec<Predicate>,
         message: Option<String>,
         timeout: Option<Duration>,
         hold: Option<Duration>,
     },
-    /// Opens a second connection to the display and owns its clipboard with
-    /// this text, as `table_clipboard_text(before_read=...)` sets it before
-    /// the steps that copy.
     ClipboardSet(String),
-    /// Reads the clipboard through a second display connection (the one
-    /// `clipboard_set` opened, if any), then closes it, as
-    /// `table_clipboard_text` does, and fails unless the text matches.
     Clipboard {
         text: TextMatch,
         message: Option<String>,
@@ -341,19 +223,14 @@ pub(crate) const COMMANDS: [&str; 37] = [
     "query",
 ];
 
-/// A wheel's `until`: the predicate checked before each turn.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Repeat {
     pub(crate) predicate: Predicate,
-    /// A loop of at most this many turns with no pause, after which the
-    /// step simply ends; without it, a poll that fails on timeout.
     pub(crate) tries: Option<u32>,
     pub(crate) timeout: Duration,
     pub(crate) message: Option<String>,
 }
 
-/// One check right after a drag's press: polled until `wait` runs out, as
-/// `strata.wait` does, or else checked once, as an `assert`.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct PressCheck {
     pub(crate) predicate: Predicate,
@@ -375,7 +252,6 @@ struct PressStepFields {
 struct KeysUntilFields {
     keys_until: Predicate,
     keys: Vec<String>,
-    /// A number, or a noted list whose length it is, as `for _ in strata.menu_items():`.
     times: Value,
     #[serde(default)]
     check_first: bool,
@@ -433,7 +309,6 @@ struct KeyUpFields {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DuringFields {
-    /// A predicate, or a list of `{"check":PREDICATE,"message":"..."}`.
     during: Value,
     ms: u64,
     #[serde(default = "poll_ms")]
@@ -575,7 +450,6 @@ struct ClickResultRowsFields {
     mods: Vec<String>,
 }
 
-/// States a result row must have; each one given must match.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RowStates {
@@ -629,11 +503,9 @@ struct SetScrollbarFields {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SleepFields {
-    /// Milliseconds.
     sleep: u64,
 }
 
-/// A scroll bar's orientation, AT-SPI's `horizontal` or `vertical` state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Orientation {
@@ -680,8 +552,6 @@ struct DragFields {
     message: Option<String>,
 }
 
-/// An entry `from` without `from_at` starts on its icon, `drag_origin`;
-/// `from_at` and `to_at` aim like a click's `at`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DragEnds {
@@ -746,8 +616,7 @@ struct ExpectFields {
     message: Option<String>,
     timeout_ms: Option<u64>,
     hold_ms: Option<u64>,
-    /// The runner keeps whether the expectation held under this name, for a
-    /// later step's `if` or `unless`; the process ignores it.
+    /// The runner keeps this flag for a later `if` or `unless`; the process ignores it.
     #[serde(rename = "as")]
     _name: Option<String>,
 }
@@ -805,7 +674,6 @@ fn drag_steps() -> u32 {
 pub(crate) enum Query {
     State,
     Tree,
-    /// `settings.toml` as JSON, as `read_preferences` reads it.
     Prefs,
 }
 
@@ -1334,9 +1202,6 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
     }
 }
 
-/// A drag's `after_press`: one predicate checked once, named by the drag's
-/// `message`, or a list of `{"wait":...}` and `{"expect":...}` steps, each
-/// with its own `message`, as a twin's `after_press` callback runs them.
 fn press_checks(
     after_press: Option<Value>,
     message: Option<String>,
@@ -1383,12 +1248,6 @@ fn press_checks(
     }
 }
 
-/// Where on a target a pointer event lands: `[x, y]` from the target's
-/// top-left corner, each a pixel offset (negative counts back from the far
-/// edge), a share of the extent such as `"80%"` or `"2/3"` (optionally plus
-/// pixels, `"2/3+3"`), `"start-6"` or `"end+60"` for a pixel offset from the
-/// near or far edge that may lie outside the box, or `"end-1/6"` for a share
-/// back from the far edge. Without it, the centre.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct At {
     pub(crate) x: Offset,
@@ -1399,15 +1258,10 @@ pub(crate) struct At {
 pub(crate) enum Offset {
     Pixels(i32),
     Percent(u8),
-    /// `extent * numerator // denominator`, as `bounds.width * 2 // 3`.
     Fraction(u16, u16),
-    /// Pixels from the near edge, either way: `bounds.x - 6`.
     FromStart(i32),
-    /// A share plus pixels: `bounds.x + bounds.width * 2 // 3 + 3`.
     FractionPlus(u16, u16, i32),
-    /// Pixels from the far edge, either way: `bounds.x + bounds.width + 60`.
     FromEnd(i32),
-    /// A share back from the far edge: `bounds.y + bounds.height - bounds.height // 6`.
     EndLessFraction(u16, u16),
 }
 
@@ -1472,7 +1326,6 @@ impl Offset {
             })
     }
 
-    /// From a box starting at `start` and `extent` long.
     pub(crate) fn resolve(self, start: f64, extent: f64) -> f64 {
         match self {
             Self::Pixels(pixels) if pixels < 0 => start + extent + f64::from(pixels),
@@ -1532,7 +1385,6 @@ impl<'de> Deserialize<'de> for At {
     }
 }
 
-/// The target kinds, each named by the one key that selects it.
 pub(crate) const TARGET_KINDS: [&str; 27] = [
     "entry",
     "row",
@@ -1563,117 +1415,70 @@ pub(crate) const TARGET_KINDS: [&str; 27] = [
     "other_window",
 ];
 
-/// Names a widget the way a person sees it, never by screen position. Each
-/// mirrors a page-object lookup in `tests/e2e/harness/browser.py`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Target {
-    /// An entry row; `entry(name, directory)`.
     Entry(EntryTarget),
-    /// The first showing widget with this AT-SPI role name, and this
-    /// accessible name and description when given, inside `within` when
-    /// given, as `strata.preview().find(...)`.
     Role {
         role: String,
-        /// Other roles a match may have instead, as `node.role in {"check
-        /// box", "toggle button", "switch"}`; a role list in JSON.
         other_roles: Vec<String>,
         name: Option<String>,
         description: Option<String>,
         within: Option<Box<Target>>,
-        /// The name must end with one of these, as
-        /// `any(node.name.endswith(suffix) for suffix in ...)`.
         name_ends_with: Vec<String>,
-        /// Which of the matches in DFS order, counting back when negative, as
-        /// `find_all(...)[-1]`; the first without it.
         nth: Option<i64>,
-        /// States every match must have, as `find(..., states={"selected"})`.
         states: Vec<StateName>,
-        /// A regular expression the name must contain a match of, as
-        /// `find_all(..., name_matches=CLOCK.pattern)`.
         name_matches: Option<String>,
-        /// A role target that must find a rendered widget at or below the
-        /// match, as `any(label.name == text for label in row.find_all(role="label"))`.
         has: Option<Box<Target>>,
-        /// False finds the match presented, perhaps scrolled away or not
-        /// yet allocated, as `find(..., rendered=False)` does.
         rendered: bool,
     },
-    /// `_find_row` in `test_chooser_selection.py`: the first rendered list
-    /// item with this name, else the first rendered table cell with it.
     Row(String),
-    /// The entry list below its last entry; `background_point(directory)`.
-    Background { dir: Option<String> },
-    /// A browser pane; points at `empty_point(directory)` unless `at` is given.
-    Pane { dir: Option<String> },
-    /// The scroll viewport around a pane's entry list.
-    Viewport { dir: Option<String> },
-    /// The focused editable text, `editable_field()`; or with a name, the
-    /// field a `remember` kept under it.
+    Background {
+        dir: Option<String>,
+    },
+    Pane {
+        dir: Option<String>,
+    },
+    Viewport {
+        dir: Option<String>,
+    },
     Field(Option<String>),
-    /// The focused editable text inside another target, as
-    /// `chooser.find(role="text", states={"editable", "focused"})`.
     FieldWithin(Box<Target>),
-    /// An application window by its title, as `application.find(name=title)`
-    /// finds a floating chooser.
     Toplevel(String),
-    /// Another showing application window with this title than the one the
-    /// run started with, as `next(window for window in
-    /// application.find_all(role="frame", name=title) if window != first_window)`.
     OtherWindow(String),
-    /// A filter result by its path below the filtered directory, as
-    /// `test_filter_results.result` finds it.
     Result(String),
-    /// One of `test_filter_results.result_rows` in DFS order, counting back
-    /// when negative, among those whose name contains `containing` or is
-    /// `name` when given, as `[row for row in rows if "x" in row.name][-1]`.
     ResultRow {
         index: i64,
         containing: Option<String>,
         name: Option<String>,
     },
-    /// The first focused widget on screen, `strata.focused_node()`.
     FocusedWidget,
-    /// The widget `remember` kept under this name, as a twin keeps a node.
     Remembered(String),
-    /// `sidebar_button(name)`: a button by name.
     Sidebar(String),
-    /// `header_button(name)`: a button by name.
     Header(String),
-    /// `menu_item(label)`: a menu item, in the open menu if there is one.
     MenuItem(String),
-    /// `dialog_button(label)`: a button in the open dialog.
     DialogButton(String),
-    /// The main window, `strata.window`; with `y_of`, a point's height is
-    /// that target's centre, as `(window.x + ..., pane.center[1])`.
-    Window { y_of: Option<Box<Target>> },
-    /// The quick preview drawer, `strata.preview()`.
+    Window {
+        y_of: Option<Box<Target>>,
+    },
     Preview,
-    /// `search_result(name)`: a row of the `Search results` collection by
-    /// name, or else any list item with the name.
     SearchResult(String),
-    /// The first showing widget with this accessible name, whatever its
-    /// role, inside `within`: `dialog.find(name=...)`.
-    Named { name: String, within: Box<Target> },
-    /// The list or grid inside a pane, `entry_container(directory)`.
-    Container { dir: Option<String> },
-    /// The open dialog, `dialog()`.
+    Named {
+        name: String,
+        within: Box<Target>,
+    },
+    Container {
+        dir: Option<String>,
+    },
     Dialog,
-    /// A widget's parent, `node.parent`.
     Parent(Box<Target>),
-    /// The nearest ancestor with this role, as `node.ancestors()` is walked.
-    Ancestor { role: String, of: Box<Target> },
-    /// A box `remember` or `settle` kept, or a point `remember` kept, as a
-    /// twin keeps `bounds = node.screen_bounds()` for later.
+    Ancestor {
+        role: String,
+        of: Box<Target>,
+    },
     Kept(String),
-    /// A point whose coordinates come from other targets, as a twin writes
-    /// `(pane.x + 2, container.y + 2)`.
     Point(Box<[Axis; 2]>),
 }
 
-/// One coordinate of a [`Target::Point`], in whole pixels as AT-SPI reports
-/// them: a target's `at` offset along the axis (its centre without one), the
-/// floored middle of two, the larger of two, or a target's extent along the
-/// axis taken as a coordinate, each plus `plus` pixels.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Axis {
     Of {
@@ -1689,8 +1494,6 @@ pub(crate) enum Axis {
         pair: Box<[Axis; 2]>,
         plus: i32,
     },
-    /// The target's width or height as a screen coordinate, as
-    /// `park_pointer` moves to `(bounds.width - 4, bounds.height - 4)`.
     Extent {
         target: Box<Target>,
         plus: i32,
@@ -2192,7 +1995,6 @@ impl Serialize for Target {
     }
 }
 
-/// An AT-SPI state a role target's match must have.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum StateName {
@@ -2201,18 +2003,12 @@ pub(crate) enum StateName {
     Checked,
     Pressed,
     Sensitive,
-    /// A selectable row, as a list box row that takes the selection.
     Selectable,
-    /// Text the user may edit.
     Editable,
-    /// A horizontal scroll bar, slider, or other oriented widget.
     Horizontal,
     Vertical,
 }
 
-/// An entry row by name, in the named pane or in any pane on screen; with
-/// `part`, its name label (`entry.find(role="label", name=name)`), its icon
-/// (`entry.find(role="image")`), or its first other named label (`metadata`).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct EntryTarget {
@@ -2228,56 +2024,28 @@ pub(crate) struct EntryTarget {
 pub(crate) enum EntryPart {
     Label,
     Icon,
-    /// The first named label that is not the entry's own name, as
-    /// `metadata_drag_origin` finds a List row's size or type.
     Metadata,
 }
 
-/// What a `note` reads, each a page-object accessor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Accessor {
-    /// `current_directory()`.
     Directory,
-    /// `pane().name`.
     Pane,
-    /// `pane_names()`.
     Panes,
-    /// `entry_names(dir)`.
     Entries,
-    /// `selected_names(dir)`.
     Selected,
-    /// `all_selected_names()`.
     AllSelected,
-    /// `matches(dir)`.
     Matches,
-    /// `focused_name()`.
     Focused,
-    /// `focused_pane().name`.
     FocusedPane,
-    /// The middle entry the deepest pane's scroll viewport shows, once the
-    /// first visible entry is no longer `unless_first`; the reversing-scroll
-    /// scenario's `middle_entry`.
     MiddleVisible,
-    /// The entries lying wholly inside the pane's scroll viewport, in visual
-    /// order, as the scrolling scenarios' `_visible_entries` list them.
     Visible,
-    /// The value of the first scroll bar showing in the pane's viewport that carries `of` above it:
-    /// `value + max(of.y + of.height - viewport.y + 1, 1)`.
     ScrollTarget,
-    /// `of`'s box as Python prints `node.screen_bounds()`, for a message:
-    /// `Bounds(x=0, y=0, width=10, height=10)`.
     Bounds,
-    /// How many editable text fields are on screen,
-    /// `len(window.find_all(role="text", states={"editable"}))`.
     EditableFields,
-    /// `menu_items()`: the open menu's items, empty while none is open.
     MenuItems,
-    /// A number worked out from the window, as a twin keeps
-    /// `fitted = column.width / 300` or a saved preference: `expr`.
     Number,
-    /// The deepest pane's entries whose top edge lies inside its scroll
-    /// viewport, in visual order, as `test_monitor_selection.visible_entries`.
     VisibleTop,
 }
 
@@ -2296,7 +2064,6 @@ impl Accessor {
         )
     }
 
-    /// Lists of names; the rest are one name, a number, or null.
     pub(crate) fn is_list(self) -> bool {
         matches!(
             self,
@@ -2312,7 +2079,6 @@ impl Accessor {
     }
 }
 
-/// An expectation about window state, shared by `wait` and `expect`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct Predicate {
     #[serde(flatten)]
@@ -2326,175 +2092,73 @@ pub(crate) struct Predicate {
 pub(crate) enum Check {
     Directory(Option<String>),
     Panes(Names),
-    /// The deepest pane's name; `strata.pane().name`.
     Pane(Option<String>),
     Entries(Names),
-    /// An entry is listed, in `dir` or in any pane; `strata.entry(name)`.
     Entry(String),
-    /// `wait_for_entry_gone(name, dir)`.
     EntryGone(String),
     Selected(Names),
-    /// `all_selected_names()`: the selected entries of every pane, left to right.
     AllSelected(Names),
-    /// The focused entry, `focused_name()`: a name, `true` for any, or null.
     Focused(Presence),
-    /// `focused_name() in matches()`.
     FocusedInMatches(bool),
-    /// The pane holding keyboard focus, `focused_pane()`.
     FocusedPane(Presence),
     ViewMode(String),
     WindowWidth(i32),
-    /// The open dialog, `dialog()`: its name, `true` for any, or null.
     Dialog(Presence),
-    /// The open menu's items, `menu_items()`; null while no menu is open.
     MenuItems(Option<Names>),
-    /// Text the quick preview shows, `preview_shows(text)`; `true` while it
-    /// is open, null while it is closed.
     Preview(Presence),
-    /// Whether the folder peek is open, `peek() is not None`.
     Peek(bool),
-    /// What a recursive filter lists, `matches(dir)`.
     Matches(Names),
-    /// A field's text, caret, selection, and focus.
     Field(FieldCheck),
-    /// A key in `settings.toml`, as `read_preferences` reads it; null when absent.
     Pref(PrefCheck),
-    /// The field lies inside the deepest pane and the window, as the caret
-    /// scenario's `assert_editor_constrained` checks.
     EditorWithinViewport(FieldRef),
-    /// A target's accessible states, `node.has_state(...)`.
     State(StateCheck),
-    /// Holds when any of the predicates holds.
     Any(Vec<Predicate>),
-    /// A target can be found on screen; `window.find(...) is not None`.
     Present(Target),
-    /// `window.find(...) is None`.
     Absent(Target),
-    /// Where a target is now, against where the last `settle` on it ended.
     Moved(Movement),
-    /// `on_screen(node)`: the target lies within the window's height.
     OnScreen(Target),
-    /// A point on a target lands on nothing inside it but panels and fillers,
-    /// as `_blank_preview_point` asserts.
     Blank(BlankCheck),
-    /// Holds when the predicate does not.
     Not(Box<Predicate>),
-    /// The entries wholly inside the pane's scroll viewport, in visual order.
     Visible(Names),
-    /// The first scroll bar showing in the pane's viewport, `scroll_bar.numeric_value`.
     ScrollValue(ScrollCheck),
-    /// Every visible row whose name box ends above the kept point `to` and
-    /// overlaps the band from `from` is selected, and there is one; the
-    /// scrolling scenario's `visible_band_is_selected`.
     BandSelected(BandCheck),
-    /// The focused widget is the target or inside it; `any(node.has_state("focused") ...)`.
     FocusWithin(Target),
-    /// A target's width against the box `remember` kept for it.
     Resized(Resized),
-    /// A target's box spans a point along one axis, `bounds.x <= x < bounds.x + bounds.width`.
     ContainsPoint(ContainsPoint),
-    /// The footer counts the selection a marquee left after a select-all;
-    /// the pointer-intent scenario's `footer_counts_the_remaining_fill`.
     FooterFill(FooterFill),
-    /// A captured box now looks different, the pointer's square left out;
-    /// the hover scenario's `visibly_hovered`.
     Repainted(Repainted),
-    /// A measured contrast is below a share of another, `dragging < resting * 0.8`.
     ContrastBelow(ContrastBelow),
-    /// At least this long has passed since a kept instant.
     Elapsed(Elapsed),
-    /// Any accessible name or description of any application window
-    /// mentions one of these, lower-cased, as `strata.diagnostics().lower()`.
     DiagnosticsMention(Vec<String>),
-    /// Holds when every one of the predicates holds.
     All(Vec<Predicate>),
-    /// How many editable text fields are on screen,
-    /// `len(window.find_all(role="text", states={"editable"}))`.
     EditableFields(usize),
-    /// A target's accessible description, `node.description == text`.
     Description(DescriptionCheck),
-    /// Text in a target's subtree: a name or description containing `text`,
-    /// as `text in node.dump()`, or `words` in some widget's name and text
-    /// with any run of whitespace between them, as `re.search(r"a\s+b", ...)`.
     Mentions(MentionCheck),
-    /// A target is presented, perhaps scrolled away or not yet allocated, as
-    /// `window.find(..., rendered=False) is not None`.
     Presented(Target),
-    /// Whether a path exists, read by the process itself so it can join an
-    /// `any` or `all` with window state; the path must be absolute.
     File(FileCheck),
-    /// The name of the first focused widget on screen, `strata.focused_node()`,
-    /// exactly or as `{"contains":...}`; null when nothing holds focus.
     FocusedWidget(Option<TextMatch>),
-    /// A target's box has width and height and lies inside another's, on
-    /// both axes or, with `axis`, on that one alone.
     Inside(InsideCheck),
-    /// A field starts at or right of a pane's left edge (or the window's,
-    /// when the pane begins left of it), is wider than one pixel, and ends
-    /// inside the window, as the narrow-window creation scenario checks.
     EditorWithinWindow(EditorWindowCheck),
-    /// A target resolves to another widget than the one `remember` kept
-    /// under `since`, as a listing's reload rebuilds its rows.
     Replaced(Replaced),
-    /// The screen pixel at a target's centre has this colour, as a twin reads
-    /// `screenshot.getpixel(bounds.center)`.
     Pixel(PixelCheck),
-    /// More than `more_than` pixels inside a target's box, inset on every
-    /// side, have the active theme's accent colour exactly, as
-    /// `test_filter_text_selection_uses_the_active_theme` counts them.
     AccentPixels(AccentPixels),
-    /// Some row of `test_filter_results.result_rows` has these states, as
-    /// `any(row.has_state("focused") for row in result_rows(strata))`.
     AnyResultRow(RowStates),
-    /// The hit path beside a footer mark: the first panel next to the mark
-    /// whose rendered labels, joined, are one of `hits`' paths must be
-    /// `hits[name]`, as `test_search_filter_sort.footer_hit` reads it.
     HitPath(HitPath),
-    /// Two numbers worked out from the window compare so, as a twin's
-    /// `abs(heading.center[1] - button.center[1]) <= 2`.
     Compare(Comparison),
-    /// The panes, left to right, in which a role target is on screen, as
-    /// `[name for name in pane_names() if pane(name).find(...) is not None]`.
     PanesWith(PanesWith),
-    /// A target's accessible name, as `clocks[0].name == shown`.
     Name(NameCheck),
-    /// Some editable text field on screen shows exactly this text, as
-    /// `any(node.text == "todo" for node in window.find_all(role="text", states={"editable"}))`.
     EditableText(String),
-    /// The deepest pane's entries whose top edge lies inside its scroll
-    /// viewport, as `test_monitor_selection.visible_entries`.
     VisibleTop(Names),
-    /// The largest rendered image inside a target wider than `wider_than`
-    /// pixels, by area: any at all, exactly `size`, or larger than `exceeds`
-    /// on either axis, as the preview scenarios measure `find_all(role="image")`.
     LargestImage(LargestImage),
-    /// How many of the application's own child processes have a command
-    /// name starting with `comm_prefix`, as `test_terminal._launcher_children`
-    /// reads `/proc`.
     Children(ChildrenCheck),
-    /// The selectable list items under each unselectable heading row inside
-    /// a target, as `test_open_with` groups `find_all(role="list item")`: the
-    /// rows of `section` must match `names`.
     ListSections(SectionsCheck),
-    /// A target's text, as AT-SPI's text interface reads `node.text`.
     Text(NameCheck),
-    /// Holds when the predicate holds in some showing application window
-    /// with the title, each read as that window's own tree.
     SomeWindow(SomeWindow),
-    /// How many showing application windows have the title.
     Windows(WindowCount),
-    /// The names of a target's presented children with a role.
     ChildNames(ChildNames),
-    /// Focus sits on a named widget that is neither the target nor inside
-    /// it, as `test_accessibility._focus_outside` decides.
     FocusOutside(Target),
-    /// The first focused widget on screen is the target, as
-    /// `strata.focused_node() == surface`.
     FocusedWidgetIs(Target),
-    /// The widget `remember` kept under the name still belongs to a
-    /// window, as `node.alive` answers for an accessible that still exists.
     Alive(String),
-    /// The joined text of a target's subtree contains a part.
     SubtreeText(SubtreeText),
 }
 
@@ -2525,7 +2189,6 @@ pub(crate) struct SectionsCheck {
     pub(crate) names: Names,
 }
 
-/// A bound on a noted number: `number <op> than`.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Bound {
@@ -2572,13 +2235,6 @@ impl CompareOp {
     }
 }
 
-/// A number from the window: a literal; a target's box in whole pixels
-/// (`x`, `y`, `width`, `height`, `right` as `x + width`, `bottom`,
-/// `center_x` as `x + width // 2`, `center_y`) or its numeric `value`, as
-/// AT-SPI's Value interface reads a slider; a preference, parsed as a
-/// number, with an optional default for a missing key; how many widgets
-/// match (`count`); or arithmetic over them. Division is Python's `/` and
-/// `//`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Expr {
     Number(serde_json::Number),
@@ -2614,7 +2270,6 @@ pub(crate) enum Measure {
     Value,
 }
 
-/// `len(root.find_all(role=..., name=..., description=..., rendered=...))`.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CountSpec {
@@ -2628,7 +2283,6 @@ pub(crate) struct CountSpec {
     pub(crate) within: Option<Target>,
     #[serde(default = "yes")]
     pub(crate) rendered: bool,
-    /// States each counted widget must have, as `find_all(..., states={...})`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) states: Vec<StateName>,
 }
@@ -2744,7 +2398,6 @@ impl Serialize for Expr {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct PanesWith {
-    /// A role target, searched inside each pane in turn.
     pub(crate) target: Target,
     pub(crate) names: Names,
 }
@@ -2754,8 +2407,6 @@ pub(crate) struct PanesWith {
 pub(crate) struct NameCheck {
     pub(crate) target: Target,
     pub(crate) text: TextMatch,
-    /// False looks the target up presented, perhaps scrolled away, as
-    /// `find(..., rendered=False)` does.
     #[serde(default = "yes", skip_serializing_if = "is_true")]
     pub(crate) rendered: bool,
 }
@@ -2787,11 +2438,8 @@ pub(crate) struct AccentPixels {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct HitPath {
-    /// The footer mark's label, such as `search: txt`.
     pub(crate) mark: String,
-    /// Each hit's name and the path the footer shows for it.
     pub(crate) hits: std::collections::BTreeMap<String, String>,
-    /// The hit whose path must show.
     pub(crate) name: String,
 }
 
@@ -2813,15 +2461,12 @@ pub(crate) struct DescriptionCheck {
 #[serde(deny_unknown_fields)]
 pub(crate) struct MentionCheck {
     pub(crate) target: Target,
-    /// Only rendered widgets with this role, as `node.find_all(role="label")`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) role: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) words: Option<String>,
-    /// Some rendered widget's name with its whitespace collapsed is exactly
-    /// this, as `" ".join(node.name.split()) == text`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) equals: Option<String>,
 }
@@ -2832,8 +2477,6 @@ pub(crate) struct FileCheck {
     pub(crate) path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) exists: Option<bool>,
-    /// Whether the mode has any bit of this octal mask set, as
-    /// `bool(path.stat().st_mode & 0o100)`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) mode_bits: Option<ModeBits>,
 }
@@ -2845,8 +2488,6 @@ pub(crate) struct ModeBits {
     pub(crate) set: bool,
 }
 
-/// A predicate checked in each showing application window with this title,
-/// as `any(... for window in application.find_all(role="frame", name=title))`.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SomeWindow {
@@ -2854,8 +2495,6 @@ pub(crate) struct SomeWindow {
     pub(crate) holds: Box<Predicate>,
 }
 
-/// How many showing application windows have this title, as
-/// `len(application.find_all(role="frame", name=title))`.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct WindowCount {
@@ -2863,8 +2502,6 @@ pub(crate) struct WindowCount {
     pub(crate) count: usize,
 }
 
-/// The names of a target's presented children with a role, in order, as
-/// `[row.name for row in node.children if row.role == "button"]`.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ChildNames {
@@ -2873,10 +2510,6 @@ pub(crate) struct ChildNames {
     pub(crate) names: Names,
 }
 
-/// The text of every presented widget in a target's subtree that has
-/// some, joined by spaces, as `" ".join(node.text for _, node in dialog.walk()
-/// if node.text)`, contains `contains`; with `strip_newlines`, after
-/// `.replace("\n", "")`.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SubtreeText {
@@ -2898,9 +2531,7 @@ pub(crate) struct InsideCheck {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct EditorWindowCheck {
-    /// The field a `remember` kept under this name.
     pub(crate) of: String,
-    /// The pane, the deepest without one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) pane: Option<String>,
 }
@@ -2923,11 +2554,9 @@ pub(crate) struct BandCheck {
 pub(crate) struct Resized {
     pub(crate) target: Target,
     pub(crate) since: String,
-    /// The change in width: exact, or `{"min":30}`.
     pub(crate) width: Change,
 }
 
-/// A whole-pixel change, exact or bounded.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub(crate) enum Change {
@@ -2969,9 +2598,7 @@ pub(crate) enum PointAxis {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FooterFill {
-    /// The marquee's two end entries, which it cleared.
     pub(crate) ends: Vec<String>,
-    /// How many entries the select-all selected.
     pub(crate) total: usize,
 }
 
@@ -3011,7 +2638,6 @@ impl Check {
         )
     }
 
-    /// Checks that resolve targets against live widgets or files rather than a snapshot.
     pub(crate) fn is_live(&self) -> bool {
         match self {
             Self::Present(_)
@@ -3072,8 +2698,6 @@ impl Check {
     }
 }
 
-/// Null, `true` for anything, a name, or `{"one_of":[...]}` for any of
-/// several names, as `focused_name() in shown`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Presence {
     Absent,
@@ -3127,8 +2751,6 @@ impl Serialize for Presence {
     }
 }
 
-/// Which field a check reads: one a `remember` kept, the first on screen
-/// with this accessible name, or else the focused one.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FieldRef {
@@ -3138,7 +2760,6 @@ pub(crate) struct FieldRef {
     pub(crate) name: Option<String>,
 }
 
-/// `{}` holds whenever the field exists; each given property must match.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FieldCheck {
@@ -3148,10 +2769,8 @@ pub(crate) struct FieldCheck {
     pub(crate) name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) text: Option<TextMatch>,
-    /// The caret's character offset, `Text.get_caret_offset`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) caret: Option<CaretMatch>,
-    /// `[start, end]` in characters, or null for no selection.
     #[serde(
         default,
         deserialize_with = "present",
@@ -3160,7 +2779,6 @@ pub(crate) struct FieldCheck {
     pub(crate) selection: Option<Option<[i32; 2]>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) focused: Option<bool>,
-    /// AT-SPI's `showing`: the field is mapped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) showing: Option<bool>,
 }
@@ -3181,7 +2799,6 @@ fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     T::deserialize(deserializer).map(Some)
 }
 
-/// Exact text, or text with this start, end, or part.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub(crate) enum TextMatch {
@@ -3198,10 +2815,8 @@ pub(crate) struct TextPattern {
     pub(crate) ends_with: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) contains: Option<String>,
-    /// Part of the lower-cased text, as `"q" in field.text.lower()`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) lowercase_contains: Option<String>,
-    /// More characters than this, as `len(copied) > len(word)`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) longer_than: Option<usize>,
 }
@@ -3235,7 +2850,6 @@ impl TextMatch {
     }
 }
 
-/// An exact offset, or an inclusive range.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub(crate) enum CaretMatch {
@@ -3256,24 +2870,18 @@ impl CaretMatch {
 #[serde(deny_unknown_fields)]
 pub(crate) struct PrefCheck {
     pub(crate) key: String,
-    /// The value, null for a missing key.
     #[serde(
         default,
         deserialize_with = "present",
         skip_serializing_if = "Option::is_none"
     )]
     pub(crate) value: Option<Value>,
-    /// Part of the raw `key = value` text, as `'"size"' in
-    /// read_preferences().get(key, "")`: a list holding this string, or a
-    /// string containing it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) contains: Option<String>,
-    /// Any of these values, as `read_preferences().get(key) in {"1", "2"}`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) one_of: Option<Vec<Value>>,
 }
 
-/// Each given state must match; the names are AT-SPI's.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct StateCheck {
@@ -3292,15 +2900,10 @@ pub(crate) struct StateCheck {
     pub(crate) selectable: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) editable: Option<bool>,
-    /// AT-SPI's `focusable`, which GTK's bridge reports for a focusable widget.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) focusable: Option<bool>,
 }
 
-/// Where the target is against the box a `settle` kept for it, or the one
-/// `settle` or `remember` kept under `since`; with `y_within`, `none` allows
-/// that many pixels of vertical drift and ignores the rest, as
-/// `abs(restored.y - y) <= 2` does.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Movement {
@@ -3310,9 +2913,6 @@ pub(crate) struct Movement {
     pub(crate) since: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) y_within: Option<u16>,
-    /// With direction `none`: within this many pixels on both axes and the
-    /// same size, as `abs(actual.x - expected.x) <= 1 and ... and
-    /// actual.width == expected.width`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) within: Option<u16>,
 }
@@ -3332,11 +2932,9 @@ pub(crate) enum Direction {
     Down,
     Left,
     Right,
-    /// The bounds are exactly where they settled.
     None,
 }
 
-/// A name list in visual order, or names it must or must not contain.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub(crate) enum Names {
@@ -3351,43 +2949,28 @@ pub(crate) struct NameFilter {
     pub(crate) contains: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) excludes: Vec<String>,
-    /// How many names, duplicates included.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) count: Option<usize>,
-    /// At least this many names, as `len(...) >= 2`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) at_least: Option<usize>,
-    /// The last names, in order, as `pane_names()[-2:] == [...]`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) ends_with: Vec<String>,
-    /// The first names, in order, as `names[:2] == [...]`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) starts_with: Vec<String>,
-    /// The first name, as `names[0] == ...`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) first: Option<String>,
-    /// A first name that sorts after this one, as `names[0] > "010.txt"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) first_above: Option<String>,
-    /// Some name sorts at or after this one, as `any(name >= "040.txt" ...)`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) any_from: Option<String>,
-    /// Each of `names` is listed exactly when `against` does not list it, as
-    /// `(name in selected) == (name not in initial)`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) toggled: Option<Toggled>,
-    /// Each is listed, first occurrences in this order, as
-    /// `positions = [items.index(a) for a in expected]; positions == sorted(positions)`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) in_order: Vec<String>,
-    /// The names as a set, as `set(names) == {...}`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) set: Option<Vec<String>>,
-    /// How often each name is listed, as `names.count("a") == 2`.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub(crate) occurrences: std::collections::BTreeMap<String, usize>,
-    /// The names from this index on are sorted ignoring case, as
-    /// `names[1:] == sorted(names[1:], key=str.lower)`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) sorted_casefold_from: Option<usize>,
 }
@@ -3447,7 +3030,6 @@ impl Names {
     }
 }
 
-/// Every name is listed and their first occurrences come in this order.
 fn in_order(actual: &[String], expected: &[String]) -> bool {
     let positions: Option<Vec<usize>> = expected
         .iter()
@@ -3596,8 +3178,7 @@ impl Modifier {
     }
 }
 
-/// A key in the harness spelling: `Return`, `j`, `ctrl+shift+n`; a trailing
-/// `+` is the plus key itself.
+/// A trailing `+` is the plus key itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Chord {
     pub(crate) modifiers: Vec<Modifier>,
@@ -3627,7 +3208,6 @@ impl Chord {
     }
 }
 
-/// Mismatches carry the observed value so a failing step explains itself.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub(crate) struct Failure {
     pub(crate) predicate: Value,
@@ -3647,7 +3227,6 @@ pub(crate) struct Reply {
     pub(crate) error: Option<String>,
 }
 
-/// The top-level `app` keys whose values differ from the previous snapshot.
 pub(crate) fn changed_keys(previous: Option<&Value>, current: &Value) -> Vec<String> {
     let Value::Object(current) = current else {
         return Vec::new();

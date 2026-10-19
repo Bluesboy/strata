@@ -1,15 +1,11 @@
 // SPDX-License-Identifier: MIT
 
-//! GLib log lines at warning level or above, collected between replies.
-
 use std::sync::Mutex;
 
 use gtk::glib;
 
 static PENDING: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-/// Installs the process-wide GLib log writer; it still forwards every line to
-/// the default writer so the application log stays complete.
 pub(crate) fn capture() {
     glib::log_set_writer_func(|level, fields| {
         if matches!(

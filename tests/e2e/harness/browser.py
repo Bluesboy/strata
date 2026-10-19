@@ -658,14 +658,8 @@ class Strata:
             )
         return node
 
-    # ------------------------------------------------------------- snapshot
-
     def state_snapshot(self) -> dict[str, object]:
-        """The window state final-state parity compares with a `--qa` reply's `app`.
-
-        Only the keys the two harnesses read the same way; see "Replies and the
-        state snapshot" in `docs/e2e-testing.md`.
-        """
+        """The window state final-state parity compares with a `--qa` reply's `app`."""
 
         containers = self.containers()
         panes = []
