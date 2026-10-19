@@ -625,6 +625,25 @@ keyboard layouts, and the Python harness reads the same file
 agreeing; `tests/e2e/unit/test_harness_manifest.py` checks what the Python
 harness materialises from it.
 
+Two differences from the Python harness's environment change no rendering and
+no behaviour a scenario checks. The QA application's `MESA_SHADER_CACHE_DIR`
+names one directory the runner makes under `/tmp` and removes when it exits,
+so the software GL shaders GTK compiles at start-up are built once per
+`./scripts/qa.sh` rather than in every run's fresh `XDG_CACHE_HOME`, where a
+twin's Mesa still keeps them. The rendering pins (`GSK_RENDERER`,
+`LIBGL_ALWAYS_SOFTWARE`, `GALLIUM_DRIVER`) are the manifest's on both sides,
+and helper and `foreign` processes a step starts keep the twin's environment,
+without the variable. And `scripts/qa.sh` mounts a tmpfs on the container's
+`/tmp`, which holds every run's fixture, HOME, and runtime directory, where
+`scripts/e2e.sh` keeps the image's overlay. `/tmp` is then a mount point of
+its own, the one Strata resolves for a path there instead of `/`, and a
+directory may list its entries in another order; but tmpfs and overlay are
+both virtual file systems, and fixtures and HOME share one device on both
+sides, so Trash and its restore behave alike, and `/dev/shm` is still another
+volume. Nothing in `/tmp` outlives the container, since artifacts and the
+Cargo cache are under `/workspace/target`. The tmpfs takes the kernel's
+default limit, half of RAM; a full run at 24 threads peaked near 150 MB.
+
 A scenario is a `.jsonl` file that ports one Python test function. It lives in
 `tests/qa/scenarios/<test file>/`, the folder named after its twin's file (for
 example `tests/qa/scenarios/test_clipboard/copy-leaves-source.jsonl`); the
@@ -685,8 +704,8 @@ GTK `settings.ini`, as a twin's `test_environment` override does.
 `env` (`{"PATH":"$environment/launcher-path"}`) adds or replaces variables
 in the application's environment, with `$variables` replaced, as a twin's
 `test_environment.variables` override does (never one the runner owns: the
-display, buses, runtime, HOME and XDG directories, input log, and parity
-and state-dump variables), and `"session_bus":true` gives
+display, buses, runtime, HOME and XDG directories, input log, Mesa shader
+cache, and parity and state-dump variables), and `"session_bus":true` gives
 the run a private session bus with the Python harness's configuration (no
 service directories), which the application and `dbus_send`, `launch`, and
 `foreign` steps share; without it the application gets a bus address that
@@ -1008,9 +1027,16 @@ alphabetically: costliest first, a run without a `cost` before all of them
 (it may be costly), and equal costs by name. It runs `--test-threads` tests at
 once, one per CPU by default. A run with a `fixture_root` never starts while
 another such run is going; the next run free to start takes the thread
-instead of waiting. With `--exact`, which `./scripts/qa.sh` adds when it names
-anything, a scenario name selects all of its runs and never another scenario
-it prefixes, and `<scenario>/<run>` selects one run; without it a filter is a
+instead of waiting. A run's cost outside its steps (Xvfb, the launch up to
+the first reply, and shutdown) is about 0.4 s at 24 threads, so it takes no
+display lock and no 50 ms exit poll: concurrent Xvfb starts begin at
+different display numbers, skip one with a lock file or socket, and try the
+next when another server takes theirs first, as `-displayfd` shows; an
+exiting application, Xvfb, or bus is awaited on its pidfd; and `strata --qa`
+checks that its window is ready after each frame it paints. With `--exact`,
+which `./scripts/qa.sh` adds when it names anything, a scenario name selects
+all of its runs and never another scenario it prefixes, and
+`<scenario>/<run>` selects one run; without it a filter is a
 substring, as in libtest. `./scripts/qa.sh --skip <scenario>` (or
 `<scenario>/<run>`, in either spelling) passes the harness's own
 `--skip-exact`, which leaves out that scenario or run and never another

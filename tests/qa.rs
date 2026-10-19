@@ -29,9 +29,10 @@ use std::{
     io::{BufRead, BufReader, Write},
     os::{fd::AsRawFd, unix::fs::PermissionsExt},
     path::{Path, PathBuf},
-    process::{Child, ChildStdin, Command, Stdio},
+    process::{Child, ChildStdin, Command, ExitStatus, Stdio},
     sync::{
         Mutex,
+        atomic::{AtomicU32, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError},
     },
     time::{Duration, Instant, SystemTime},
@@ -191,17 +192,38 @@ const XDG_DIRECTORIES: [(&str, &str); 5] = [
 ];
 /// Variables the runner sets for every run, which a header's `env` may not
 /// replace (nor the [`XDG_DIRECTORIES`] or [`QA_ENVIRONMENT`] ones).
-const RUNNER_OWNED_ENVIRONMENT: [&str; 6] = [
+const RUNNER_OWNED_ENVIRONMENT: [&str; 7] = [
     "DISPLAY",
     "DBUS_SESSION_BUS_ADDRESS",
     "XDG_RUNTIME_DIR",
     "STRATA_INPUT_LOG",
     PARITY_FIXTURES,
     "STRATA_STATE_DUMP",
+    SHADER_CACHE_VARIABLE,
 ];
 /// No AT-SPI here: the process reads its own widget tree. A session bus
 /// address that cannot connect keeps GLib from autolaunching one.
 const QA_ENVIRONMENT: [(&str, &str); 2] = [("GTK_A11Y", "none"), ("NO_AT_BRIDGE", "1")];
+/// Points every run's Mesa at one cache, so each launch reuses the shaders the
+/// first compiled instead of rebuilding them in its fresh `XDG_CACHE_HOME`.
+const SHADER_CACHE_VARIABLE: &str = "MESA_SHADER_CACHE_DIR";
+/// The directory [`SHADER_CACHE_VARIABLE`] names, made by the first launch
+/// and removed when the runner exits.
+static SHADER_CACHE: Mutex<Option<tempfile::TempDir>> = Mutex::new(None);
+
+fn shader_cache() -> Result<PathBuf, String> {
+    let mut cache = SHADER_CACHE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(directory) = cache.as_ref() {
+        return Ok(directory.path().to_owned());
+    }
+    let directory = tempfile::Builder::new()
+        .prefix("strata-qa-shaders-")
+        .tempdir_in("/tmp")
+        .map_err(|error| format!("cannot create the shader cache: {error}"))?;
+    Ok(cache.insert(directory).path().to_owned())
+}
 
 // --------------------------------------------------------------- policy
 
@@ -219,7 +241,14 @@ fn main() -> std::process::ExitCode {
              This run is not validation evidence; use ./scripts/qa.sh."
         );
     }
-    harness::run(planned_tests(), &arguments)
+    let status = harness::run(planned_tests(), &arguments);
+    drop(
+        SHADER_CACHE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take(),
+    );
+    status
 }
 
 fn in_container() -> bool {
@@ -2115,13 +2144,53 @@ fn fixed_fixture_name(root: &str) -> Option<&str> {
     (!name.is_empty() && !name.contains('/') && name != "." && name != "..").then_some(name)
 }
 
-static DISPLAYS: Mutex<()> = Mutex::new(());
+/// Where the next display search starts, so concurrent starts try different
+/// numbers instead of queueing for the lowest free one.
+static NEXT_DISPLAY: AtomicU32 = AtomicU32::new(0);
 /// Held around every spawn, so only Xvfb ever inherits its `-displayfd` pipe.
 static SPAWN: Mutex<()> = Mutex::new(());
 
 fn spawn(command: &mut Command) -> Result<Child, String> {
     let _spawning = SPAWN.lock().map_err(|error| error.to_string())?;
     command.spawn().map_err(|error| error.to_string())
+}
+
+/// Waits up to `timeout` for `child` to exit, woken by its pidfd as soon as it
+/// does; `None` while it still runs, or when it cannot be waited for. Without
+/// a pidfd it checks every [`POLL_INTERVAL`].
+fn wait_for_exit(child: &mut Child, timeout: Duration) -> Option<ExitStatus> {
+    use rustix::event::{PollFd, PollFlags, Timespec, poll};
+    let deadline = Instant::now() + timeout;
+    // Only an unreaped child's pid is still its own, so the pidfd opens after
+    // a first check.
+    if let Some(status) = child.try_wait().ok()? {
+        return Some(status);
+    }
+    let pidfd = i32::try_from(child.id())
+        .ok()
+        .and_then(rustix::process::Pid::from_raw)
+        .and_then(|pid| {
+            rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty()).ok()
+        });
+    loop {
+        if let Some(status) = child.try_wait().ok()? {
+            return Some(status);
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return None;
+        }
+        let woken = pidfd.as_ref().is_some_and(|pidfd| {
+            let limit = Timespec {
+                tv_sec: i64::try_from(remaining.as_secs()).unwrap_or(i64::MAX),
+                tv_nsec: i64::from(remaining.subsec_nanos()),
+            };
+            poll(&mut [PollFd::new(pidfd, PollFlags::IN)], Some(&limit)).is_ok()
+        });
+        if !woken {
+            std::thread::sleep(remaining.min(POLL_INTERVAL));
+        }
+    }
 }
 
 /// SIGTERM first, so Xvfb removes its lock file and socket.
@@ -2133,15 +2202,10 @@ fn terminate(child: &mut Child) {
         rustix::process::Pid::from_child(child),
         rustix::process::Signal::TERM,
     );
-    let deadline = Instant::now() + EXIT_TIMEOUT;
-    while Instant::now() < deadline {
-        if matches!(child.try_wait(), Ok(Some(_))) {
-            return;
-        }
-        std::thread::sleep(POLL_INTERVAL);
+    if wait_for_exit(child, EXIT_TIMEOUT).is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
     }
-    let _ = child.kill();
-    let _ = child.wait();
 }
 
 struct Display {
@@ -2153,10 +2217,13 @@ struct Display {
 
 impl Display {
     /// An explicit number keeps clear of other displays; `-displayfd` confirms
-    /// that this server, not a concurrently starting one, owns it.
+    /// that this server, not a concurrently starting one, owns it. Concurrent
+    /// starts begin their search at different numbers, and one that loses a
+    /// number to another server tries the next.
     fn start(log: PathBuf) -> Result<Self, String> {
-        let _guard = DISPLAYS.lock().map_err(|error| error.to_string())?;
-        for number in FIRST_DISPLAY..FIRST_DISPLAY + DISPLAY_TRIES {
+        let first = NEXT_DISPLAY.fetch_add(1, Ordering::Relaxed);
+        for offset in 0..DISPLAY_TRIES {
+            let number = FIRST_DISPLAY + first.wrapping_add(offset) % DISPLAY_TRIES;
             if Path::new(&format!("/tmp/.X{number}-lock")).exists()
                 || Path::new(&format!("/tmp/.X11-unix/X{number}")).exists()
             {
@@ -2657,6 +2724,7 @@ impl Application {
             .env("DISPLAY", &launch.display.name)
             .env("XDG_RUNTIME_DIR", launch.runtime)
             .env("STRATA_INPUT_LOG", launch.input_log)
+            .env(SHADER_CACHE_VARIABLE, shader_cache()?)
             .env(
                 "DBUS_SESSION_BUS_ADDRESS",
                 launch.bus.map_or_else(
@@ -2712,14 +2780,8 @@ impl Application {
             }
             Err(RecvTimeoutError::Disconnected) => {
                 // Its output closes a moment before the exit can be reaped.
-                let deadline = Instant::now() + EXIT_TIMEOUT;
-                let status = loop {
-                    match self.child.try_wait() {
-                        Ok(Some(status)) => break status.to_string(),
-                        Ok(None) if Instant::now() < deadline => std::thread::sleep(POLL_INTERVAL),
-                        _ => break "still running".to_owned(),
-                    }
-                };
+                let status = wait_for_exit(&mut self.child, EXIT_TIMEOUT)
+                    .map_or_else(|| "still running".to_owned(), |status| status.to_string());
                 Err(format!(
                     "strata exited ({status}); log tail:\n{}",
                     tail(&self.log)
@@ -2742,12 +2804,8 @@ impl Application {
         let group = rustix::process::Pid::from_child(&self.child);
         for signal in [rustix::process::Signal::TERM, rustix::process::Signal::KILL] {
             let _ = rustix::process::kill_process_group(group, signal);
-            let deadline = Instant::now() + TERMINATE_GRACE;
-            while Instant::now() < deadline {
-                if matches!(self.child.try_wait(), Ok(Some(_))) {
-                    return;
-                }
-                std::thread::sleep(POLL_INTERVAL);
+            if wait_for_exit(&mut self.child, TERMINATE_GRACE).is_some() {
+                return;
             }
         }
         let _ = self.child.wait();
@@ -2755,15 +2813,10 @@ impl Application {
 
     fn stop(&mut self) {
         drop(self.stdin.take());
-        let deadline = Instant::now() + EXIT_TIMEOUT;
-        while Instant::now() < deadline {
-            if matches!(self.child.try_wait(), Ok(Some(_))) {
-                return;
-            }
-            std::thread::sleep(POLL_INTERVAL);
+        if wait_for_exit(&mut self.child, EXIT_TIMEOUT).is_none() {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
         }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
     }
 }
 
@@ -6653,6 +6706,7 @@ unit_tests! {
     a_skipped_scenario_names_a_reason_and_no_mutation_or_known_bug,
     a_cost_gives_each_run_label_a_positive_number,
     the_harness_starts_costly_runs_first_and_names_select_whole_scenarios,
+    waiting_for_exit_wakes_on_the_exit_and_gives_up_at_the_timeout,
     no_test_attribute_hides_a_runner_test,
 }
 
@@ -7736,6 +7790,43 @@ fn the_harness_starts_costly_runs_first_and_names_select_whole_scenarios() {
             "{bad:?} should be rejected"
         );
     }
+}
+
+fn waiting_for_exit_wakes_on_the_exit_and_gives_up_at_the_timeout() {
+    let mut quick = Command::new("true").spawn().expect("true should start");
+    let started = Instant::now();
+    let status = wait_for_exit(&mut quick, Duration::from_secs(10));
+    assert!(
+        status.is_some_and(|status| status.success()),
+        "true should be reaped with its success, not {status:?}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "the exit should wake the wait, which took {:?}",
+        started.elapsed()
+    );
+
+    let mut slow = Command::new("sleep")
+        .arg("10")
+        .spawn()
+        .expect("sleep should start");
+    let started = Instant::now();
+    let status = wait_for_exit(&mut slow, Duration::from_millis(100));
+    let waited = started.elapsed();
+    let _ = slow.kill();
+    let reaped = slow.wait();
+    assert!(
+        status.is_none(),
+        "sleep 10 should still run, not {status:?}"
+    );
+    assert!(
+        waited >= Duration::from_millis(100) && waited < Duration::from_secs(2),
+        "the wait should end at its timeout, not after {waited:?}"
+    );
+    assert!(
+        reaped.is_ok_and(|status| !status.success()),
+        "the killed sleep should be reaped"
+    );
 }
 
 fn no_test_attribute_hides_a_runner_test() {

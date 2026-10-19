@@ -345,8 +345,7 @@ impl ForeignSource {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(errors);
-        let mut child = command
-            .spawn()
+        let mut child = super::spawn(&mut command)
             .map_err(|error| format!("cannot start the foreign drag source: {error}"))?;
         let stdout = child.stdout.take().ok_or("no stdout")?;
         let reported = Arc::new(Mutex::new(Reported::default()));

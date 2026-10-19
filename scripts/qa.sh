@@ -99,7 +99,11 @@ if ((${named:-0})); then
   arguments+=(--exact)
 fi
 
-options=(--rm --platform=linux/amd64 --user "$user_id:$group_id" --shm-size=512m)
+# Every run writes its fixture, HOME, and fonts under /tmp; a tmpfs keeps
+# those writes and their fsyncs off the image's overlay. Nothing there outlives
+# the container: artifacts and the Cargo cache are under /workspace.
+options=(--rm --platform=linux/amd64 --user "$user_id:$group_id" --shm-size=512m
+  --tmpfs /tmp:rw,exec,mode=1777)
 if [[ "$(basename "$engine")" == podman ]]; then
   options+=(--userns=keep-id --passwd=false --security-opt 'unmask=/proc/*')
 else
@@ -120,6 +124,10 @@ exec "$engine" run "${options[@]}" \
   --env "STRATA_QA_NAMED=${named:-0}" \
   "$image" bash -euc '
     mkdir -p "$HOME" "$CARGO_HOME"
+    # The tmpfs hides the image'"'"'s /tmp, so its X socket directory is made again.
+    # It belongs to this user, so xvfb.log warns "_XSERVTransmkdir: Owner of
+    # /tmp/.X11-unix should be set to root"; that is harmless here.
+    mkdir -p -m 1777 /tmp/.X11-unix
     rustc --version
     output="$(mktemp)"
     # Without pipefail the pipeline reports tee; the test status is kept apart.

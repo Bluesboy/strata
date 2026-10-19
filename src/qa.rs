@@ -48,6 +48,8 @@ const USAGE: &str = "usage: strata --qa <directory|--portal>";
 pub(crate) const PEEK_LABEL: &str = "Folder peek";
 const READY_TIMEOUT: Duration = Duration::from_secs(60);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
+/// How often readiness is checked while the window has no frame clock yet.
+const READY_POLL: Duration = Duration::from_millis(5);
 const FRAME_TIMEOUT: Duration = Duration::from_millis(250);
 // The pointer timings mirror `tests/e2e/harness/interaction.py`, so both
 // harnesses feed GTK the same rhythm; each gap also lets a frame settle.
@@ -351,18 +353,25 @@ impl Controller {
         }
     }
 
+    /// Readiness changes only when the window lays out, so each check after
+    /// the first waits for the window's next paint, or [`POLL_INTERVAL`]
+    /// without one.
     async fn await_ready(&self) -> Result<(), String> {
         let deadline = Instant::now() + READY_TIMEOUT;
         loop {
-            if let Some(window) = self.window().filter(state::is_ready) {
-                self.main.set(Some(&window));
-                settle(Some(&window)).await;
+            let window = self.window();
+            if let Some(window) = window.as_ref().filter(|window| state::is_ready(window)) {
+                self.main.set(Some(window));
+                settle(Some(window)).await;
                 return Ok(());
             }
             if Instant::now() >= deadline {
                 return Err("the Strata window never showed an entry list".to_owned());
             }
-            glib::timeout_future(POLL_INTERVAL).await;
+            match window.as_ref().and_then(WidgetExt::frame_clock) {
+                Some(clock) => next_paint(&clock, POLL_INTERVAL).await,
+                None => glib::timeout_future(READY_POLL).await,
+            }
         }
     }
 
@@ -3274,18 +3283,28 @@ impl AfterPress<'_> {
 async fn settle(window: Option<&gtk::Window>) {
     glib::timeout_future_with_priority(glib::Priority::LOW, Duration::ZERO).await;
     if let Some(clock) = window.and_then(WidgetExt::frame_clock) {
-        let (sender, receiver) = futures_channel::oneshot::channel();
-        let sender = RefCell::new(Some(sender));
-        let handler = clock.connect_after_paint(move |_| {
-            if let Some(sender) = sender.take() {
-                let _ = sender.send(());
-            }
-        });
+        let painted = next_paint(&clock, FRAME_TIMEOUT);
         clock.request_phase(gdk::FrameClockPhase::AFTER_PAINT);
-        let _ = glib::future_with_timeout(FRAME_TIMEOUT, receiver).await;
-        clock.disconnect(handler);
+        painted.await;
     }
     glib::timeout_future_with_priority(glib::Priority::LOW, Duration::ZERO).await;
+}
+
+/// Resolves after the clock's next paint, or after `limit` without one. It
+/// listens from the call, so a frame requested afterwards is not missed.
+fn next_paint(clock: &gdk::FrameClock, limit: Duration) -> impl Future<Output = ()> + use<> {
+    let (sender, receiver) = futures_channel::oneshot::channel();
+    let sender = RefCell::new(Some(sender));
+    let handler = clock.connect_after_paint(move |_| {
+        if let Some(sender) = sender.take() {
+            let _ = sender.send(());
+        }
+    });
+    let clock = clock.clone();
+    async move {
+        let _ = glib::future_with_timeout(limit, receiver).await;
+        clock.disconnect(handler);
+    }
 }
 
 struct Input<'a> {
