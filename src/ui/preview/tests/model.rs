@@ -24,6 +24,60 @@ pub(super) fn ready(provider: &Provider, index: usize, view: Option<ModelView>) 
 }
 
 #[test]
+fn initial_mesh_load_shows_details_before_the_image_arrives() {
+    crate::test_support::gtk_test(
+        "ui::preview::tests::model::initial_mesh_load_shows_details_before_the_image_arrives",
+        || {
+            let provider = Rc::new(Provider::default());
+            let drawer = PreviewDrawer::new(provider.clone(), false);
+            drawer.show(entry("mesh.stl"), None);
+            {
+                let model = drawer.state.model.borrow();
+                let model = model.as_ref().expect("model UI before the first image");
+                assert!(model.picture.paintable().is_none());
+                assert_eq!(model.title.text(), "mesh.stl");
+                assert_eq!(model.format.text(), "STL");
+                assert!(!model.triangles.is_visible());
+                assert!(
+                    drawer.state.model_spinner.is_visible(),
+                    "the header shows the first load"
+                );
+                assert!(!model.previous.is_sensitive());
+                assert!(!model.next.is_sensitive());
+                model.next.emit_clicked();
+                assert_eq!(provider.0.borrow().len(), 1);
+            }
+            {
+                let pending = provider.0.borrow();
+                (pending[0].emit)(PreviewEvent::Progress {
+                    request_id: pending[0].request.id,
+                    stage: crate::services::ModelPreviewStage::Rendering { triangles: 23 },
+                });
+            }
+            {
+                let model = drawer.state.model.borrow();
+                let model = model.as_ref().expect("model metadata during rendering");
+                assert!(model.picture.paintable().is_none());
+                assert_eq!(model.triangles.text(), "23 triangles");
+                assert!(model.triangles.is_visible());
+                assert!(drawer.state.model_spinner.is_visible());
+            }
+            ready(&provider, 0, Some(ModelView::FrontLeft));
+            {
+                let model = drawer.state.model.borrow();
+                let model = model.as_ref().expect("loaded model UI");
+                assert!(model.picture.paintable().is_some());
+                assert_eq!(model.format.text(), "Binary STL");
+                assert!(!drawer.state.model_spinner.is_visible());
+                assert!(model.previous.is_sensitive());
+                assert!(model.next.is_sensitive());
+            }
+            drawer.close();
+        },
+    );
+}
+
+#[test]
 fn camera_buttons_cycle_views_keep_the_image_while_loading_and_reset_for_another_file() {
     crate::test_support::gtk_test(
         "ui::preview::tests::model::camera_buttons_cycle_views_keep_the_image_while_loading_and_reset_for_another_file",
@@ -33,9 +87,9 @@ fn camera_buttons_cycle_views_keep_the_image_while_loading_and_reset_for_another
             drawer.show(entry("mesh.stl"), None);
             ready(&provider, 0, Some(ModelView::FrontLeft));
             for (index, view) in [
-                ModelView::FrontRight,
-                ModelView::BackRight,
                 ModelView::BackLeft,
+                ModelView::BackRight,
+                ModelView::FrontRight,
                 ModelView::FrontLeft,
             ]
             .into_iter()
@@ -53,6 +107,15 @@ fn camera_buttons_cycle_views_keep_the_image_while_loading_and_reset_for_another
                     drawer.state.model_spinner.is_visible(),
                     "the header must show loading feedback"
                 );
+                {
+                    let pending = provider.0.borrow();
+                    let pending = &pending[index + 1];
+                    (pending.emit)(PreviewEvent::Progress {
+                        request_id: pending.request.id,
+                        stage: crate::services::ModelPreviewStage::Rendering { triangles: 23 },
+                    });
+                }
+                assert!(drawer.state.model_spinner.is_visible());
                 assert_eq!(drawer.state.content_type.text(), "model/stl");
                 next.emit_clicked();
                 assert_eq!(
@@ -101,13 +164,13 @@ fn camera_buttons_cycle_views_keep_the_image_while_loading_and_reset_for_another
                     .expect("camera request")
                     .request
                     .model_view,
-                ModelView::BackLeft
+                ModelView::FrontRight
             );
             assert!(drawer.state.model_spinner.is_visible());
             drawer.show(entry("another.stl"), None);
             assert!(
-                !drawer.state.model_spinner.is_visible(),
-                "switching files mid-render must clear the header spinner"
+                drawer.state.model_spinner.is_visible(),
+                "the new model has its own initial loading feedback"
             );
             assert_eq!(
                 provider
@@ -119,9 +182,17 @@ fn camera_buttons_cycle_views_keep_the_image_while_loading_and_reset_for_another
                     .model_view,
                 ModelView::FrontLeft
             );
-            ready(&provider, 5, Some(ModelView::BackLeft));
+            ready(&provider, 5, Some(ModelView::FrontRight));
             assert!(
-                drawer.state.model.borrow().is_none(),
+                drawer
+                    .state
+                    .model
+                    .borrow()
+                    .as_ref()
+                    .expect("new model shell")
+                    .picture
+                    .paintable()
+                    .is_none(),
                 "stale render must not replace the new file"
             );
             ready(&provider, 6, Some(ModelView::FrontLeft));
@@ -176,7 +247,7 @@ fn camera_reload_failures_keep_the_last_view_and_allow_retry() {
             assert_eq!(provider.0.borrow().len(), 3);
             assert_eq!(
                 provider.0.borrow()[2].request.model_view,
-                ModelView::FrontRight
+                ModelView::BackLeft
             );
             let mut png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR".to_vec();
             png.extend(16u32.to_be_bytes());
@@ -189,7 +260,7 @@ fn camera_reload_failures_keep_the_last_view_and_allow_retry() {
                 content: PreviewContent::Model {
                     png,
                     mesh: Some(ModelMesh {
-                        view: ModelView::FrontRight,
+                        view: ModelView::BackLeft,
                         encoding: ModelEncoding::BinaryStl,
                         triangles: 23,
                     }),
@@ -208,10 +279,10 @@ fn camera_reload_failures_keep_the_last_view_and_allow_retry() {
             assert_eq!(provider.0.borrow().len(), 4);
             assert_eq!(
                 provider.0.borrow()[3].request.model_view,
-                ModelView::FrontRight
+                ModelView::BackLeft
             );
-            ready(&provider, 3, Some(ModelView::FrontRight));
-            assert_eq!(drawer.state.model_view.get(), ModelView::FrontRight);
+            ready(&provider, 3, Some(ModelView::BackLeft));
+            assert_eq!(drawer.state.model_view.get(), ModelView::BackLeft);
             drawer.close();
         },
     );
@@ -250,7 +321,7 @@ fn camera_buttons_keep_the_keys_in_the_drawer_while_a_view_renders() {
             );
             assert!(owns_keys());
 
-            ready(&provider, 1, Some(ModelView::FrontRight));
+            ready(&provider, 1, Some(ModelView::BackLeft));
             while glib::MainContext::default().iteration(false) {}
             assert!(next.has_focus());
             assert!(owns_keys());

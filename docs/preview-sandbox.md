@@ -123,6 +123,7 @@ at the model; FreeCAD uses its saved image. Rendered
 meshes show media-style previous/next controls around a circular camera-position
 indicator, with stable centring and scale. Its dot sweeps around the circle to the
 selected corner, respecting the reduced-motion and system animation settings.
+Next moves clockwise; Previous moves anticlockwise.
 The indicator is a top-down map: a hollow circle marks the model at the centre,
 and the camera dot sits on the outer circumference. Camera directions are shared
 with the renderer: +X is right, −Y is front, and +Z is up. The initial front-left
@@ -131,7 +132,7 @@ back-right upper right and back-left upper left. These names follow the model's
 coordinate axes.
 View names are exposed to assistive technology; the visible controls use the
 orbit diagram without a text caption.
-The model and controls form one vertically centred block using the video player's
+The model and controls form one vertically centred block using the shared media
 layout. Geometry renders on a square canvas, avoiding unused space from the pane's
 aspect ratio. Above the badges, the filename and its position among model files
 in the current sorted or filtered listing use the same styling as video previews.
@@ -139,10 +140,15 @@ Above the camera controls, media-style badges show the mesh encoding (binary STL
 ASCII STL or 3MF) and the rendered triangle count. These details come from the
 existing parse/render pass and remain part of the cached preview. Thumbnail-only
 previews do not parse geometry for badges. Dimensions and units are not shown.
-While another view renders, the last image dims and a spinner appears in the
-preview header beside the open button. Failed view changes
-retain that image with a visible error so the controls can retry. Embedded images
-have no camera controls and are never replaced with geometry for view selection.
+The first loading view already shows the filename, listing position and file
+format. The triangle count appears once parsing reports it, and the camera
+controls become active when the first mesh image is ready. A spinner in the
+preview header beside the open button is the only loading indicator, for both
+the first load and later view changes; its accessible label follows the loading
+stage. While another view renders, the last image dims. Failed view changes
+retain that image with a visible error so the controls can retry. Completed
+embedded-image previews have no camera controls and are never replaced with
+geometry for view selection.
 A 3MF package with exactly one usable embedded PNG uses that image, even if other
 candidates are corrupt or its geometry spans multiple model parts. Two usable
 images are ambiguous: Quick Preview tries geometry, while browser thumbnailing
@@ -750,12 +756,41 @@ have separate limits, not a machine-global scheduler.
 | Backpressure | A full queue stops consumption and propagates pressure through bounded pipes; it does not accumulate a whole clip. Audio files read ahead until the appsrc queue is full, video until the presentation queue is, never until the playhead moves. Waiting for the consumer is not charged as decoder progress time. |
 | Audio clock | Until the sink first advances after a start, seek or resume, the playhead and video hold their position instead of leading on wall time, so a start-up or resume delay never snaps the playhead back; the 3-second stuck-clock recovery is armed only once the clock has run, leaving the 8-second progress watchdog as the bound for a sink that never starts. After that, a stalled clock lets video lead on wall time by at most 2 seconds. |
 | Paused | Keep position, frame and bounded queues for 30 seconds, then cancel the worker, drop PCM output/queues, and stop the polling timer. The displayed frame and position remain. Resume or a paused seek starts a new bounded decode. |
-| Close / selection change / destruction | Cancel promptly; pipe/queue waits check cancellation at 10–20-ms intervals. Kill/reap the renderer and its sandbox descendants. No join of a blocked pipe reader on the GTK thread. |
+| Close / selection change / destruction | Cancel promptly; pipe/queue waits check cancellation at 10–20-ms intervals. Kill/reap the renderer and its sandbox descendants, then wait for the sandbox's namespace (below). No join of a blocked pipe reader on the GTK thread. |
+| A file operation changes the file | Stop as on close, refuse new work on the file until the operation ends, then follow the selection again (below). |
 | End / malformed output / failure | Release the worker; malformed/truncated output, unavailable decoding and unsuccessful exit fail closed. No unsandboxed fallback. End-of-audio allows only sample-grid rounding (at most 22 µs), not a stalled clock. |
 
 The old batch-conversion wall timeout does not govern a paused real-time player.
 The limits do not promise instant startup, zero-latency seeking, or a total RAM
 plateau for every toolkit/driver.
+
+## Releasing files for file operations
+
+Every sandbox, pooled decode, media session and in-process read registers the
+file it reads, by the path it was given and by its real path, in
+`services/file_activity.rs` before it opens anything. Before a delete, Trash,
+move, rename, Replace, Merge, undo, restore, Empty Trash or unmount changes an
+item, the operation stops every registered read of the item and of anything
+inside it and waits, at most 2 seconds, until they have ended; reads that would
+start meanwhile fail with "This item is being changed by a file operation." On
+NFS, SMB and FUSE mounts a read still open there would leave the deleted file
+behind under a hidden name, keep its folder from being removed or renamed, or
+keep an unmounted filesystem alive. See
+[Files that are still open](filesystem-compatibility.md#files-that-are-still-open).
+
+- A preview drawer showing the item, or a file inside it, clears its target,
+  which stops playback, waveform and storyboard work. When the operation ends,
+  it shows the browser's focused entry again: the item at its new name after a
+  rename or move, the same file after a failed operation.
+- A thumbnail or metadata probe stopped or refused this way is not cached as a
+  failure; thumbnails still bound are asked for again when the operation ends.
+- bubblewrap reports its namespace's first process through `--info-fd`, on the
+  sandbox's otherwise unused stderr, and Strata opens a pidfd on it while the
+  sandbox runs. After every exit of bubblewrap, killed or normal, it waits on
+  that pidfd, at most 1 second, until the kernel has reaped the namespace and
+  dropped its bind of the user's file. With bubblewrap 0.12.0 the namespace was
+  still alive after nearly every exit; the wait costs about 2 ms after a kill and
+  0.1 ms after a normal exit. A sandbox's read counts as ended only after it.
 
 ## Isolation and hardware policy
 

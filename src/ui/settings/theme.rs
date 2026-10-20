@@ -10,7 +10,7 @@ use gtk::{gdk, gio, glib, prelude::*};
 use crate::{
     assets::icons,
     ui::{
-        controls::segmented_control,
+        controls::{number_stepper, segmented_control},
         preferences::{
             CornerRoundness, FileIconColors, InterfaceRenderer, OmarchyVariant, PreferenceManager,
             TextSize,
@@ -365,26 +365,6 @@ fn append_omarchy_variant_option(
     content.append(&row);
 }
 
-/// A numeric stepper with GTK's native spin actions, decrement before the entry.
-fn stepper(min: u32, max: u32, step: u32) -> gtk::SpinButton {
-    let control = gtk::SpinButton::with_range(f64::from(min), f64::from(max), f64::from(step));
-    control.set_numeric(true);
-    control.set_width_chars(3);
-    control.set_alignment(0.5);
-    let mut child = control.first_child();
-    while let Some(widget) = child {
-        child = widget.next_sibling();
-        if widget.has_css_class("down") {
-            widget.insert_before(&control, control.first_child().as_ref());
-            break;
-        }
-    }
-    control.set_update_policy(gtk::SpinButtonUpdatePolicy::IfValid);
-    control.add_css_class("form-control");
-    control.add_css_class("text-size-control");
-    control
-}
-
 fn append_text_size_option(content: &gtk::Box, preferences: &Rc<PreferenceManager>) {
     let group = super::settings_group(content, "TEXT");
     group.append(&super::control_row(
@@ -392,7 +372,7 @@ fn append_text_size_option(content: &gtk::Box, preferences: &Rc<PreferenceManage
         "The typeface for menus, file lists, and dialogs. File previews keep a monospace font.",
         &interface_font_choice(preferences),
     ));
-    let text_size_control = stepper(TextSize::MIN, TextSize::MAX, 1);
+    let text_size_control = number_stepper(TextSize::MIN, TextSize::MAX, 1);
     crate::ui::accessibility::set_label(
         &text_size_control,
         &crate::i18n::tr("Text size in pixels"),
@@ -675,7 +655,7 @@ fn installed_font_families(widget: &impl IsA<gtk::Widget>) -> impl Iterator<Item
 
 fn append_corner_roundness_option(content: &gtk::Box, preferences: &Rc<PreferenceManager>) {
     let group = super::settings_group(content, "SHAPE");
-    let control = stepper(
+    let control = number_stepper(
         CornerRoundness::MIN,
         CornerRoundness::MAX,
         CornerRoundness::STEP,

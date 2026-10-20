@@ -4,63 +4,90 @@ use std::cell::{Cell, RefCell};
 
 use gtk::{gdk, glib, graphene, gsk, prelude::*, subclass::prelude::*};
 
-use crate::ui::preview::media_layout::{MAX_CONTENT_WIDTH, fitted_size};
+use super::{
+    components::{CONTROLS_GAP, GAP, PADDING, PANEL_MIN},
+    media_layout::{MAX_CONTENT_WIDTH, fitted_size},
+};
 
-const PADDING: i32 = 16;
-const GAP: i32 = 12;
-const CONTROLS_GAP: i32 = 4;
-const PANEL_MIN: i32 = 200;
 const FRAME_MIN: i32 = 48;
 const DEFAULT_ASPECT: f64 = 16.0 / 9.0;
 
+pub(super) struct Areas<'a> {
+    pub(super) content: &'a gtk::Widget,
+    pub(super) details: &'a gtk::Widget,
+    pub(super) badges: Option<&'a gtk::Widget>,
+    pub(super) timeline: Option<&'a gtk::Widget>,
+    pub(super) controls: &'a gtk::Widget,
+}
+
+#[derive(Default)]
 struct Parts {
-    frame: gtk::Widget,
-    header: gtk::Widget,
-    timeline: gtk::Widget,
-    transport: gtk::Widget,
+    content: glib::WeakRef<gtk::Widget>,
+    details: glib::WeakRef<gtk::Widget>,
+    badges: glib::WeakRef<gtk::Widget>,
+    timeline: glib::WeakRef<gtk::Widget>,
+    controls: glib::WeakRef<gtk::Widget>,
 }
 
 impl Parts {
-    fn of(widget: &gtk::Widget) -> Option<Self> {
-        let frame = widget.first_child()?;
-        let header = frame.next_sibling()?;
-        let timeline = header.next_sibling()?;
-        let transport = timeline.next_sibling()?;
-        Some(Self {
-            frame,
-            header,
-            timeline,
-            transport,
-        })
+    fn rows(&self) -> impl Iterator<Item = (gtk::Widget, i32)> {
+        [
+            (self.details.upgrade(), GAP),
+            (self.badges.upgrade(), CONTROLS_GAP),
+            (self.timeline.upgrade(), CONTROLS_GAP),
+            (self.controls.upgrade(), 0),
+        ]
+        .into_iter()
+        .filter_map(|(part, gap)| part.map(|part| (part, gap)))
     }
 
     fn panel_minimum(&self) -> i32 {
-        [&self.header, &self.timeline, &self.transport]
-            .iter()
-            .map(|part| part.measure(gtk::Orientation::Horizontal, -1).0)
+        self.rows()
+            .map(|(part, _)| part.measure(gtk::Orientation::Horizontal, -1).0)
             .max()
             .unwrap_or(0)
             .max(PANEL_MIN)
     }
 
-    fn height(widget: &gtk::Widget, width: i32) -> i32 {
-        let width = width.max(widget.measure(gtk::Orientation::Horizontal, -1).0);
-        widget.measure(gtk::Orientation::Vertical, width).1
-    }
-
     fn fixed_height(&self, width: i32) -> i32 {
-        Self::height(&self.header, width)
-            + GAP
-            + Self::height(&self.timeline, width)
-            + CONTROLS_GAP
-            + Self::height(&self.transport, width)
+        self.rows()
+            .map(|(part, gap)| {
+                let width = width.max(part.measure(gtk::Orientation::Horizontal, -1).0);
+                part.measure(gtk::Orientation::Vertical, width).1 + gap
+            })
+            .sum()
     }
+}
+
+pub(super) fn section(areas: Areas<'_>) -> (gtk::Box, PlayerLayout) {
+    let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    root.set_hexpand(true);
+    root.set_vexpand(true);
+    let layout: PlayerLayout = glib::Object::new();
+    let parts = &layout.imp().parts;
+    parts.content.set(Some(areas.content));
+    parts.details.set(Some(areas.details));
+    parts.badges.set(areas.badges);
+    parts.timeline.set(areas.timeline);
+    parts.controls.set(Some(areas.controls));
+    root.set_layout_manager(Some(layout.clone()));
+    root.append(areas.content);
+    root.append(areas.details);
+    if let Some(badges) = areas.badges {
+        root.append(badges);
+    }
+    if let Some(timeline) = areas.timeline {
+        root.append(timeline);
+    }
+    root.append(areas.controls);
+    (root, layout)
 }
 
 mod imp {
     use super::*;
 
     pub struct PlayerLayout {
+        pub(super) parts: Parts,
         pub(super) paintable: glib::WeakRef<gdk::Paintable>,
         pub(super) aspect: Cell<Option<f64>>,
         pub(super) margin: Cell<i32>,
@@ -70,6 +97,7 @@ mod imp {
     impl Default for PlayerLayout {
         fn default() -> Self {
             Self {
+                parts: Parts::default(),
                 paintable: glib::WeakRef::default(),
                 aspect: Cell::new(None),
                 margin: Cell::new(0),
@@ -80,7 +108,7 @@ mod imp {
 
     #[glib::object_subclass]
     impl ObjectSubclass for PlayerLayout {
-        const NAME: &'static str = "StrataVideoPlayerLayout";
+        const NAME: &'static str = "StrataPreviewPlayerLayout";
         type Type = super::PlayerLayout;
         type ParentType = gtk::LayoutManager;
     }
@@ -94,13 +122,11 @@ mod imp {
 
         fn measure(
             &self,
-            widget: &gtk::Widget,
+            _: &gtk::Widget,
             orientation: gtk::Orientation,
             _: i32,
         ) -> (i32, i32, i32, i32) {
-            let Some(parts) = Parts::of(widget) else {
-                return (0, 0, -1, -1);
-            };
+            let parts = &self.parts;
             let panel_min = parts.panel_minimum();
             if orientation == gtk::Orientation::Horizontal {
                 let minimum = panel_min + 2 * PADDING;
@@ -110,8 +136,9 @@ mod imp {
             (minimum, minimum + FRAME_MIN + GAP, -1, -1)
         }
 
-        fn allocate(&self, widget: &gtk::Widget, width: i32, height: i32, _: i32) {
-            let Some(parts) = Parts::of(widget) else {
+        fn allocate(&self, _: &gtk::Widget, width: i32, height: i32, _: i32) {
+            let parts = &self.parts;
+            let Some(content) = parts.content.upgrade() else {
                 return;
             };
             let content_width = (width - 2 * PADDING).clamp(0, MAX_CONTENT_WIDTH);
@@ -135,7 +162,7 @@ mod imp {
                 };
             let top = (height - stack) / 2;
             allocate_at(
-                &parts.frame,
+                &content,
                 (width - outer_width) / 2,
                 top,
                 outer_width,
@@ -150,13 +177,9 @@ mod imp {
                 };
             let natural =
                 |part: &gtk::Widget| part.measure(gtk::Orientation::Vertical, panel_width).1;
-            for (part, gap) in [
-                (&parts.header, GAP),
-                (&parts.timeline, CONTROLS_GAP),
-                (&parts.transport, 0),
-            ] {
-                let part_height = natural(part);
-                allocate_at(part, x, y, panel_width, part_height);
+            for (part, gap) in parts.rows() {
+                let part_height = natural(&part);
+                allocate_at(&part, x, y, panel_width, part_height);
                 y += part_height + gap;
             }
             if let Some(on_allocate) = self.on_allocate.borrow().as_ref() {
@@ -205,11 +228,7 @@ glib::wrapper! {
 }
 
 impl PlayerLayout {
-    pub(in crate::ui::preview) fn new() -> Self {
-        glib::Object::new()
-    }
-
-    pub(in crate::ui::preview) fn set_paintable(&self, paintable: Option<&gdk::Paintable>) {
+    pub(super) fn set_paintable(&self, paintable: Option<&gdk::Paintable>) {
         self.imp().paintable.set(paintable);
         self.layout_changed();
     }

@@ -885,6 +885,33 @@ headerbar.browser-header menubutton.header-action > button {
   font-size: 0.82em;
 }
 
+.leftover-card {
+  background: mix(@strata_bg, @strata_muted, 0.25);
+  border: 1px solid alpha(@strata_border, 0.55);
+  border-radius: 10px;
+  color: @strata_text;
+  padding: 18px;
+}
+
+.leftover-card-title {
+  font-weight: 600;
+}
+
+.leftover-card-detail,
+.leftover-card-label {
+  color: @strata_dim_text;
+  font-size: 0.82em;
+}
+
+.leftover-card-text {
+  color: @strata_dim_text;
+  font-size: 0.9375em;
+}
+
+.leftover-card-value {
+  font-size: 0.82em;
+}
+
 
 .action-dialog {
   background: @strata_surface;
@@ -1580,6 +1607,12 @@ menubutton.form-control:disabled > button {
   background: alpha(@strata_muted, 0.3);
   border-color: alpha(@strata_border, 0.38);
   color: @strata_dim_text;
+}
+
+/* GTK's own arrow comes from the desktop icon theme. */
+dropdown > button arrow,
+menubutton > button arrow.down {
+  -gtk-icon-source: -gtk-recolor(url("resource:///io/github/lgse/Strata/icons/scalable/actions/strata-chevron-down-symbolic.svg"));
 }
 
 .update-dialog {
@@ -3036,14 +3069,14 @@ paned > separator {
   outline-offset: 1px;
 }
 
-.preview-audio-eyebrow {
+.preview-details-eyebrow {
   color: @strata_dim_text;
   font-size: 0.72em;
   font-weight: 700;
   letter-spacing: 0.12em;
 }
 
-.preview-audio-title {
+.preview-details-title.preview-audio-title {
   color: @strata_text;
   font-size: 1.85em;
   font-weight: 800;
@@ -3082,14 +3115,7 @@ paned > separator {
   outline-offset: 2px;
 }
 
-.preview-video-eyebrow {
-  color: @strata_dim_text;
-  font-size: 0.72em;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-}
-
-.preview-video-title {
+.preview-details-title {
   color: @strata_text;
   font-size: 1.1em;
   font-weight: 700;
@@ -3109,12 +3135,12 @@ paned > separator {
   padding: 6px;
 }
 
-.preview-video-badges {
+.preview-details-badges {
   margin-top: 4px;
   min-height: 18px;
 }
 
-.preview-video-badge {
+.preview-details-badge {
   background: alpha(@strata_muted, 0.55);
   border: 1px solid alpha(@strata_border, 0.4);
   border-radius: 4px;
@@ -3131,7 +3157,7 @@ paned > separator {
   color: @strata_accent;
 }
 
-.preview-video-badge-skeleton {
+.preview-details-badge-skeleton {
   background: alpha(@strata_dim_text, 0.22);
   border-color: transparent;
   min-height: 16px;
@@ -3840,6 +3866,14 @@ button.shortcut-footer-button:disabled {
   min-height: 31px;
   /* Balance the three-pixel top indicator against the one-pixel bottom border. */
   padding: 2px 5px 4px 12px;
+}
+
+.listing-notice {
+  background: alpha(@strata_accent, 0.12);
+  border-bottom: 1px solid alpha(@strata_border, 0.5);
+  color: @strata_text;
+  font-size: 0.9em;
+  padding: 6px 12px;
 }
 
 .column-truncated-hint {

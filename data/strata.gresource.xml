@@ -15,6 +15,7 @@
     <file>icons/scalable/actions/strata-circle-check.svg</file>
     <file>icons/scalable/actions/strata-circle-x.svg</file>
     <file>icons/scalable/actions/strata-check-on-primary.svg</file>
+    <file>icons/scalable/actions/strata-chevron-down-symbolic.svg</file>
     <file>icons/scalable/actions/strata-chevron-right.svg</file>
     <file>icons/scalable/actions/strata-clock.svg</file>
     <file>icons/scalable/actions/strata-cloud.svg</file>
@@ -78,7 +79,9 @@
     <file>icons/scalable/actions/strata-skip-back.svg</file>
     <file>icons/scalable/actions/strata-skip-forward.svg</file>
     <file>icons/scalable/actions/strata-minus.svg</file>
+    <file>icons/scalable/actions/strata-minus-symbolic.svg</file>
     <file>icons/scalable/actions/strata-plus.svg</file>
+    <file>icons/scalable/actions/strata-plus-symbolic.svg</file>
     <file>icons/scalable/actions/strata-presentation.svg</file>
     <file>icons/scalable/actions/strata-printer.svg</file>
     <file>icons/scalable/actions/strata-rows.svg</file>
@@ -462,5 +465,9 @@
     <file>icons/catppuccin/strata-ctp-yarn-lock.svg</file>
     <file>icons/catppuccin/strata-ctp-zap.svg</file>
     <file>icons/catppuccin/strata-ctp-zig.svg</file>
+  </gresource>
+  <gresource prefix="/org/gtk/libgtk/theme/StrataEmpty">
+    <file alias="gtk.css">theme-empty.css</file>
+    <file alias="gtk-dark.css">theme-empty.css</file>
   </gresource>
 </gresources>

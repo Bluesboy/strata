@@ -18,7 +18,9 @@ use crate::{
     services::{
         ArchivePreviewTree, DocumentLayout, LoadHandle, MediaPreviewSize, PdfTextLayer, Preview,
         PreviewContent, PreviewEvent, PreviewProvider, PreviewRequest, PreviewRequestId,
-        SecretString, normalize_preview_text,
+        SecretString,
+        file_activity::{self, Notice},
+        normalize_preview_text,
     },
 };
 
@@ -36,6 +38,7 @@ use super::{
 
 mod archive;
 pub(super) mod audio;
+mod components;
 mod ease_in;
 mod find;
 mod keyboard;
@@ -46,6 +49,7 @@ mod model;
 #[cfg(test)]
 mod pdf_ranges_tests;
 mod pdf_text;
+mod player_layout;
 mod session;
 pub(super) mod video;
 mod waveform;
@@ -219,7 +223,6 @@ struct PreviewState {
     pending_show: RefCell<Option<glib::SourceId>>,
     load: RefCell<Option<LoadHandle>>,
     loading_delay: RefCell<Option<glib::SourceId>>,
-    loading_label: RefCell<Option<gtk::Label>>,
     pdf_loads: Rc<RefCell<HashMap<i32, LoadHandle>>>,
     print_load: RefCell<Option<LoadHandle>>,
     print_progress: RefCell<Option<PrintProgress>>,
@@ -236,6 +239,8 @@ struct PreviewState {
     animation_generation: Rc<Cell<u64>>,
     keyboard_view: RefCell<Option<super::browser::WeakBrowserView>>,
     claim_on_resume: Cell<bool>,
+    released_from: Cell<Option<Option<usize>>>,
+    operations: RefCell<Option<file_activity::Subscription>>,
 }
 
 use keyboard::MediaSeek;
@@ -459,7 +464,6 @@ impl PreviewDrawer {
             pending_show: RefCell::new(None),
             load: RefCell::new(None),
             loading_delay: RefCell::new(None),
-            loading_label: RefCell::new(None),
             pdf_loads: Rc::new(RefCell::new(HashMap::new())),
             print_load: RefCell::new(None),
             print_progress: RefCell::new(None),
@@ -485,6 +489,8 @@ impl PreviewDrawer {
             handed_off: RefCell::new(None),
             continue_playback: RefCell::new(None),
             claim_on_resume: Cell::new(false),
+            released_from: Cell::new(None),
+            operations: RefCell::new(None),
         });
         let weak = Rc::downgrade(&state);
         state.enabled_action.connect_activate(move |_, _| {
@@ -614,7 +620,57 @@ impl PreviewDrawer {
         self.state.media.borrow().clone()
     }
 
+    pub(in crate::ui) fn follow_operations(&self, browser: &Rc<Browser>) {
+        let weak_state = Rc::downgrade(&self.state);
+        let weak_browser = Rc::downgrade(browser);
+        let subscription = file_activity::observe(move |notice| {
+            let Some(state) = weak_state.upgrade() else {
+                return;
+            };
+            match notice {
+                Notice::Releasing(_) => {
+                    let changing = state.current.borrow().as_ref().is_some_and(|entry| {
+                        entry
+                            .local_thumbnail_path()
+                            .is_some_and(|path| notice.covers(path))
+                    });
+                    if changing {
+                        let depth = state.current_depth.get();
+                        state.clear_target();
+                        state.released_from.set(Some(depth));
+                    }
+                }
+                Notice::Lifted(_) => {
+                    let Some(depth) = state.released_from.get() else {
+                        return;
+                    };
+                    let Some(browser) = weak_browser.upgrade() else {
+                        return;
+                    };
+                    let depth = depth.or_else(|| browser.active_depth());
+                    let entry = depth
+                        .and_then(|depth| browser.cursor_entry(depth))
+                        .and_then(|entry| preview_target(Some(entry)));
+                    if entry
+                        .as_ref()
+                        .and_then(FileEntry::local_thumbnail_path)
+                        .is_some_and(file_activity::is_changing)
+                    {
+                        return;
+                    }
+                    state.released_from.set(None);
+                    if let Some(entry) = entry.filter(|_| state.is_enabled()) {
+                        state.show_after_focus_change(entry, depth);
+                    }
+                }
+                Notice::Ended(_) => {}
+            }
+        });
+        self.state.operations.replace(Some(subscription));
+    }
+
     pub fn observe_browser(&self, browser: &Rc<Browser>) {
+        self.follow_operations(browser);
         let weak_state = Rc::downgrade(&self.state);
         let weak_browser = Rc::downgrade(browser);
         self.state.open.connect_clicked(move |_| {
@@ -1347,6 +1403,7 @@ impl PreviewState {
             self.model.borrow_mut().take();
         }
         self.raw_metadata_load.borrow_mut().take();
+        self.released_from.set(None);
         if super::raw_details::supports(&entry) {
             let load = self
                 .raw_details
@@ -1426,9 +1483,6 @@ impl PreviewState {
                 if let Some(model) = self.model.borrow().as_ref() {
                     model.set_progress(stage);
                 }
-                if let Some(label) = self.loading_label.borrow().as_ref() {
-                    label.set_text(&stage.label());
-                }
             }
             PreviewEvent::Ready(preview) if preview.request_id == expected => {
                 self.cancel_loading();
@@ -1447,14 +1501,27 @@ impl PreviewState {
                 // Failures carry English source messages: known ones have catalog
                 // entries, and system error text passes through unchanged.
                 let detail = crate::i18n::tr(&message);
-                if let Some(model) = self.model.borrow().as_ref() {
+                if let Some(model) = self
+                    .model
+                    .borrow()
+                    .as_ref()
+                    .filter(|model| model.picture.paintable().is_some())
+                {
                     self.model_view.set(model.view());
                     model.show_error(&detail);
                     return;
                 }
                 if message == crate::services::INCORRECT_ARCHIVE_PASSWORD {
                     self.render_archive_password_prompt(entry, Some(&detail));
+                } else if message == file_activity::HELD_FOR_OPERATION
+                    && !file_activity::is_releasing()
+                {
+                    self.current_request.set(None);
+                    self.show_after_focus_change(entry, self.current_depth.get());
                 } else {
+                    if message == file_activity::HELD_FOR_OPERATION {
+                        self.released_from.set(Some(self.current_depth.get()));
+                    }
                     self.current_request.set(None);
                     let title = crate::i18n::tr("Preview unavailable");
                     if !self.show_audio_error(&title, &detail, None)
@@ -3061,18 +3128,10 @@ impl PreviewState {
             }
             return;
         }
-        let weak = Rc::downgrade(self);
-        if self
-            .current
-            .borrow()
-            .as_ref()
-            .is_some_and(|entry| crate::services::is_model(&entry.native_name))
-        {
-            let label = gtk::Label::new(Some(&crate::i18n::tr("Waiting for preview…")));
-            label.add_css_class("preview-feedback-detail");
-            label.set_wrap(true);
-            self.loading_label.replace(Some(label));
+        if self.show_model_loading() {
+            return;
         }
+        let weak = Rc::downgrade(self);
         let source = glib::timeout_add_local_once(PREVIEW_SPINNER_DELAY, move || {
             let Some(state) = weak.upgrade() else {
                 return;
@@ -3086,24 +3145,13 @@ impl PreviewState {
             spinner.set_halign(gtk::Align::Center);
             spinner.set_valign(gtk::Align::Center);
             spinner.start();
-            if let Some(label) = state.loading_label.borrow().as_ref() {
-                let loading = gtk::Box::new(gtk::Orientation::Vertical, 12);
-                loading.set_halign(gtk::Align::Center);
-                loading.set_valign(gtk::Align::Center);
-                loading.set_vexpand(true);
-                loading.append(&spinner);
-                loading.append(label);
-                state.content.append(&loading);
-            } else {
-                spinner.set_vexpand(true);
-                state.content.append(&spinner);
-            }
+            spinner.set_vexpand(true);
+            state.content.append(&spinner);
         });
         self.loading_delay.replace(Some(source));
     }
 
     fn cancel_loading(&self) {
-        self.loading_label.borrow_mut().take();
         if let Some(source) = self.loading_delay.borrow_mut().take() {
             source.remove();
         }
@@ -3623,8 +3671,7 @@ fn document_view_action(view: DocumentView) -> (&'static str, &'static str) {
 
 impl SourcePreviewView {
     fn new() -> Self {
-        let buffer = sourceview5::Buffer::new(None);
-        super::theme::register_source_buffer(&buffer);
+        let buffer = super::theme::new_source_buffer();
         let view = sourceview5::View::builder()
             .buffer(&buffer)
             .cursor_visible(true)
@@ -3664,7 +3711,7 @@ impl SourcePreviewView {
                 self.view.unparent();
             }
         }
-        let languages = sourceview5::LanguageManager::default();
+        let languages = super::theme::source_languages();
         let language = languages.guess_language(entry.location.native_path(), Some(content_type));
         if language.is_none() && super::virtual_preview::use_virtual_plain_source(content) {
             let wrapped = super::preferences::PreferenceManager::shared().preview_text_wrap();
@@ -3674,8 +3721,7 @@ impl SourcePreviewView {
             return (container.upcast(), true);
         }
         let display = normalize_preview_text(content).into_owned();
-        let buffer = sourceview5::Buffer::new(None);
-        super::theme::register_source_buffer(&buffer);
+        let buffer = super::theme::new_source_buffer();
         buffer.set_highlight_syntax(false);
         buffer.set_language(language.as_ref());
         self.view.set_buffer(Some(&buffer));

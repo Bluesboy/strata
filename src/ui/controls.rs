@@ -37,6 +37,27 @@ pub(super) fn stepper(labels: [String; 3]) -> (gtk::Box, [gtk::Button; 3]) {
     (control, buttons)
 }
 
+/// A numeric stepper with GTK's native spin actions, decrement before the entry.
+pub(super) fn number_stepper(min: u32, max: u32, step: u32) -> gtk::SpinButton {
+    let control = gtk::SpinButton::with_range(f64::from(min), f64::from(max), f64::from(step));
+    control.set_numeric(true);
+    control.set_width_chars(3);
+    control.set_alignment(0.5);
+    let mut child = control.first_child();
+    while let Some(widget) = child {
+        child = widget.next_sibling();
+        if widget.has_css_class("down") {
+            widget.insert_before(&control, control.first_child().as_ref());
+            break;
+        }
+    }
+    control.set_update_policy(gtk::SpinButtonUpdatePolicy::IfValid);
+    crate::assets::use_bundled_spin_icons(&control);
+    control.add_css_class("form-control");
+    control.add_css_class("text-size-control");
+    control
+}
+
 pub(super) fn pane_header_action(widget: &impl IsA<gtk::Widget>) {
     widget.add_css_class("column-header-action");
     widget.set_valign(gtk::Align::Center);

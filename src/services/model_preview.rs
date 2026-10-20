@@ -119,7 +119,7 @@ impl ModelView {
     }
 
     pub(crate) fn step(self, step: i32) -> Self {
-        Self::ALL[(self.index() + step.rem_euclid(4) as usize) % Self::ALL.len()]
+        Self::ALL[(self.index() as i32 - step.rem_euclid(4)).rem_euclid(4) as usize]
     }
 
     pub(crate) fn argument(self) -> &'static str {

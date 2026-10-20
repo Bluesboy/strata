@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 use crate::model::{FolderColor, FolderColorValue, Location};
-use crate::services::TrashedOriginal;
+use crate::services::ItemIdentity;
 use crate::ui::controls::{focus_button, modal_layout};
 use crate::ui::keys::{self, bindings::ESCAPE_ANY};
 use crate::ui::modal::{
@@ -24,16 +24,16 @@ pub(super) fn relocate_item_customizations(from: &Location, to: &Location, merge
 
 pub(super) fn forget_item_customizations(
     location: &Location,
-    trash_identity: Option<TrashedOriginal>,
+    trash_identity: Option<ItemIdentity>,
 ) {
     if let Some(path) = location.native_path() {
         PreferenceManager::shared().forget_item_customizations(path, trash_identity);
     }
 }
 
-pub(super) fn restore_item_customizations(location: &Location) {
-    if let Some(path) = location.native_path() {
-        PreferenceManager::shared().restore_item_customizations(path);
+pub(super) fn restore_item_customizations(location: &Location, identity: Option<ItemIdentity>) {
+    if let (Some(path), Some(identity)) = (location.native_path(), identity) {
+        PreferenceManager::shared().restore_item_customizations(path, identity);
     }
 }
 
@@ -103,6 +103,7 @@ fn show_custom_color_modal(
 
     let chooser = gtk::ColorChooserWidget::new();
     chooser.set_use_alpha(false);
+    crate::assets::use_bundled_spin_icons(&chooser);
     if let Ok(rgba) = gdk::RGBA::parse(&initial_hex) {
         chooser.set_rgba(&rgba);
     }

@@ -95,6 +95,8 @@ exec "$engine" run "${options[@]}" \
   --env "STRATA_E2E_WORKERS=${STRATA_E2E_WORKERS:-auto}" \
   --env "STRATA_PARITY_FIXTURES=${STRATA_PARITY_FIXTURES:-0}" \
   --env "STRATA_E2E_BUNDLE=${bundle:+/workspace/$bundle}" \
+  --env "STRATA_E2E_MAIN_IO=${STRATA_E2E_MAIN_IO:-}" \
+  --env "STRATA_UI_STALL_MS=${STRATA_UI_STALL_MS:-}" \
   "${parity_variables[@]}" \
   "$image" bash -euc '
     mkdir -p "$HOME" "$CARGO_HOME"

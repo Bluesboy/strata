@@ -8,13 +8,24 @@ use std::{cell::Cell, collections::HashSet, rc::Rc};
 use crate::ui::preferences::{CornerRoundness, PreferenceManager};
 
 use super::{
-    Theme, ThemeManager, ThemeTokens, azure_tokens, blend, builtins, canonical_color, color_to_hex,
-    custom_theme_id, is_omarchy_theme_event, merge_builtin_and_custom_themes, omarchy::contrast,
-    slugify, source_palette_from_quattro, source_style_scheme_xml, themes_directory,
-    title_case_slug, tokens_from_quattro, validate_tokens,
+    PINNED_GTK_THEME, Theme, ThemeManager, ThemeTokens, azure_tokens, blend, builtins,
+    canonical_color, color_to_hex, custom_theme_id, is_omarchy_theme_event,
+    merge_builtin_and_custom_themes, omarchy::contrast, slugify, source_palette_from_quattro,
+    source_style_scheme_xml, themes_directory, title_case_slug, tokens_from_quattro,
+    validate_tokens,
 };
 use crate::test_support::{gtk_test, gtk_test_with_env, texture_has_visible_pixels};
 use gtk::prelude::*;
+
+fn save_custom_theme(manager: &Rc<ThemeManager>, tokens: ThemeTokens) -> std::io::Result<String> {
+    let saved = Rc::new(std::cell::RefCell::new(None));
+    let done = saved.clone();
+    manager.save_custom_theme(tokens, move |result| {
+        done.replace(Some(result));
+    });
+    crate::storage::writer::settle();
+    saved.take().expect("theme save finished")
+}
 
 #[test]
 fn bundled_catalog_is_valid_unique_and_alphabetical() {
@@ -140,7 +151,7 @@ fn saving_a_custom_theme_never_overwrites_an_existing_theme_file() {
             )
             .expect("link added after startup");
 
-            let id = manager.save_custom_theme(tokens).expect("saved theme");
+            let id = save_custom_theme(&manager, tokens).expect("saved theme");
 
             assert_eq!(id, "ocean-blue-5");
             assert!(directory.join("ocean-blue-5.toml").is_file());
@@ -666,6 +677,115 @@ fn appearance_changes_keep_an_active_preview_until_it_is_cancelled() {
 }
 
 #[test]
+fn theme_and_omarchy_folders_are_watched_and_released_on_the_monitors_worker() {
+    gtk_test(
+        "ui::theme::tests::theme_and_omarchy_folders_are_watched_and_released_on_the_monitors_worker",
+        || {
+            use crate::adapters::{FsOp, FsQuirks, Quirks};
+
+            crate::ui::preferences::fixtures::seed_omarchy_for_test();
+            std::fs::create_dir_all(themes_directory()).expect("custom themes folder");
+            let themes = FsQuirks::install(&themes_directory(), Quirks::default());
+            let creating = crate::test_support::Gate::default();
+            let omarchy = FsQuirks::install(
+                &gtk::glib::home_dir(),
+                Quirks {
+                    before: vec![(FsOp::Watch, "*", 0, creating.racer())],
+                    ..Quirks::default()
+                },
+            );
+            let watched = super::OmarchyRefresh::read().directories.len();
+            let pump_until = |what: &dyn Fn() -> String, done: &dyn Fn() -> bool| {
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                while !done() {
+                    assert!(std::time::Instant::now() < deadline, "{}", what());
+                    gtk::glib::MainContext::default().iteration(false);
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                }
+            };
+            let calls = || {
+                [
+                    themes.count(FsOp::Watch),
+                    themes.count(FsOp::Unwatch),
+                    omarchy.count(FsOp::Watch),
+                    omarchy.count(FsOp::Unwatch),
+                ]
+            };
+            let wait_for = |what: &str, expected: &dyn Fn([usize; 4]) -> bool| {
+                pump_until(&|| format!("{what}: {:?}", calls()), &|| expected(calls()));
+            };
+            let still = |expected: [usize; 4], what: &str| {
+                crate::storage::writer::settle();
+                for _ in 0..50 {
+                    gtk::glib::MainContext::default().iteration(false);
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                }
+                assert_eq!(calls(), expected, "{what}");
+            };
+            assert!(watched > 1, "the Omarchy theme folder and its ancestors");
+
+            let manager = ThemeManager::shared();
+            pump_until(&|| "the first watch starts".to_owned(), &|| {
+                creating.reached()
+            });
+            crate::ui::preferences::fixtures::seed_omarchy_colors_for_test(
+                "background = '#010203'\nforeground = '#ddeeff'\naccent = '#445566'\n",
+            );
+            let mut outside = azure_tokens();
+            outside.name = "Outside".to_owned();
+            std::fs::write(
+                themes_directory().join("outside.toml"),
+                toml::to_string(&outside).expect("theme file"),
+            )
+            .expect("a theme saved elsewhere");
+            creating.release();
+            wait_for("watched at start", &|calls| calls == [1, 0, watched, 0]);
+            pump_until(
+                &|| "changes made while the watches started are read".to_owned(),
+                &|| {
+                    crate::storage::writer::settle();
+                    manager
+                        .omarchy_state
+                        .borrow()
+                        .as_ref()
+                        .is_some_and(|state| state.colors.contains("#010203"))
+                        && manager
+                            .themes()
+                            .iter()
+                            .any(|theme| theme.tokens.name == "Outside")
+                },
+            );
+
+            let mut tokens = azure_tokens();
+            tokens.name = "Watched".to_owned();
+            save_custom_theme(&manager, tokens).expect("custom theme saves");
+            manager.refresh_omarchy_state();
+            still(
+                [1, 0, watched, 0],
+                "a save and a refresh keep the watches they have",
+            );
+
+            let theme_folder = super::omarchy_state_dir().join("theme");
+            std::fs::remove_dir_all(&theme_folder).expect("Omarchy theme folder removed");
+            manager.refresh_omarchy_state();
+            pump_until(&|| "the removed folder is read".to_owned(), &|| {
+                crate::storage::writer::settle();
+                manager.omarchy_state.borrow().is_none()
+            });
+            crate::ui::preferences::fixtures::seed_omarchy_for_test();
+            manager.refresh_omarchy_state();
+            wait_for(
+                "only the folder that came back is watched again",
+                &|[themes_watched, themes_released, watching, released]| {
+                    [themes_watched, themes_released, watching] == [1, 0, watched + 1]
+                        && released <= 1
+                },
+            );
+        },
+    );
+}
+
+#[test]
 fn non_ascii_theme_names_save_under_a_fallback_id() {
     gtk_test(
         "ui::theme::tests::non_ascii_theme_names_save_under_a_fallback_id",
@@ -677,8 +797,26 @@ fn non_ascii_theme_names_save_under_a_fallback_id() {
 
             let mut tokens = azure_tokens();
             tokens.name = "日本語".to_owned();
-            let id = manager
-                .save_custom_theme(tokens)
+            let held = crate::storage::writer::hold();
+            let saved = Rc::new(std::cell::RefCell::new(None));
+            let done = saved.clone();
+            manager.save_custom_theme(tokens, move |result| {
+                done.replace(Some(result));
+            });
+            for _ in 0..20 {
+                gtk::glib::MainContext::default().iteration(false);
+            }
+            assert!(
+                saved.borrow().is_none(),
+                "the save waits for the settings writer"
+            );
+            assert!(!directory.join("custom-theme.toml").exists());
+            assert_eq!(manager.selected_id(), "azure-glow");
+            drop(held);
+            crate::storage::writer::settle();
+            let id = saved
+                .take()
+                .expect("theme save finished")
                 .expect("a non-ASCII name saves");
             assert_eq!(id, "custom-theme");
             let saved = std::fs::read_to_string(directory.join("custom-theme.toml"))
@@ -702,9 +840,7 @@ fn non_ascii_theme_names_save_under_a_fallback_id() {
             let files_before = std::fs::read_dir(&directory).expect("themes").count();
             let mut blank = azure_tokens();
             blank.name = "   ".to_owned();
-            let error = manager
-                .save_custom_theme(blank)
-                .expect_err("a blank name is rejected");
+            let error = save_custom_theme(&manager, blank).expect_err("a blank name is rejected");
             assert_eq!(error.to_string(), "Enter a theme name");
             assert_eq!(
                 std::fs::read_dir(&directory).expect("themes").count(),
@@ -798,7 +934,15 @@ fn desktop_gtk_theme_and_gtk_css_do_not_restyle_widgets() {
                 gtk::glib::MainContext::default().iteration(false);
             }
 
-            assert_eq!(settings.gtk_theme_name().as_deref(), Some("Default"));
+            assert_eq!(settings.gtk_theme_name().as_deref(), Some(PINNED_GTK_THEME));
+            for variant in ["gtk.css", "gtk-dark.css"] {
+                let path = format!("/org/gtk/libgtk/theme/{PINNED_GTK_THEME}/{variant}");
+                if let Err(error) =
+                    gtk::gio::resources_get_info(&path, gtk::gio::ResourceLookupFlags::NONE)
+                {
+                    panic!("{path} should be bundled: {error}");
+                }
+            }
             let expected =
                 gtk::gdk::RGBA::parse(&manager.starter_tokens().text).expect("text color");
             let actual = label.color();
