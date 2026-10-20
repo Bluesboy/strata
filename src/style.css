@@ -2732,8 +2732,7 @@ paned > separator {
   padding: 0 14px;
 }
 
-.preview-source-lines,
-.preview-source-lines text {
+.preview-source-lines {
   background: @strata_surface;
   color: @strata_dim_text;
   font-family: "JetBrains Mono", "JetBrainsMono Nerd Font", monospace;
@@ -7231,20 +7230,20 @@ popover.settings-action-library > contents {
   padding: 0 6px;
 }
 
-.settings-action-tabs > header > tabs > tab label {
+.settings-action-tabs > header > tabs > tab .settings-action-tab-label {
   border-bottom: 2px solid transparent;
   font-weight: 600;
   opacity: 0.55;
   transition: opacity 160ms ease-out;
 }
 
-.settings-action-tabs > header > tabs > tab:hover label,
-.settings-action-tabs > header > tabs > tab:focus-visible label,
-.settings-action-tabs > header > tabs > tab:checked label {
+.settings-action-tabs > header > tabs > tab:hover .settings-action-tab-label,
+.settings-action-tabs > header > tabs > tab:focus-visible .settings-action-tab-label,
+.settings-action-tabs > header > tabs > tab:checked .settings-action-tab-label {
   opacity: 1;
 }
 
-.settings-action-tabs > header > tabs > tab:checked label {
+.settings-action-tabs > header > tabs > tab:checked .settings-action-tab-label {
   border-bottom-color: @strata_accent;
 }
 

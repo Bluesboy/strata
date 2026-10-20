@@ -568,11 +568,11 @@ Each patch breaks a single critical workflow and maps to the scenario that
 hits the mutated line, not every test in that file: drop onto a folder,
 Ctrl+V paste, arrow-key selection, single-click activation, the appearance
 menu, filtered Space preview, filter-row updates, popover outside-wheel,
-the long-name editor staying in the viewport, a live click-mode preference,
-cut deferring its move to the paste, Return in the location editor, Keep Both
-selecting the numbered copy, Enter, click-away and Escape in the inline
-editor, a new entry colliding with an existing name, the rename error dialog,
-Delete moving to the trash, and Shift+click ranges. The unmodified scenarios
+held document scrollbars, the long-name editor staying in the viewport, a live
+click-mode preference, cut deferring its move to the paste, Return in the
+location editor, Keep Both selecting the numbered copy, Enter, click-away and
+Escape in the inline editor, a new entry colliding with an existing name, the
+rename error dialog, Delete moving to the trash, and Shift+click ranges. The unmodified scenarios
 must pass first; only a failed scenario assertion in the mutated run counts as
 detection, not a startup/collection error or killed process. Logs and JUnit
 reports are saved in `target/e2e-mutations`. The script restores the files the

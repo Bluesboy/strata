@@ -316,16 +316,16 @@ impl TableState {
             .map(|column| column.downgrade())
             .collect::<Vec<_>>();
         let measured_width = Cell::new(0);
-        view.add_tick_callback(move |view, _| {
+        let resize = Rc::new(move |view: &gtk::ColumnView| {
             let Some(state) = weak.upgrade() else {
-                return glib::ControlFlow::Break;
+                return;
             };
             let available = (view.width() - 2).max(0);
             if state.manually_sized.get()
                 || available == 0
                 || measured_width.replace(available) == available
             {
-                return glib::ControlFlow::Continue;
+                return;
             }
             let minimum_total = desired_widths
                 .iter()
@@ -355,7 +355,24 @@ impl TableState {
                 }
             }
             automatic_resize.set(false);
-            glib::ControlFlow::Continue
+        });
+        let weak_view = view.downgrade();
+        let resize_pending = Rc::new(Cell::new(false));
+        scroll.hadjustment().connect_page_size_notify(move |_| {
+            let Some(view) = weak_view.upgrade() else {
+                return;
+            };
+            if resize_pending.replace(true) {
+                return;
+            }
+            let resize = resize.clone();
+            let resize_pending = resize_pending.clone();
+            // Allocation and column notifications must settle before fitting.
+            view.add_tick_callback(move |view, _| {
+                resize(view);
+                resize_pending.set(false);
+                glib::ControlFlow::Break
+            });
         });
         let key = gtk::EventControllerKey::new();
         let state = self.clone();

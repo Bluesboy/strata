@@ -1317,6 +1317,7 @@ fn editor_page(tabs: &gtk::Notebook, title: &str) -> gtk::Box {
         .build();
     scroll.add_css_class("settings-content-scroll");
     let label = gtk::Label::new(Some(&crate::i18n::tr(title)));
+    label.add_css_class("settings-action-tab-label");
     tabs.append_page(&scroll, Some(&label));
     page
 }
