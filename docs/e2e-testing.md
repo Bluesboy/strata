@@ -1354,6 +1354,14 @@ until the app is fixed; it stays in the suite and runs when named.
   no scroll left to reveal it. The twin failed 24 of 24 runs with its input
   logged and passed four of four without; the QA scenario passed and failed by
   turns in full runs.
+- `archive-double-click-extracts-subfolder` (twin
+  `test_archive_activation.py::test_archive_activation_extracts_to_subfolder[*-double-click]`):
+  lgse/strata#1772 drops a double-click on the archive that lands soon after
+  the previous extraction's progress dialog closes. The scenario double-clicks
+  twice more after the first extraction; the issue reports the second
+  double-click lost every time locally, while a CI run extracted on the second
+  and lost the third, so no single `known_bug` step holds. The twin's slower
+  input passes.
 
 ### QA-only waits
 
@@ -1622,36 +1630,19 @@ cannot be retrieved or classified, it says so rather than guessing the cause.
 
 ### QA in CI
 
-One job in `ci.yml` runs the QA runner on non-draft pull requests and manual
-dispatches. It is **informational**: it has `continue-on-error: true`, no
-required check needs it, and the repository ruleset does not list it, so a red
-QA job never blocks a merge. CI does not run QA parity.
-
-**QA scenarios** waits for **Quality build and lint**, pulls (or loads) the
-same pinned build environment the Rust shards use, restores main's quality
-Cargo cache, and runs `./scripts/qa.sh` with
-`STRATA_E2E_CARGO_CACHE=target/quality-container`. `--features qa` equals
-`--all-features`, so that cache already holds every dependency built in the
-same image at the same paths and only `strata` and the runner compile. The E2E
-runtime image and binary bundle cannot be reused: the runtime has no Rust
-toolchain, and the bundled binary lacks the `qa` feature. The job then checks
-the `qa` build contains `usage: strata --qa`, the prefix of `USAGE` in
-`src/qa.rs` that the release workflow rejects in release binaries;
-`scripts/test_qa_parity.py` requires both checks' pattern to prefix `USAGE`. A
-failed run uploads `target/qa-artifacts` as `qa-artifacts-<attempt>`.
+CI does not run the QA scenarios or QA parity for now; run `./scripts/qa.sh`
+locally. The test inventory in the Rust shards still lists every scenario, but
+each one is ignored outside the pinned container. The release workflow still
+rejects any release binary that contains `usage: strata --qa`, the prefix of
+`USAGE` in `src/qa.rs`; `scripts/test_qa_parity.py` requires that pattern to
+prefix `USAGE`.
 
 `scripts/qa.sh` and `scripts/e2e.sh` accept `STRATA_E2E_CARGO_CACHE`, a
 directory under `target/` holding `cargo/` and `build/` (default
 `target/e2e-container`); leave it unset locally. To read a failure, start with
-the job log (`PASS` and failed lines name each run's twin), then the artifacts:
-`qa-artifacts-<attempt>` has the per-run bundle described in "Replies and the
-state snapshot".
-
-**Promotion is pending.** The owner makes **QA scenarios** a required check
-after a two-week informational window with zero unexplained failures and a
-documented wall time per run, recorded in the promoting pull request; that
-change removes its `continue-on-error` and adds it to the ruleset's required
-checks. No informational window has been recorded yet.
+the runner's output (`PASS` and failed lines name each run's twin), then
+`target/qa-artifacts`, which has the per-run bundle described in "Replies and
+the state snapshot".
 
 ### Cache lifecycle and cold starts
 
