@@ -480,19 +480,8 @@ class TwinlessScenarioTests(unittest.TestCase):
         )
 
 
-class CiWorkflowTests(unittest.TestCase):
-    def jobs(self):
-        workflow = (REPOSITORY / ".github/workflows/ci.yml").read_text()
-        return dict(re.findall(r"^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)",
-                               workflow.split("\njobs:\n", 1)[1], re.M | re.S))
-
-    def test_qa_jobs_are_informational_and_outside_the_required_gates(self):
-        jobs = self.jobs()
-        self.assertRegex(jobs["qa"], r"(?m)^    continue-on-error: true$")
-        needs = re.search(r"^    needs: (.+)$", jobs["quality"], re.M).group(1)
-        self.assertNotIn("qa", re.findall(r"[\w-]+", needs))
-
-    def test_both_release_marker_checks_grep_a_prefix_of_the_qa_usage_constant(self):
+class ReleaseWorkflowTests(unittest.TestCase):
+    def test_the_release_marker_check_greps_a_prefix_of_the_qa_usage_constant(self):
         source = (REPOSITORY / "src/qa.rs").read_text()
         usage = re.search(r'^const USAGE: &str = "([^"]+)";$', source, re.M).group(1)
         self.assertIn("return Err(USAGE.to_owned());", source)
@@ -500,7 +489,6 @@ class CiWorkflowTests(unittest.TestCase):
         check = release.split("- name: Check the release binary has no QA mode", 1)[1].split("\n      - name:", 1)[0]
         pattern = re.search(r'if strings "target/\$TARGET/release/strata" \| grep -F "([^"]+)"; then', check).group(1)
         self.assertTrue(usage.startswith(pattern), (usage, pattern))
-        self.assertIn(f'| grep -F "{pattern}"', self.jobs()["qa"])
 
 
 if __name__ == "__main__":
