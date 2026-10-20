@@ -117,7 +117,8 @@ pub(crate) use search::{
     index_folder_paths, index_paths, index_trees_with_exclusions,
 };
 pub(crate) use update_check::{
-    ReleaseMetadata, ReleaseNotes, UpdateCheck, check_for_updates, fetch_release_notes,
+    ReleaseChoice, ReleaseMetadata, ReleaseNotes, UpdateCheck, check_for_updates,
+    fetch_release_notes, fetch_releases, resolve_release_commit,
 };
 pub(crate) use update_install::{
     InstallCancel, InstallRequest, UpdateInstall, UpdateMethod, install_update, rollback_path,

@@ -690,6 +690,8 @@ To try upcoming changes early, choose a channel in **Settings → Updates** (the
 
 When a prerelease installation selects **Stable**, the Updates card immediately offers the newest stable release as the channel target—even when that requires a semantic downgrade—and labels the action **Return to stable**. Preview and Nightly selections use the same card for ordinary forward updates, so channel changes never create a separate competing rollback card.
 
+To roll back or switch to a particular build, open **Install a specific release** in **Settings → Updates**. It lists the releases your channel offers, newest first, whether older or newer than the installed one: Stable lists stable releases, Preview adds alpha, beta, and release-candidate builds, and Nightly lists everything. Strata asks GitHub for the list only when the menu opens, and lists only releases with a signed update manifest for your architecture. Choosing one opens the same verified install dialog as an update. Package-managed installations do not show the list, since their package manager decides the version.
+
 See [Releasing](docs/releasing.md) for the tag grammar these channels rely on and, for maintainers, how a release candidate is cut and promoted.
 
 ## Under the hood
