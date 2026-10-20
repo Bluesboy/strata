@@ -32,6 +32,7 @@ class Scenario:
     input_parity_ignore: tuple[tuple[str, tuple[tuple[int, str], ...]], ...] = ()
     skip: str | None = None
     twin: bool = True
+    known_bug: str | None = None
 
     @property
     def unit(self) -> str:
@@ -50,7 +51,7 @@ def scenarios() -> list[Scenario]:
             raise SystemExit(f"{path}: {error}") from None
         found.append(Scenario(
             path.stem, header.get("mutation"), ignored, sends_input(path), positions, skip,
-            header.get("twin") is not None,
+            header.get("twin") is not None, header.get("known_bug"),
         ))
     return found
 
@@ -185,8 +186,13 @@ def scenario_named(name: str) -> Scenario:
 
 
 def chosen_scenarios(names: list[str]) -> list[Scenario]:
+    """A known bug fails the QA run on purpose, so its twins never both pass."""
+
     found = [scenario_named(name) for name in names] if names else scenarios()
-    return [scenario for scenario in found if scenario.skip is None and scenario.twin]
+    return [
+        scenario for scenario in found
+        if scenario.skip is None and scenario.known_bug is None and scenario.twin
+    ]
 
 
 def skipped_lines(names: list[str]) -> list[str]:
@@ -199,4 +205,8 @@ def skipped_lines(names: list[str]) -> list[str]:
         f"Skipped, not compared: {scenario.name} ({scenario.skip})"
         for scenario in found
         if scenario.twin and scenario.skip is not None
+    ] + [
+        f"Known bug, not compared: {scenario.name} ({scenario.known_bug})"
+        for scenario in found
+        if scenario.twin and scenario.known_bug is not None
     ]

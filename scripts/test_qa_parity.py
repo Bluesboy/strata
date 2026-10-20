@@ -353,7 +353,7 @@ class StateParityIgnoreTests(unittest.TestCase):
         self.assertTrue(skipped, "the text-size scenario is skipped until issue 9 is fixed")
         self.assertFalse({scenario.name for scenario in skipped} & {s.name for s in qa_parity.chosen_scenarios([])})
         self.assertTrue(all(
-            line.startswith(("Skipped, not compared: ", "No twin, not compared: "))
+            line.startswith(("Skipped, not compared: ", "Known bug, not compared: ", "No twin, not compared: "))
             for line in qa_parity.skipped_lines([])
         ))
 
@@ -456,6 +456,16 @@ class TwinlessScenarioTests(unittest.TestCase):
         )
         self.assertEqual(qa_parity.skipped_lines([]),
                          ["No twin, not compared: delta", "No twin, not compared: gamma"])
+
+    def test_a_known_bug_scenario_takes_no_part_even_when_named(self):
+        (self.root / "scenarios" / "test_example" / "epsilon.jsonl").write_text(json.dumps({
+            "scenario": "epsilon", "modes": ["columns"], "twin": "z",
+            "known_bug": "lgse/strata#9", "known_bug_step": 2,
+        }) + "\n")
+        self.assertEqual([s.name for s in qa_parity.chosen_scenarios([])], ["alpha", "beta"])
+        self.assertEqual(qa_parity.chosen_scenarios(["epsilon"]), [])
+        self.assertEqual(qa_parity.skipped_lines(["epsilon"]),
+                         ["Known bug, not compared: epsilon (lgse/strata#9)"])
 
     def test_naming_only_scenarios_without_a_twin_runs_nothing(self):
         with mock.patch.object(qa_parity_run, "collect") as collect, \

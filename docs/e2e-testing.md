@@ -1293,7 +1293,10 @@ status its results do not account for is a disagreement. A scenario with a
 `mutation` is held to all five checks; one without, or any scenario under
 `--baseline`, to baseline parity: pass, input, and state. A scenario without a
 `twin` has nothing to compare: parity never runs it, and the summary lists it as `No twin, not compared: <scenario>`, so naming
-only such scenarios runs nothing.
+only such scenarios runs nothing. A `skip` or `known_bug` scenario is left out
+the same way, even when named, and listed as `Skipped, not compared:` or
+`Known bug, not compared:` with its reason or issue, because its QA run cannot
+pass.
 
 | Check | Holds when |
 | --- | --- |
