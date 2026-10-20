@@ -15,7 +15,7 @@
 {"click":{"role":"button","name":"Cancel compressing"}}
 {"wait":{"dialog":"Operation cancelled"},"message":"compression worker to stop and report cancellation"}
 {"expect":{"absent":{"role":"progress bar"}}}
-{"fs":{"path":".","glob_none":".strata-compression-*"},"timeout_ms":0}
+{"fs":{"path":".","glob_none":".strata-copy-*"},"timeout_ms":0}
 {"fs":{"path":".","glob_none":"*.7z"},"timeout_ms":0}
 {"fs":{"path":".","glob_none":"*.tar.gz"},"timeout_ms":0}
 {"fs":{"path":"payload.bin","size":67108864},"timeout_ms":0}
