@@ -31,6 +31,7 @@ mod exclusions;
 mod general;
 mod install_command;
 mod integrations;
+mod release_picker;
 mod search;
 mod theme;
 mod wrap;
@@ -1182,6 +1183,16 @@ fn updates_page(
     let options = settings_group(&preferences, "PREFERENCES");
     options.append(&automatic_updates_option(&manager, update_method));
     let channel_row = append_channel_option(&options, manager.clone(), managed, update_method);
+    if update_method == UpdateMethod::InPlace {
+        options.append(
+            &release_picker::release_picker(
+                &manager,
+                install_guard,
+                release_picker::ReleaseSource::default(),
+            )
+            .row,
+        );
+    }
     append_current_release_notes(&preferences);
     bind_updates_auto_check(
         &manager,
@@ -2472,6 +2483,14 @@ enum UpdateDialogPhase {
     Installed,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UpdateOffer {
+    /// The newest release on the channel, found by an update check.
+    Available,
+    /// A release picked from the release list, possibly older than the installed one.
+    Chosen,
+}
+
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "tests drive the dialog through these handles")
@@ -2498,6 +2517,7 @@ pub(super) fn show_update_dialog(
         install,
         install_guard,
         update_method,
+        UpdateOffer::Available,
         default_install_launcher(),
     );
 }
@@ -2508,6 +2528,7 @@ fn build_update_dialog(
     install: InstallRequest,
     install_guard: InstallGuard,
     update_method: UpdateMethod,
+    offer: UpdateOffer,
     launcher: InstallLauncher,
 ) -> Option<UpdateDialog> {
     let window_overlay = parent.child().and_downcast::<gtk::Overlay>()?;
@@ -2517,19 +2538,35 @@ fn build_update_dialog(
     }
 
     let aur_action = aur_update_action_label();
+    let installed = crate::build_info::installed_version();
+    let (title, subtitle) = match offer {
+        UpdateOffer::Available => (
+            rust_i18n::t!("Strata v%{value1} is available", value1 = release.version),
+            rust_i18n::t!(
+                "Installed v%{value1}  →  Available v%{value2}",
+                value1 = installed,
+                value2 = release.version
+            ),
+        ),
+        UpdateOffer::Chosen => (
+            rust_i18n::t!("Install Strata v%{value1}", value1 = release.version),
+            rust_i18n::t!(
+                "Installed v%{value1}  →  Selected v%{value2}",
+                value1 = installed,
+                value2 = release.version
+            ),
+        ),
+    };
     let layout = modal_layout(
         icons::DOWNLOADS,
-        &rust_i18n::t!("Strata v%{value1} is available", value1 = release.version),
-        &rust_i18n::t!(
-            "Installed v%{value1}  →  Available v%{value2}",
-            value1 = crate::build_info::installed_version(),
-            value2 = release.version
-        ),
-        &crate::i18n::tr(match update_method {
-            UpdateMethod::InPlace => "Download update",
-            UpdateMethod::Aur => aur_action,
-            UpdateMethod::Omarchy => "Open Omarchy Update",
-            UpdateMethod::Pacman => "Close",
+        &title,
+        &subtitle,
+        &crate::i18n::tr(match (update_method, offer) {
+            (UpdateMethod::InPlace, UpdateOffer::Available) => "Download update",
+            (UpdateMethod::InPlace, UpdateOffer::Chosen) => "Install release",
+            (UpdateMethod::Aur, _) => aur_action,
+            (UpdateMethod::Omarchy, _) => "Open Omarchy Update",
+            (UpdateMethod::Pacman, _) => "Close",
         }),
     );
     layout.content.add_css_class("update-dialog");
@@ -2537,13 +2574,15 @@ fn build_update_dialog(
     // A prerelease offer must be visibly labelled, and must let the user
     // confirm exactly what they are about to install before doing so: which
     // channel it is, its precise tag, the source commit, and when it was
-    // published.
+    // published. A picked release shows its details too, since it may be a rollback.
     if release.kind != BuildKind::Stable {
         let badge = gtk::Label::new(Some(&release.kind.localized_label()));
         badge.add_css_class("prerelease-badge");
         badge.set_xalign(0.0);
         badge.set_halign(gtk::Align::Start);
         layout.body.append(&badge);
+    }
+    if release.kind != BuildKind::Stable || offer == UpdateOffer::Chosen {
         layout.body.append(&update_dialog_details(release));
     }
     let notes_heading = gtk::Label::new(Some(&crate::i18n::tr("What’s new")));
@@ -2575,9 +2614,10 @@ fn build_update_dialog(
     fallback.add_css_class("release-notes-fallback");
     fallback.set_halign(gtk::Align::Start);
     let status_message = match update_method {
-        UpdateMethod::InPlace => {
-            crate::i18n::tr("Review the release notes before downloading the update.")
-        }
+        UpdateMethod::InPlace => crate::i18n::tr(match offer {
+            UpdateOffer::Available => "Review the release notes before downloading the update.",
+            UpdateOffer::Chosen => "Review the release notes before installing this release.",
+        }),
         UpdateMethod::Aur => InstallSource::detect()
             .managed()
             .map(update_dialog_status)
@@ -2834,8 +2874,10 @@ fn build_update_dialog(
                 let _taken = cancel_for_installed.borrow_mut().take();
                 phase_for_installed.set(UpdateDialogPhase::Installed);
                 progress_for_installed.set_fraction(1.0);
-                status_for_installed
-                    .set_text(&crate::i18n::tr("Update installed — restart to apply"));
+                status_for_installed.set_text(&crate::i18n::tr(match offer {
+                    UpdateOffer::Available => "Update installed — restart to apply",
+                    UpdateOffer::Chosen => "Release installed — restart to apply",
+                }));
                 action_for_installed.set_label(&crate::i18n::tr("Restart now"));
                 action_for_installed.add_css_class("suggested-action");
                 action_for_installed.set_sensitive(true);

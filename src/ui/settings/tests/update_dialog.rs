@@ -119,6 +119,7 @@ fn open_dialog_for(
         offered_request(),
         install_guard(),
         update_method,
+        UpdateOffer::Available,
         installer.launcher(),
     )
     .expect("update dialog");

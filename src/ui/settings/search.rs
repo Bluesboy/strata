@@ -326,6 +326,12 @@ const TARGETS: &[Target] = &[
         aliases: "stable preview nightly builds",
     },
     Target {
+        id: "release",
+        page: "updates",
+        title: "Install a specific release",
+        aliases: "rollback roll back downgrade older previous version choose pick",
+    },
+    Target {
         id: "notes",
         page: "updates",
         title: "Release notes",
