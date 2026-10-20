@@ -706,7 +706,7 @@
   "PREFERENCES": "ПАРАМЕТРЫ",
   "PROBLEMS": "ПРОБЛЕМЫ",
   "Package-managed installation": "Установка из пакета",
-  "Parallel thumbnail decoders across all windows. More workers use more CPU and memory. Click the number to reset to the recommended default.": "Параллельные декодеры миниатюр во всех окнах. Чем больше обработчиков, тем выше нагрузка на ЦП и память. Нажмите на число, чтобы восстановить рекомендуемое значение.",
+  "Parallel thumbnail decoders across all windows. More workers use more CPU and memory.": "Параллельные декодеры миниатюр во всех окнах. Чем больше обработчиков, тем выше нагрузка на ЦП и память.",
   "Parent folder (%{keys})": "Родительская папка (%{keys})",
   "Partial results": "Частичные результаты",
   "Passphrase": "Парольная фраза",

@@ -91,8 +91,10 @@ pub mod icons {
     pub const SKIP_BACK: &str = "strata-skip-back";
     pub const SKIP_FORWARD: &str = "strata-skip-forward";
     pub const MINUS: &str = "strata-minus";
+    pub const MINUS_SYMBOLIC: &str = "strata-minus-symbolic";
     pub const MUSIC: &str = "strata-music-2";
     pub const PLUS: &str = "strata-plus";
+    pub const PLUS_SYMBOLIC: &str = "strata-plus-symbolic";
     pub const PRESENTATION: &str = "strata-presentation";
     pub const PRINTER: &str = "strata-printer";
     pub const PICTURES: &str = "strata-image";
@@ -371,6 +373,26 @@ pub fn chrome_icon(name: &str) -> gtk::Image {
     image.set_halign(gtk::Align::Center);
     image.set_valign(gtk::Align::Center);
     image
+}
+
+/// GTK names spin button steps after the desktop icon theme; the bundled
+/// symbolic icons still follow each button's CSS color and state.
+pub fn use_bundled_spin_icons(root: &impl IsA<gtk::Widget>) {
+    let root = root.as_ref();
+    let spin = root.is::<gtk::SpinButton>();
+    let mut child = root.first_child();
+    while let Some(widget) = child {
+        child = widget.next_sibling();
+        if !spin {
+            use_bundled_spin_icons(&widget);
+        } else if let Some(button) = widget.downcast_ref::<gtk::Button>() {
+            if button.has_css_class("up") {
+                button.set_icon_name(icons::PLUS_SYMBOLIC);
+            } else if button.has_css_class("down") {
+                button.set_icon_name(icons::MINUS_SYMBOLIC);
+            }
+        }
+    }
 }
 
 pub fn set_primary_icon(image: &gtk::Image, name: &str) {

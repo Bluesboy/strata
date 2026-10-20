@@ -706,7 +706,7 @@
   "PREFERENCES": "PREFERÊNCIAS",
   "PROBLEMS": "PROBLEMAS",
   "Package-managed installation": "Instalação gerenciada por pacotes",
-  "Parallel thumbnail decoders across all windows. More workers use more CPU and memory. Click the number to reset to the recommended default.": "Decodificadores de miniaturas em paralelo em todas as janelas. Mais processos usam mais CPU e memória. Clique no número para restaurar o padrão recomendado.",
+  "Parallel thumbnail decoders across all windows. More workers use more CPU and memory.": "Decodificadores de miniaturas em paralelo em todas as janelas. Mais processos usam mais CPU e memória.",
   "Parent folder (%{keys})": "Pasta superior (%{keys})",
   "Partial results": "Resultados parciais",
   "Passphrase": "Frase secreta",

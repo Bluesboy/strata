@@ -706,7 +706,7 @@
   "PREFERENCES": "設定",
   "PROBLEMS": "問題",
   "Package-managed installation": "パッケージ管理によるインストール",
-  "Parallel thumbnail decoders across all windows. More workers use more CPU and memory. Click the number to reset to the recommended default.": "全ウィンドウで並列に動作するサムネイルデコーダー。ワーカーを増やすほど CPU とメモリを多く使用します。数値をクリックすると推奨値に戻ります。",
+  "Parallel thumbnail decoders across all windows. More workers use more CPU and memory.": "全ウィンドウで並列に動作するサムネイルデコーダー。ワーカーを増やすほど CPU とメモリを多く使用します。",
   "Parent folder (%{keys})": "親フォルダー（%{keys}）",
   "Partial results": "一部の結果",
   "Passphrase": "パスフレーズ",

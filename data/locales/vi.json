@@ -706,7 +706,7 @@
   "PREFERENCES": "TÙY CHỌN",
   "PROBLEMS": "SỰ CỐ",
   "Package-managed installation": "Bản cài đặt do trình quản lý gói quản lý",
-  "Parallel thumbnail decoders across all windows. More workers use more CPU and memory. Click the number to reset to the recommended default.": "Các bộ giải mã ảnh thu nhỏ song song trên mọi cửa sổ. Nhiều tiến trình hơn sẽ dùng nhiều CPU và bộ nhớ hơn. Nhấp vào số để đặt lại về mặc định đề xuất.",
+  "Parallel thumbnail decoders across all windows. More workers use more CPU and memory.": "Các bộ giải mã ảnh thu nhỏ song song trên mọi cửa sổ. Nhiều tiến trình hơn sẽ dùng nhiều CPU và bộ nhớ hơn.",
   "Parent folder (%{keys})": "Thư mục cha (%{keys})",
   "Partial results": "Kết quả một phần",
   "Passphrase": "Cụm mật khẩu",

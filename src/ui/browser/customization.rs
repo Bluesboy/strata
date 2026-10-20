@@ -103,6 +103,7 @@ fn show_custom_color_modal(
 
     let chooser = gtk::ColorChooserWidget::new();
     chooser.set_use_alpha(false);
+    crate::assets::use_bundled_spin_icons(&chooser);
     if let Ok(rgba) = gdk::RGBA::parse(&initial_hex) {
         chooser.set_rgba(&rgba);
     }

@@ -225,11 +225,12 @@ the next change, and shows "Folder settings can't be saved" once per failure str
 
 ## Thumbnail workers
 
-Under **Settings → General → Performance**, use the **Thumbnail workers** −/+
-control to choose **1–16** concurrent decoders across all windows. The initial
-default uses the available CPU count, capped at four (two if CPU detection fails).
-Click the number to reset. Higher values can improve throughput but consume more
-CPU and memory; they do not change image resolution or preview playback.
+Under **Settings → General → Performance**, use the **Thumbnail workers** spin
+button, the same control as Text size, to choose **1–16** concurrent decoders
+across all windows. The initial default uses the available CPU count, capped at
+four (two if CPU detection fails). Higher values can improve throughput but
+consume more CPU and memory; they do not change image resolution or preview
+playback.
 
 The count is saved as `thumbnail_workers` and applies immediately. Busy jobs finish
 normally when the count is lowered. Idle excess supervisors retire asynchronously;

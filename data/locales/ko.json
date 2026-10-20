@@ -706,7 +706,7 @@
   "PREFERENCES": "환경 설정",
   "PROBLEMS": "문제",
   "Package-managed installation": "패키지 관리 설치",
-  "Parallel thumbnail decoders across all windows. More workers use more CPU and memory. Click the number to reset to the recommended default.": "모든 창에서 병렬로 실행할 썸네일 디코더입니다. 작업자가 많을수록 CPU와 메모리를 더 사용합니다. 숫자를 클릭하면 권장 기본값으로 돌아갑니다.",
+  "Parallel thumbnail decoders across all windows. More workers use more CPU and memory.": "모든 창에서 병렬로 실행할 썸네일 디코더입니다. 작업자가 많을수록 CPU와 메모리를 더 사용합니다.",
   "Parent folder (%{keys})": "상위 폴더(%{keys})",
   "Partial results": "일부 결과",
   "Passphrase": "암호 문구",

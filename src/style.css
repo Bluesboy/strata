@@ -1609,6 +1609,12 @@ menubutton.form-control:disabled > button {
   color: @strata_dim_text;
 }
 
+/* GTK's own arrow comes from the desktop icon theme. */
+dropdown > button arrow,
+menubutton > button arrow.down {
+  -gtk-icon-source: -gtk-recolor(url("resource:///io/github/lgse/Strata/icons/scalable/actions/strata-chevron-down-symbolic.svg"));
+}
+
 .update-dialog {
   color: @strata_text;
   min-width: 500px;

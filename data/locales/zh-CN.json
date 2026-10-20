@@ -706,7 +706,7 @@
   "PREFERENCES": "偏好设置",
   "PROBLEMS": "问题",
   "Package-managed installation": "由包管理器安装",
-  "Parallel thumbnail decoders across all windows. More workers use more CPU and memory. Click the number to reset to the recommended default.": "所有窗口共用的并行缩略图解码器数量。工作进程越多，CPU 和内存占用越高。点击数字可恢复为推荐默认值。",
+  "Parallel thumbnail decoders across all windows. More workers use more CPU and memory.": "所有窗口共用的并行缩略图解码器数量。工作进程越多，CPU 和内存占用越高。",
   "Parent folder (%{keys})": "上级文件夹（%{keys}）",
   "Partial results": "部分结果",
   "Passphrase": "密码短语",

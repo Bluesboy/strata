@@ -706,7 +706,7 @@
   "PREFERENCES": "OPTIONEN",
   "PROBLEMS": "PROBLEME",
   "Package-managed installation": "Paketverwaltete Installation",
-  "Parallel thumbnail decoders across all windows. More workers use more CPU and memory. Click the number to reset to the recommended default.": "Parallele Vorschaubild-Decoder für alle Fenster. Mehr Prozesse benötigen mehr CPU und Arbeitsspeicher. Klicken Sie auf die Zahl, um den empfohlenen Standardwert wiederherzustellen.",
+  "Parallel thumbnail decoders across all windows. More workers use more CPU and memory.": "Parallele Vorschaubild-Decoder für alle Fenster. Mehr Prozesse benötigen mehr CPU und Arbeitsspeicher.",
   "Parent folder (%{keys})": "Übergeordneter Ordner (%{keys})",
   "Partial results": "Teilergebnisse",
   "Passphrase": "Passphrase",

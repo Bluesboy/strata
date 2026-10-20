@@ -687,7 +687,7 @@
   "PREFERENCES": "偏好設定",
   "PROBLEMS": "問題",
   "Package-managed installation": "套件管理安裝",
-  "Parallel thumbnail decoders across all windows. More workers use more CPU and memory. Click the number to reset to the recommended default.": "所有視窗共用的平行縮圖解碼器。更多工作者會使用更多 CPU 與記憶體。點擊數字可重設為建議的預設值。",
+  "Parallel thumbnail decoders across all windows. More workers use more CPU and memory.": "所有視窗共用的平行縮圖解碼器。更多工作者會使用更多 CPU 與記憶體。",
   "Parent folder (%{keys})": "上層資料夾 (%{keys})",
   "Partial results": "部分結果",
   "Passphrase": "通關密語",

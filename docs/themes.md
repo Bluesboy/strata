@@ -23,6 +23,10 @@ Strata isolates its appearance from desktop GTK styling:
 - Above GTK's user priority, Strata unsets every property and restates GTK's
   built-in `Default` theme before its own stylesheets, so
   `~/.config/gtk-4.0/gtk.css` cannot change any property of Strata's widgets.
+- Interface icons are bundled. GTK controls that would otherwise draw icons
+  from the desktop icon theme, such as dropdown arrows and spin button steps,
+  use bundled symbolic icons instead. Application icons in Open With still
+  come from the desktop theme.
 
 The `@strata_*` namespace prevents accidental collisions with other
 stylesheets' `@theme_*` colors; it does not stop deliberate `@strata_*`
