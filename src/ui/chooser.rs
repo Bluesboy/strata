@@ -915,6 +915,69 @@ impl ChooserState {
         }
     }
 
+    fn install_filename_selection_click(self: &Rc<Self>) {
+        if !matches!(self.request.kind, ChooserKind::SaveFile { .. }) {
+            return;
+        }
+        let click = gtk::GestureClick::new();
+        click.set_button(1);
+        click.set_propagation_phase(gtk::PropagationPhase::Capture);
+        let weak = Rc::downgrade(self);
+        click.connect_pressed(move |gesture, _, x, y| {
+            let Some(state) = weak.upgrade() else {
+                return;
+            };
+            if PreferenceManager::shared().tenxer_mode() {
+                return;
+            }
+            let Some(surface) = gesture.widget() else {
+                return;
+            };
+            let Some(picked) = surface.pick(x, y, gtk::PickFlags::DEFAULT) else {
+                return;
+            };
+            if super::focus_navigation::editable(&picked)
+                || super::focus_navigation::in_popover(&picked)
+                || !std::iter::successors(Some(picked), gtk::Widget::parent)
+                    .take_while(|widget| *widget != surface)
+                    .any(|widget| {
+                        widget.has_css_class("file-row")
+                            || widget.has_css_class("list-row")
+                            || widget.has_css_class("icons-card")
+                    })
+            {
+                return;
+            }
+            let location = state.view.browser().active_location();
+            let weak = Rc::downgrade(&state);
+            // Re-clicking a highlighted row emits no GTK selection change. Let the
+            // row handlers finish before committing its cursor and refilling the name.
+            glib::idle_add_local_once(move || {
+                let Some(state) = weak.upgrade() else {
+                    return;
+                };
+                let browser = state.view.browser();
+                if !state.window.is_visible() || browser.active_location() != location {
+                    return;
+                }
+                if state.view.selected_search_results().is_none()
+                    && browser.selection_is_load_cursor()
+                    && let Some((depth, position, _)) = browser.focused_item()
+                {
+                    browser.commit_selection();
+                    browser.set_selection(
+                        depth,
+                        &browser.selected_positions(depth),
+                        Some(position),
+                    );
+                }
+                state.filename_selection.borrow_mut().clear();
+                state.update_selected_filename();
+            });
+        });
+        self.view.widget().add_controller(click);
+    }
+
     fn update_selected_filename(&self) {
         let Some(filename) = self.filename.as_ref() else {
             return;
@@ -1941,6 +2004,7 @@ fn build_chooser_hosted(
         download_progress: RefCell::new(None),
     });
 
+    state.install_filename_selection_click();
     let weak = Rc::downgrade(&state);
     accept.connect_clicked(move |_| {
         if let Some(state) = weak.upgrade() {
