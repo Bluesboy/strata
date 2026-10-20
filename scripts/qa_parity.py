@@ -10,17 +10,6 @@ import signal
 import sys
 from pathlib import Path
 
-from qa_parity_ci import (  # noqa: F401
-    CI_SHARDS,
-    PARITY_PATHS,
-    SHARD_DIRECTORY,
-    SHARD_MINUTES,
-    aggregate,
-    ci_plan,
-    ci_units,
-    shard_units,
-    touches_parity,
-)
 from qa_parity_compare import (  # noqa: F401
     EXCEPTION_PREFIX,
     INPUT_KEY,
@@ -141,16 +130,7 @@ def main(arguments: list[str]) -> int:
     check.add_argument("qa_log", type=Path)
     check.add_argument("junit", type=Path)
     check.add_argument("qa_status", type=int, help="qa.sh's exit status")
-    plan = commands.add_parser("ci-plan", help="CI: whether parity runs, and the shard matrix")
-    plan.add_argument("--base", help="run only if the changes since this commit touch PARITY_PATHS")
-    combine = commands.add_parser("aggregate", help="CI: one verdict over the shards' saved runs")
-    combine.add_argument("root", type=Path)
     options = parser.parse_args(arguments)
-
-    if options.command == "ci-plan":
-        return ci_plan(options.base)
-    if options.command == "aggregate":
-        return aggregate(options.root)
 
     if options.command == "scenario":
         print(scenario_for(options.patch).name)

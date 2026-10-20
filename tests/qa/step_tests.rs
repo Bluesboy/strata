@@ -75,11 +75,11 @@ pub(crate) fn a_run_keeps_its_own_mode_steps_and_rejects_a_malformed_one() {
         ])
     );
     for typo in [
-        json!({ "click": { "entry": "a", "nmae": "b" } }),
+        json!({ "click": { "entry": "a", "nickname": "b" } }),
         json!({ "fs": { "path": "a", "exists": true, "text": "b" } }),
         json!({ "fs": { "path": "a", "write": "b" }, "timeout_ms": 0 }),
         json!({ "fs": { "path": "a", "is": "socket" } }),
-        json!({ "key": "Escape", "when": { "dialgo": true } }),
+        json!({ "key": "Escape", "when": { "modal": true } }),
         json!({ "holds": { "dialog": true } }),
         json!({ "layout": "klingon" }),
         json!({ "expect": { "dialog": true }, "as": "open", "when": { "dialog": true } }),

@@ -56,7 +56,7 @@ class MutationRunnerTests(unittest.TestCase):
                 root = Path(directory)
                 scripts = root / "scripts"
                 scripts.mkdir()
-                for name in ("e2e-mutation-check.sh", "e2e_mutation_result.py", "qa_parity.py", "qa_parity_ci.py",
+                for name in ("e2e-mutation-check.sh", "e2e_mutation_result.py", "qa_parity.py",
                              "qa_parity_compare.py", "qa_parity_run.py", "qa_parity_scenarios.py"):
                     shutil.copyfile(Path(__file__).with_name(name), scripts / name)
                 (root / "tests/e2e/mutations").mkdir(parents=True)
