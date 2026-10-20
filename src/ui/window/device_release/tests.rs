@@ -26,8 +26,8 @@ use super::{
     location_at_flush_for_test, note_unmount_progress, pending_device_shell,
     present_release_overlay, release_body_text, release_error_count, release_is_dismissed,
     release_is_pending, release_overlay_presented, release_phase, release_shows_spinner,
-    reset_releases, settle_pending_attempt, start_release,
-    syncs_before_flush_for_test, unmatched_pending,
+    reset_releases, settle_pending_attempt, start_release, syncs_before_flush_for_test,
+    unmatched_pending,
 };
 
 fn key(unix_device: &str) -> ReleaseKey {
