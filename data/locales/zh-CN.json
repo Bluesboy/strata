@@ -1211,7 +1211,6 @@
   "Wait for the running operation to finish, then try again.": "请等待正在进行的操作完成后再试。",
   "Wait for these operations to finish, or cancel them before closing this tab or window. Cancellation does not undo completed changes.": "关闭此标签页或窗口前，请等待这些操作完成或将其取消。取消不会撤销已完成的更改。",
   "Wait until formatting finishes before closing this window. Do not unplug the drive.": "格式化完成前，请勿关闭此窗口，也不要拔出驱动器。",
-  "Waiting for preview…": "正在等待预览…",
   "Website": "网站",
   "What happens when you drop items onto a different drive or share.": "将项目拖放到其他驱动器或网络共享时执行的操作。",
   "What’s new": "新功能",

@@ -30,10 +30,11 @@ fn camera_animation_stops_for_reduced_motion_and_when_the_preview_unmaps() {
             pump_until(|| camera.is_mapped());
 
             let initial = motion.angle.get();
-            motion.set_view(&camera, ModelView::FrontRight);
+            motion.set_view(&camera, motion.view.get().step(1));
             assert!(motion.tick.borrow().is_some());
             assert_eq!(motion.angle.get(), initial);
             pump_until(|| motion.angle.get() != initial);
+            assert!(motion.angle.get() > initial, "Next turns clockwise");
             pump_until(|| motion.tick.borrow().is_none());
             assert_eq!(motion.angle.get(), motion.target.get());
 

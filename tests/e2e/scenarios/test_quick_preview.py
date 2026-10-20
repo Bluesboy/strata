@@ -22,6 +22,12 @@ PREVIEW_FIXTURE = {
 }
 
 
+def _model_image_ready(strata):
+    preview = strata.preview()
+    image = preview.find(role="image", name="Model preview") if preview else None
+    return image is not None and not image.has_state("busy")
+
+
 @pytest.mark.preferences(browser_mode="list", single_click_previews=False)
 def test_model_preview_renders_stl_prefers_thumbnails_and_reports_limits(strata):
     folder = strata.fixture.root
@@ -60,9 +66,9 @@ def test_model_preview_renders_stl_prefers_thumbnails_and_reports_limits(strata)
     )
     strata.select_entry("sample.stl")
     strata.keyboard.press("space")
-    strata.wait(lambda: strata.preview() and strata.preview().find(role="image", name="Model preview"), "rendered STL preview")
+    strata.wait(lambda: _model_image_ready(strata), "rendered STL preview")
     assert strata.preview_shows("4 of 4 in folder")
-    for name in ["Front right", "Back right", "Back left", "Front left"]:
+    for name in ["Back left", "Back right", "Front right", "Front left"]:
         next_view = strata.preview().find(role="button", name="Next model view")
         assert next_view is not None
         strata.pointer.click(next_view)
@@ -90,7 +96,7 @@ def test_model_preview_renders_stl_prefers_thumbnails_and_reports_limits(strata)
     strata.select_entry("sample.3mf")
     strata.keyboard.press("space")
     strata.wait(
-        lambda: strata.preview() and strata.preview().find(role="image", name="Model preview"),
+        lambda: _model_image_ready(strata),
         "embedded 3MF thumbnail",
     )
     assert strata.preview().find(role="button", name="Next model view") is None
@@ -99,10 +105,10 @@ def test_model_preview_renders_stl_prefers_thumbnails_and_reports_limits(strata)
     strata.wait(lambda: strata.preview() is None, "model preview to close")
     strata.select_entry("geometry.3mf")
     strata.keyboard.press("space")
-    strata.wait(lambda: strata.preview() and strata.preview().find(role="button", name="Previous model view"), "rendered 3MF camera controls")
+    strata.wait(lambda: _model_image_ready(strata) and strata.preview().find(role="button", name="Previous model view"), "rendered 3MF camera controls")
     strata.pointer.click(strata.preview().find(role="button", name="Previous model view"))
     strata.wait(
-        lambda: strata.preview().find(role="image", name="Camera position").description == "Back left"
+        lambda: strata.preview().find(role="image", name="Camera position").description == "Front right"
         and not strata.preview().find(role="image", name="Model preview").has_state("busy"),
         "3MF camera to wrap to the previous view",
     )

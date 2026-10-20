@@ -94,7 +94,7 @@ fn tenxer_angle_brackets_step_through_videos_and_skip_other_media() {
                 assert!(preview_has_focus(&fixture), "{key:?} kept the keys");
             }
             settle("folder caption", || {
-                widget_with_class(&fixture.preview.widget(), "preview-video-eyebrow")
+                widget_with_class(&fixture.preview.widget(), "preview-details-eyebrow")
                     .and_downcast::<gtk::Label>()
                     .is_some_and(|label| label.text() == "1 of 3 in folder")
             });

@@ -1211,7 +1211,6 @@
   "Wait for the running operation to finish, then try again.": "実行中の操作が終わるまで待ってから、もう一度お試しください。",
   "Wait for these operations to finish, or cancel them before closing this tab or window. Cancellation does not undo completed changes.": "このタブまたはウィンドウを閉じる前に、これらの操作の完了を待つかキャンセルしてください。キャンセルしても完了済みの変更は元に戻りません。",
   "Wait until formatting finishes before closing this window. Do not unplug the drive.": "フォーマットが完了するまでこのウィンドウを閉じないでください。ドライブを取り外さないでください。",
-  "Waiting for preview…": "プレビューを待機中…",
   "Website": "ウェブサイト",
   "What happens when you drop items onto a different drive or share.": "別のドライブまたは共有先に項目をドロップしたときの動作です。",
   "What’s new": "新機能",

@@ -38,6 +38,7 @@ use super::{
 
 mod archive;
 pub(super) mod audio;
+mod components;
 mod ease_in;
 mod find;
 mod keyboard;
@@ -48,6 +49,7 @@ mod model;
 #[cfg(test)]
 mod pdf_ranges_tests;
 mod pdf_text;
+mod player_layout;
 mod session;
 pub(super) mod video;
 mod waveform;
@@ -221,7 +223,6 @@ struct PreviewState {
     pending_show: RefCell<Option<glib::SourceId>>,
     load: RefCell<Option<LoadHandle>>,
     loading_delay: RefCell<Option<glib::SourceId>>,
-    loading_label: RefCell<Option<gtk::Label>>,
     pdf_loads: Rc<RefCell<HashMap<i32, LoadHandle>>>,
     print_load: RefCell<Option<LoadHandle>>,
     print_progress: RefCell<Option<PrintProgress>>,
@@ -460,7 +461,6 @@ impl PreviewDrawer {
             pending_show: RefCell::new(None),
             load: RefCell::new(None),
             loading_delay: RefCell::new(None),
-            loading_label: RefCell::new(None),
             pdf_loads: Rc::new(RefCell::new(HashMap::new())),
             print_load: RefCell::new(None),
             print_progress: RefCell::new(None),
@@ -1480,9 +1480,6 @@ impl PreviewState {
                 if let Some(model) = self.model.borrow().as_ref() {
                     model.set_progress(stage);
                 }
-                if let Some(label) = self.loading_label.borrow().as_ref() {
-                    label.set_text(&stage.label());
-                }
             }
             PreviewEvent::Ready(preview) if preview.request_id == expected => {
                 self.cancel_loading();
@@ -1501,7 +1498,12 @@ impl PreviewState {
                 // Failures carry English source messages: known ones have catalog
                 // entries, and system error text passes through unchanged.
                 let detail = crate::i18n::tr(&message);
-                if let Some(model) = self.model.borrow().as_ref() {
+                if let Some(model) = self
+                    .model
+                    .borrow()
+                    .as_ref()
+                    .filter(|model| model.picture.paintable().is_some())
+                {
                     self.model_view.set(model.view());
                     model.show_error(&detail);
                     return;
@@ -3126,18 +3128,10 @@ impl PreviewState {
             }
             return;
         }
-        let weak = Rc::downgrade(self);
-        if self
-            .current
-            .borrow()
-            .as_ref()
-            .is_some_and(|entry| crate::services::is_model(&entry.native_name))
-        {
-            let label = gtk::Label::new(Some(&crate::i18n::tr("Waiting for preview…")));
-            label.add_css_class("preview-feedback-detail");
-            label.set_wrap(true);
-            self.loading_label.replace(Some(label));
+        if self.show_model_loading() {
+            return;
         }
+        let weak = Rc::downgrade(self);
         let source = glib::timeout_add_local_once(PREVIEW_SPINNER_DELAY, move || {
             let Some(state) = weak.upgrade() else {
                 return;
@@ -3151,24 +3145,13 @@ impl PreviewState {
             spinner.set_halign(gtk::Align::Center);
             spinner.set_valign(gtk::Align::Center);
             spinner.start();
-            if let Some(label) = state.loading_label.borrow().as_ref() {
-                let loading = gtk::Box::new(gtk::Orientation::Vertical, 12);
-                loading.set_halign(gtk::Align::Center);
-                loading.set_valign(gtk::Align::Center);
-                loading.set_vexpand(true);
-                loading.append(&spinner);
-                loading.append(label);
-                state.content.append(&loading);
-            } else {
-                spinner.set_vexpand(true);
-                state.content.append(&spinner);
-            }
+            spinner.set_vexpand(true);
+            state.content.append(&spinner);
         });
         self.loading_delay.replace(Some(source));
     }
 
     fn cancel_loading(&self) {
-        self.loading_label.borrow_mut().take();
         if let Some(source) = self.loading_delay.borrow_mut().take() {
             source.remove();
         }
