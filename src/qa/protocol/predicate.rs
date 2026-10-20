@@ -195,10 +195,14 @@ impl<'de> Deserialize<'de> for Predicate {
             Check::EditorWithinViewport(field) => Some(field.clone()),
             _ => None,
         };
-        if let Check::All(predicates) = &check
-            && predicates.is_empty()
-        {
-            return Err(serde::de::Error::custom("all takes at least one predicate"));
+        match &check {
+            Check::All(predicates) if predicates.is_empty() => {
+                return Err(serde::de::Error::custom("all takes at least one predicate"));
+            }
+            Check::Any(predicates) if predicates.is_empty() => {
+                return Err(serde::de::Error::custom("any takes at least one predicate"));
+            }
+            _ => {}
         }
         if let Check::Pref(pref) = &check
             && [

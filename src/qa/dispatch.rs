@@ -598,10 +598,13 @@ impl Controller {
                 let mut seen: Option<Failure> = None;
                 loop {
                     if let Some(target) = &settle {
-                        let settled = self
-                            .settle_target(&input, target, protocol::DEFAULT_WAIT, None)
-                            .await;
+                        let left = deadline.saturating_duration_since(Instant::now());
+                        let mut settled = self.settle_target(&input, target, left, None).await;
                         if settled.error.is_some() {
+                            if !settled.failures.is_empty() {
+                                settled.error =
+                                    Some(format!("timed out after {} ms", timeout.as_millis()));
+                            }
                             return settled;
                         }
                     }
@@ -685,10 +688,23 @@ impl Controller {
                             false
                         }
                     };
-                    // Like `_settles`, one last look; the condition need not still hold.
-                    if (failures.is_empty() && held)
-                        || deadline.is_none_or(|deadline| Instant::now() >= deadline)
-                    {
+                    if failures.is_empty() && held {
+                        return Outcome::default();
+                    }
+                    // Like `_settles`: without a hold, one last look decides.
+                    if deadline.is_none_or(|deadline| Instant::now() >= deadline) {
+                        if failures.is_empty()
+                            && let Some(hold) = hold
+                        {
+                            failures.push(Failure {
+                                predicate: json!({ "hold_ms": hold.as_millis() }),
+                                actual: json!(format!(
+                                    "held for {} ms",
+                                    since.map_or(0, |since| since.elapsed().as_millis())
+                                )),
+                                message,
+                            });
+                        }
                         return Outcome {
                             failures,
                             ..Outcome::default()

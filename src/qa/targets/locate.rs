@@ -154,8 +154,9 @@ pub(crate) fn locate(
         }
         Target::Sidebar(name) | Target::Header(name) => find(root, "button", name)?,
         Target::MenuItem(label) => {
-            let menu = first_rendered(root, |widget| role_name(widget) == "menu");
-            find(menu.as_ref().unwrap_or(root), "menu item", label)?
+            let menu = first_rendered(root, |widget| role_name(widget) == "menu")
+                .ok_or_else(|| missing("no menu is open"))?;
+            find(&menu, "menu item", label)?
         }
         Target::DialogButton(label) => {
             let dialog = first_rendered(root, |widget| role_name(widget) == "dialog")

@@ -352,6 +352,7 @@ fn new_commands_parse_and_reject_what_they_cannot_mean() {
         r#"{"expect":{"mentions":{"target":{"dialog":true},"text":"a","words":"a b"}}}"#,
         r#"{"expect":{"file":{"path":"todo.txt","exists":true}}}"#,
         r#"{"wait":{"all":[]}}"#,
+        r#"{"wait":{"any":[]}}"#,
         r#"{"activate":{"background":true}}"#,
     ] {
         assert!(parse_command(bad).is_err(), "{bad} should be rejected");
@@ -397,6 +398,7 @@ fn new_commands_parse_and_reject_what_they_cannot_mean() {
         r#"{"note":"bounds","as":"x"}"#,
         r#"{"keys_until":{"peek":true},"keys":[],"times":2}"#,
         r#"{"keys_until":{"peek":true},"keys":["Home"],"times":0}"#,
+        r#"{"keys_until":{"peek":true},"keys":["Home"],"times":[]}"#,
         r#"{"note":"entries","of":{"entry":"a"},"as":"x"}"#,
         r#"{"capture":{"kept":"a"},"as":""}"#,
         r#"{"wait":{"band_selected":{"from":"a"}}}"#,

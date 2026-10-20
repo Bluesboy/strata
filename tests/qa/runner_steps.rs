@@ -309,10 +309,14 @@ impl ProcStep {
         if let Some(target) = &query.kill {
             // Only the application's own children, never anything else.
             let raw = pid(target)?;
-            parent_is_app(raw).map_err(|error| format!("refusing to kill: {error}"))?;
             let target = rustix::process::Pid::from_raw(raw)
                 .ok_or_else(|| format!("{target} is not a pid"))?;
-            return rustix::process::kill_process(target, rustix::process::Signal::KILL)
+            // The pidfd pins the process before its parent is checked, so a
+            // reused pid can never receive the signal.
+            let pidfd = rustix::process::pidfd_open(target, rustix::process::PidfdFlags::empty())
+                .map_err(|error| format!("cannot open {target:?}: {error}"))?;
+            parent_is_app(raw).map_err(|error| format!("refusing to kill: {error}"))?;
+            return rustix::process::pidfd_send_signal(&pidfd, rustix::process::Signal::KILL)
                 .map_err(|error| format!("cannot kill {target:?}: {error}"));
         }
         let deadline = Instant::now() + self.timeout_ms.map_or(DEFAULT_WAIT, Duration::from_millis);

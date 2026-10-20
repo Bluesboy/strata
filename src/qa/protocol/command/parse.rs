@@ -75,7 +75,7 @@ pub(crate) fn parse_command(line: &str) -> Result<Command, String> {
                 other => other.as_u64().and_then(|times| u32::try_from(times).ok()),
             }
             .ok_or("keys_until times is a number of rounds or a noted list")?;
-            if fields.keys.is_empty() || fields.times == 0 {
+            if fields.keys.is_empty() || times == 0 {
                 return Err("keys_until needs keys and at least one round".to_owned());
             }
             Ok(Command::KeysUntil {
