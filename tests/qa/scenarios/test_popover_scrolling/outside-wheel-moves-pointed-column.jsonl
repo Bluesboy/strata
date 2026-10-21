@@ -16,10 +16,10 @@
 {"settle":{"entry":"005.txt","dir":"$root"}}
 {"settle":{"entry":"005.txt","dir":"nested"}}
 {"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open"}
-{"wait":{"present":{"role":"radio menu item","name":"Compact"}},"message":"the appearance panel to open"}
+{"wait":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance panel to open"}
 {"wheel":{"viewport":"$root"},"at":["50%","4/5"],"clicks":1,"variants":["parent"]}
 {"wheel":{"viewport":"nested"},"at":["50%","4/5"],"clicks":1,"variants":["child"]}
-{"wait":{"absent":{"role":"radio menu item","name":"Compact"}},"message":"outside wheel to close the panel"}
+{"wait":{"absent":{"role":"radio menu item","name":"Columns"}},"message":"outside wheel to close the panel"}
 {"wait":{"moved":{"target":{"entry":"005.txt","dir":"$root"},"direction":"up"}},"message":"parent to scroll","variants":["parent"]}
 {"expect":{"moved":{"target":{"entry":"005.txt","dir":"nested"},"direction":"none"}},"variants":["parent"]}
 {"wait":{"moved":{"target":{"entry":"005.txt","dir":"nested"},"direction":"up"}},"message":"child to scroll","variants":["child"]}

@@ -3,7 +3,7 @@
 {"expect":{"state":{"target":{"role":"radio menu item","name":"Icons"},"checked":false}},"message":"before ctrl+2: 'Icons' should not be checked","variants":["icons"]}
 {"expect":{"state":{"target":{"role":"radio menu item","name":"Columns"},"checked":true}},"message":"before ctrl+2: 'Columns' should be checked","variants":["icons"]}
 {"key":"Escape","variants":["icons"]}
-{"wait":{"absent":{"role":"radio menu item","name":"Compact"}},"message":"the Appearance menu to close","variants":["icons"]}
+{"wait":{"absent":{"role":"radio menu item","name":"Columns"}},"message":"the Appearance menu to close","variants":["icons"]}
 {"key":"ctrl+2","variants":["icons"]}
 {"wait":{"view_mode":"Icons"},"message":"the browser to switch to the Icons view","variants":["icons"]}
 {"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open","variants":["icons"]}
@@ -13,7 +13,7 @@
 {"expect":{"state":{"target":{"role":"check menu item","name":"Hidden files"},"checked":false}},"message":"before ctrl+h: 'Hidden files' should not be checked","variants":["hidden"]}
 {"expect":{"description":{"target":{"role":"check menu item","name":"Hidden files"},"text":"Ctrl+H"}},"variants":["hidden"]}
 {"key":"Escape","variants":["hidden"]}
-{"wait":{"absent":{"role":"radio menu item","name":"Compact"}},"message":"the Appearance menu to close","variants":["hidden"]}
+{"wait":{"absent":{"role":"radio menu item","name":"Columns"}},"message":"the Appearance menu to close","variants":["hidden"]}
 {"key":"ctrl+h","variants":["hidden"]}
 {"wait":{"entries":{"contains":[".hidden.txt"]}},"message":"hidden files to show","variants":["hidden"]}
 {"open_menu":{"role":"toggle button","name":"Appearance"},"until":{"present":{"role":"radio menu item","name":"Columns"}},"message":"the appearance menu to open","variants":["hidden"]}
