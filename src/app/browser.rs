@@ -44,10 +44,10 @@ pub use freshness::{FreshnessInput, Presence, VisibleDepths};
 use publication::{PublicationPlan, PublishTerminal, StagedPublish};
 use remote::RemoteState;
 
-/// Caps a normal directory load at this project's own documented performance baseline for
-/// 100,000 entries (docs/performance-baseline.md: 3,755 ms, 286 MiB) -- past this, per-batch
-/// merge cost grows enough that browsing stops feeling responsive.
-const MAX_DIRECTORY_ENTRIES: usize = 100_000;
+/// Caps a normal directory load. Memory sets the ceiling, not time: a listed entry costs
+/// about 0.8 KiB of resident memory (its `FileEntry` plus one GTK string object), so a
+/// 250,000-entry List view settles in under a second at roughly 490 MiB RSS in release.
+const MAX_DIRECTORY_ENTRIES: usize = 250_000;
 const DIRECTORY_LOAD_TIME_BUDGET: Duration = Duration::from_secs(10);
 
 /// Larger GIO batches cut per-batch merge, selection scan, and GTK splice

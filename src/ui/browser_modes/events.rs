@@ -207,6 +207,9 @@ impl ModeViews {
                 if let (Some(sorting), Some(preferences)) = (&pane.sorting, preferences) {
                     sorting.show(preferences.sort_key, preferences.sort_direction);
                 }
+                if let Some(sorter) = &pane.type_group_sorter {
+                    sorter.refresh(preferences);
+                }
             });
         }
         let changed_depth = match event {
@@ -310,10 +313,10 @@ impl ModeViews {
         // after the complete camera snapshot is sorted. Keep the existing view,
         // selection model and both scrollers instead of resetting the viewport.
         list.set_header_factory(None::<&gtk::ListItemFactory>);
-        let sorter =
-            grouped.then(|| super::pane_type_group_sorter(&self.browser, pane.depth, &pane.model));
-        model.set_section_sorter(sorter.as_ref());
-        model.set_sorter(sorter.as_ref());
+        let sorter = grouped.then(|| super::pane_type_group_sorter(&self.browser, pane.depth));
+        model.set_section_sorter(sorter.as_ref().map(|sorter| &sorter.sorter));
+        model.set_sorter(sorter.as_ref().map(|sorter| &sorter.sorter));
+        pane.type_group_sorter = sorter;
         if grouped {
             list.set_header_factory(Some(&super::type_group_header_factory()));
         }
