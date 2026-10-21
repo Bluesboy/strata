@@ -229,6 +229,8 @@
   "Command": "コマンド",
   "Command actions must not declare an entrypoint script": "コマンドのアクションではエントリポイントのスクリプトを指定できません",
   "Commit": "コミット",
+  "Content": "コンテンツ",
+  "Frame": "フレーム",
   "Compact": "コンパクト",
   "Compact sidebar (%{keys})": "サイドバーをコンパクト表示（%{keys}）",
   "Complete": "完了",

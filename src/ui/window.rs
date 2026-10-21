@@ -32,7 +32,7 @@ use super::{
         arm_spring_load_navigation, file_drag_hover_target, file_drop_action, file_drop_commit,
         locations_from_file_list_value, prepare_file_drop_target, show_error_dialog,
     },
-    browser_modes::{BrowserDensity, BrowserMode},
+    browser_modes::BrowserMode,
     controls::{ModalTone, focus_button, message_dialog_description, message_dialog_layout},
     keys::{
         KeyPress,
@@ -49,6 +49,7 @@ use super::{
 
 mod bookmarks;
 mod composition;
+mod density_slider;
 mod device_labels;
 mod device_release;
 mod devices;
@@ -899,56 +900,21 @@ pub(super) fn build_appearance_menu(
     });
     content.append(&preview_toggle);
 
+    let hidden_files_shown = preferences.sort_preferences().show_hidden;
     content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     append_menu_heading(&content, &crate::i18n::tr("DENSITY"));
-    let current_density = preferences.browser_density();
-    let hidden_files_shown = preferences.sort_preferences().show_hidden;
-    let (compact, compact_check, _) = appearance_option(
-        crate::assets::icons::ROWS,
-        "Compact",
-        current_density == BrowserDensity::Compact,
-        true,
-        gtk::AccessibleRole::MenuItemRadio,
-    );
-    let (airy, airy_check, _) = appearance_option(
-        crate::assets::icons::ROWS,
-        "Airy",
-        current_density == BrowserDensity::Airy,
-        true,
-        gtk::AccessibleRole::MenuItemRadio,
-    );
-    preferences.bind_preference(
-        &compact_check,
+    content.append(&density_slider::density_slider(
+        &preferences,
+        "Frame",
+        PreferenceManager::frame_density,
+        PreferenceManager::set_frame_density,
+    ));
+    content.append(&density_slider::density_slider(
+        &preferences,
+        "Content",
         PreferenceManager::browser_density,
-        |widget, density| widget.set_visible(density == BrowserDensity::Compact),
-    );
-    preferences.bind_preference(
-        &airy_check,
-        PreferenceManager::browser_density,
-        |widget, density| widget.set_visible(density == BrowserDensity::Airy),
-    );
-    {
-        let preferences = preferences.clone();
-        let popover_weak = popover_weak.clone();
-        compact.connect_clicked(move |_| {
-            preferences.set_browser_density(BrowserDensity::Compact);
-            if let Some(popover) = popover_weak.upgrade() {
-                popover.popdown();
-            }
-        });
-    }
-    {
-        let preferences = preferences.clone();
-        let popover_weak = popover_weak.clone();
-        airy.connect_clicked(move |_| {
-            preferences.set_browser_density(BrowserDensity::Airy);
-            if let Some(popover) = popover_weak.upgrade() {
-                popover.popdown();
-            }
-        });
-    }
-    content.append(&compact);
-    content.append(&airy);
+        PreferenceManager::set_browser_density,
+    ));
 
     content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     append_menu_heading(&content, &crate::i18n::tr("TEXT SIZE"));

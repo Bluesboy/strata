@@ -229,6 +229,8 @@
   "Command": "Befehl",
   "Command actions must not declare an entrypoint script": "Befehlsaktionen dürfen kein Startskript angeben",
   "Commit": "Commit",
+  "Content": "Inhalt",
+  "Frame": "Rahmen",
   "Compact": "Kompakt",
   "Compact sidebar (%{keys})": "Seitenleiste verkleinern (%{keys})",
   "Complete": "Abgeschlossen",

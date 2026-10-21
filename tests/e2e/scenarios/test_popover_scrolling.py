@@ -50,7 +50,7 @@ def open_panel(strata, panel):
         role, label = "check menu item", "Folders first"
     elif panel == "appearance":
         strata.open_appearance_menu()
-        role, label = "radio menu item", "Compact"
+        role, label = "radio menu item", "Columns"
     else:
         toggle = strata.window.find(role="toggle button", name="Thumbnail size")
         assert toggle is not None and toggle.activate(), "thumbnail menu must be actionable"

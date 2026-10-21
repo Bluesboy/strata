@@ -98,7 +98,6 @@ pub mod icons {
     pub const PRESENTATION: &str = "strata-presentation";
     pub const PRINTER: &str = "strata-printer";
     pub const PICTURES: &str = "strata-image";
-    pub const ROWS: &str = "strata-rows";
     pub const ROUTE: &str = "strata-route";
     pub const SCISSORS: &str = "strata-scissors";
     pub const SEARCH: &str = "strata-search";

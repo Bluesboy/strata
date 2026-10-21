@@ -162,7 +162,7 @@ def test_appearance_options_expose_the_chosen_option(strata, shortcut, option, r
         check(previous, role, True, f"before {shortcut}")
     strata.keyboard.press("Escape")
     strata.wait(
-        lambda: strata.window.find(role="radio menu item", name="Compact") is None,
+        lambda: strata.window.find(role="radio menu item", name="Columns") is None,
         "the Appearance menu to close",
     )
 

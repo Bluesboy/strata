@@ -476,6 +476,43 @@ Miller column without focusing it, or toggles the folder-peek popover in List
 and Icons. See
 [10xer mode](10xer-mode.md) for the keymap.
 
+## Content and Frame density
+
+The Appearance menu's DENSITY section has two sliders, Frame above Content. Each one stores a logical px
+value, with tick marks at its Compact and Airy values. The clickable labels under the
+ticks snap to those presets. Any other value counts as Custom. A slider position
+updates live in every window and is saved immediately; the menu stays open.
+
+| Slider  | Preferences                                     | Range | Compact | Airy | Type             |
+|---------|-------------------------------------------------|-------|---------|------|------------------|
+| Frame   | `frame_density`, `frame_density_custom_px`      | 0–12  | 0       | 4    | `FrameDensity`   |
+| Content | `browser_density`, `browser_density_custom_px`  | 0–16  | 4       | 8    | `BrowserDensity` |
+
+`*_density` is `"compact"`, `"airy"`, or `"custom"`; `*_custom_px` is read only for
+`"custom"`. Old settings files that have only `browser_density` keep loading. Both
+types implement `browser_modes::DensityScale`, whose `from_px` maps a snap-point
+value to its preset. As a result, a slider resting on 4 px is saved as Compact rather
+than as Custom.
+
+**Content** is the vertical margin of Columns and List rows. Compact and Airy keep the
+static `density-compact`/`density-airy` rules in `style.css` and their 20/16 Icons
+column caps. A Custom value sets `density-custom`.
+`browser_modes::browser_density_custom_css` then extrapolates every preset property
+linearly through those two rules, so the slider never jumps at a preset. Those
+properties are row margins and minimum heights, plus the Icons grid padding, cell
+margins, and card padding.
+
+**Frame** is one extra vertical inset applied in lock step to the browser header,
+tab strip, Icons/List pane header, Miller column headers, preview header, and
+sidebar rows, so their heights stay aligned. Miller headers keep the two extra
+bottom pixels that balance their top indicator. The same value spaces out the icon
+buttons in those bars through `margin-left`. At 0 px, which is Compact, no rule is
+emitted.
+
+`ThemeManager::apply_density` loads both generated stylesheets into one provider
+above the static stylesheet. It reloads only when either density changes, so
+dragging a slider never reapplies the theme.
+
 ## Adding a preference
 
 1. Add its backward-compatible serialized field/default, getter and setter.

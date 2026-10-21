@@ -229,6 +229,8 @@
   "Command": "명령",
   "Command actions must not declare an entrypoint script": "명령 동작에는 진입점 스크립트를 지정할 수 없습니다",
   "Commit": "커밋",
+  "Content": "콘텐츠",
+  "Frame": "프레임",
   "Compact": "컴팩트",
   "Compact sidebar (%{keys})": "사이드바 간소화(%{keys})",
   "Complete": "완료",

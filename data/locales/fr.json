@@ -229,6 +229,8 @@
   "Command": "Commande",
   "Command actions must not declare an entrypoint script": "Les actions de type commande ne doivent pas déclarer de script de démarrage",
   "Commit": "Commit",
+  "Content": "Contenu",
+  "Frame": "Cadre",
   "Compact": "Compacte",
   "Compact sidebar (%{keys})": "Réduire la barre latérale (%{keys})",
   "Complete": "Terminé",

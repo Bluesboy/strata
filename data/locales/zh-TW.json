@@ -219,6 +219,8 @@
   "Command": "指令",
   "Command actions must not declare an entrypoint script": "指令動作不得宣告進入點指令稿",
   "Commit": "提交",
+  "Content": "內容",
+  "Frame": "框架",
   "Compact": "精簡",
   "Compact sidebar (%{keys})": "精簡側邊欄 (%{keys})",
   "Complete": "完成",

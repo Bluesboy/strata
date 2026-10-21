@@ -229,6 +229,8 @@
   "Command": "Lệnh",
   "Command actions must not declare an entrypoint script": "Hành động dạng lệnh không được khai báo tập lệnh khởi chạy",
   "Commit": "Commit",
+  "Content": "Nội dung",
+  "Frame": "Khung",
   "Compact": "Gọn",
   "Compact sidebar (%{keys})": "Thu gọn thanh bên (%{keys})",
   "Complete": "Hoàn tất",

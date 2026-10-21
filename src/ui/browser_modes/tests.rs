@@ -186,3 +186,37 @@ fn type_groups_order_chunked_rows_and_follow_sort_preference_changes() {
         },
     );
 }
+
+#[test]
+fn density_slider_positions_snap_to_presets_and_clamp_to_the_maximum() {
+    for (px, density) in [
+        (0, BrowserDensity::Custom(0)),
+        (4, BrowserDensity::Compact),
+        (5, BrowserDensity::Custom(5)),
+        (8, BrowserDensity::Airy),
+        (200, BrowserDensity::Custom(16)),
+    ] {
+        assert_eq!(BrowserDensity::from_px(px), density, "content {px} px");
+        assert_eq!(density.px(), px.min(16));
+    }
+    for (px, density) in [
+        (0, FrameDensity::Compact),
+        (3, FrameDensity::Custom(3)),
+        (4, FrameDensity::Airy),
+        (200, FrameDensity::Custom(12)),
+    ] {
+        assert_eq!(FrameDensity::from_px(px), density, "frame {px} px");
+        assert_eq!(density.px(), px.min(12));
+    }
+}
+
+#[test]
+fn icons_column_cap_follows_the_slider_side_of_airy() {
+    for (px, columns) in [(0, 20), (4, 20), (7, 20), (8, 16), (16, 16)] {
+        assert_eq!(
+            density_icons_columns(BrowserDensity::from_px(px)),
+            columns,
+            "{px} px"
+        );
+    }
+}
