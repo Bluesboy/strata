@@ -67,10 +67,13 @@ pub(in crate::ui) fn entry_model_value(entry: &FileEntry) -> String {
         'f'
     };
     let hidden = if entry.is_hidden { 'h' } else { 'v' };
+    let entry_type = crate::services::entry_type(entry);
+    let group = entry_type.description();
     let name = entry.display_name.as_str();
-    let mut value = String::with_capacity(name.len() + 3);
+    let mut value = String::with_capacity(group.len() + name.len() + 3);
     value.push(kind);
     value.push(hidden);
+    value.push_str(group);
     value.push('\t');
     value.push_str(name);
     value
@@ -88,25 +91,15 @@ pub(in crate::ui) fn model_is_hidden(value: &str) -> bool {
     value.as_bytes().get(1) == Some(&b'h')
 }
 
-fn model_is_broken_link(value: &str) -> bool {
-    value.starts_with("x")
-}
-
 pub(in crate::ui) const FOLDER_TYPE_GROUP: &str = crate::services::FOLDER_TYPE_NAME;
 pub(in crate::ui) const OTHER_TYPE_GROUP: &str = crate::services::OTHER_TYPE_NAME;
 
-pub(in crate::ui) fn model_type_group(value: &str) -> String {
-    if model_is_directory(value) {
-        return FOLDER_TYPE_GROUP.to_owned();
-    }
-    if model_is_broken_link(value) {
-        return crate::services::BROKEN_LINK_TYPE_NAME.to_owned();
-    }
-    if value.starts_with('o') {
-        return OTHER_TYPE_GROUP.to_owned();
-    }
-    let name = model_display_name(value);
-    crate::services::mime_description_for_name(name)
+/// Empty for a value without a group, such as an empty model value.
+pub(in crate::ui) fn model_type_group(value: &str) -> &str {
+    value
+        .get(2..)
+        .and_then(|rest| rest.split_once('\t'))
+        .map_or("", |(group, _)| group)
 }
 
 pub(in crate::ui) fn entry_filter(

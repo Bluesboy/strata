@@ -164,6 +164,12 @@ For explicit host-toolkit debugging only, `./scripts/e2e-native.sh` accepts
 `STRATA_BINARY` and `STRATA_E2E_VENV`. A native pass does not replace canonical
 `./scripts/e2e.sh` evidence when targeted or full E2E validation is required.
 
+Both runners build the application with `--features invariant-checks`, which
+turns on exact but slow consistency assertions (for example, the selection
+position cache against a full listing scan). `cargo test --all-features` enables
+the same feature; plain `cargo build` leaves it off so development builds keep
+their normal speed. A `STRATA_BINARY` built without it skips those checks.
+
 ### Shared environment for formatting, lint, and Rust tests
 
 `./scripts/quality.sh` runs all three quality phases in the same verified build

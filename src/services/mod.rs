@@ -61,10 +61,7 @@ pub use jobs::{
     expand_command_arguments,
 };
 pub(crate) use listeners::ListenerGuard;
-pub use mime_type::{
-    BROKEN_LINK_TYPE_NAME, EntryType, FOLDER_TYPE_NAME, OTHER_TYPE_NAME, entry_type,
-    mime_description_for_name,
-};
+pub use mime_type::{EntryType, FOLDER_TYPE_NAME, OTHER_TYPE_NAME, entry_type};
 pub(crate) use model_preview::ModelRender;
 pub use model_preview::{ModelEncoding, ModelFormat, ModelMesh, ModelPalette, ModelView};
 pub(crate) use native_fs::{

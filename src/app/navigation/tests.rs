@@ -177,6 +177,12 @@ fn selected_names(state: &NavigationState) -> Vec<String> {
         .collect()
 }
 
+/// The rows a full scan of the listing selects, bypassing the cached positions.
+fn scanned_positions(state: &NavigationState, depth: usize) -> Vec<usize> {
+    let column = &state.columns[depth];
+    column.selected_locations.scan(&column.entries)
+}
+
 #[test]
 fn successive_fills_select_exactly_the_reported_entries() {
     let mut state = NavigationState::default();
@@ -292,6 +298,7 @@ fn a_lone_selected_cursor_follows_each_batch_onto_every_row_of_its_location() {
     ] {
         state.apply_batch(RequestId(1), vec![arrival]);
         assert_eq!(state.selected_positions(0), positions);
+        assert_eq!(scanned_positions(&state, 0), positions);
         assert_eq!(selected_names(&state), names);
     }
 }
@@ -411,6 +418,7 @@ fn a_fill_follows_every_listing_change() {
         };
 
         assert_eq!(state.selected_positions(0), positions, "{change}");
+        assert_eq!(scanned_positions(&state, 0), positions, "{change}");
         assert_eq!(selected_names(&state), names, "{change}");
         assert_eq!(
             state
@@ -421,6 +429,65 @@ fn a_fill_follows_every_listing_change() {
             names,
             "{change}"
         );
+    }
+}
+
+#[test]
+fn cached_selection_positions_follow_every_selection_and_visibility_change() {
+    let watched = location("/home");
+    let listing = || {
+        let mut hidden = named_entry("/home/.env", ".env");
+        hidden.is_hidden = true;
+        let mut entries = vec![hidden];
+        entries.extend(
+            ["alpha", "bravo", "charlie", "delta"]
+                .map(|name| named_entry(&format!("/home/{name}"), name)),
+        );
+        entries
+    };
+    for change in ["widen", "narrow", "hide hidden", "reload", "select all"] {
+        let mut state = NavigationState::default();
+        state.set_show_hidden(true);
+        state.navigate(watched.clone(), RequestId(1));
+        state.apply_batch(RequestId(1), listing());
+        assert!(state.set_selection(0, &[0, 2, 4], Some(4)));
+        assert_eq!(state.selected_positions(0), [0, 2, 4], "{change}: primed");
+
+        let (positions, names): (&[usize], &[&str]) = match change {
+            "widen" => {
+                assert!(state.set_selection(0, &[0, 1, 2, 4], Some(1)));
+                (&[0, 1, 2, 4], &[".env", "alpha", "bravo", "delta"])
+            }
+            "narrow" => {
+                assert!(state.set_selection(0, &[2], Some(2)));
+                (&[2], &["bravo"])
+            }
+            "hide hidden" => {
+                state.set_show_hidden(false);
+                (&[2, 4], &["bravo", "delta"])
+            }
+            "reload" => {
+                state.refresh_column(0, RequestId(2));
+                let mut entries = listing();
+                entries.insert(1, named_entry("/home/aardvark", "aardvark"));
+                state.install_snapshot(RequestId(2), entries);
+                (&[0, 3, 5], &[".env", "bravo", "delta"])
+            }
+            "select all" => {
+                state.select_all(0);
+                state.apply_directory_change(
+                    0,
+                    &watched,
+                    DirectoryChange::Remove(location("/home/charlie")),
+                );
+                (&[0, 1, 2, 3], &[".env", "alpha", "bravo", "delta"])
+            }
+            _ => unreachable!(),
+        };
+
+        assert_eq!(state.selected_positions(0), positions, "{change}");
+        assert_eq!(scanned_positions(&state, 0), positions, "{change}");
+        assert_eq!(selected_names(&state), names, "{change}");
     }
 }
 

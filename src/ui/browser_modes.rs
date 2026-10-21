@@ -374,6 +374,7 @@ struct Pane {
     depth: usize,
     location: Option<Location>,
     group_by_type: bool,
+    type_group_sorter: Option<TypeGroupSorter>,
     sorting: Option<ListSorting>,
     sort_direction_button: Option<gtk::Button>,
     shell: gtk::Box,
@@ -2506,11 +2507,13 @@ fn build_icons_pane(
         scrolling: Rc::new(Cell::new(false)),
         filter_query: filter_query.clone(),
     });
-    let view_model = if options.group_by_type {
+    let type_group_sorter = options
+        .group_by_type
+        .then(|| pane_type_group_sorter(&context.browser, depth));
+    let view_model = if let Some(sorter) = &type_group_sorter {
         let sorted =
             gtk::SortListModel::new(Some(filtered_model.clone()), None::<gtk::CustomSorter>);
-        let sorter = pane_type_group_sorter(&context.browser, depth, &model);
-        sorted.set_sorter(Some(&sorter));
+        sorted.set_sorter(Some(&sorter.sorter));
         sorted.upcast::<gio::ListModel>()
     } else {
         filtered_model.clone().upcast()
@@ -2671,6 +2674,7 @@ fn build_icons_pane(
         depth,
         location,
         group_by_type: false,
+        type_group_sorter,
         sorting: None,
         shell,
         header,
@@ -3749,10 +3753,12 @@ fn build_list_pane(
     );
     let view_model =
         gtk::SortListModel::new(Some(filtered_model.clone()), None::<gtk::CustomSorter>);
-    if options.group_by_type {
-        let sorter = pane_type_group_sorter(&browser, depth, &model);
-        view_model.set_sorter(Some(&sorter));
-        view_model.set_section_sorter(Some(&sorter));
+    let type_group_sorter = options
+        .group_by_type
+        .then(|| pane_type_group_sorter(&browser, depth));
+    if let Some(sorter) = &type_group_sorter {
+        view_model.set_sorter(Some(&sorter.sorter));
+        view_model.set_section_sorter(Some(&sorter.sorter));
     }
     let view_model_object = view_model.clone().upcast::<gio::ListModel>();
     let view_index = SourceIndexMap::watch(&view_model_object);
@@ -3954,6 +3960,7 @@ fn build_list_pane(
         depth,
         location,
         group_by_type: options.group_by_type,
+        type_group_sorter,
         sorting: Some(sorting),
         shell,
         header,
@@ -5777,9 +5784,11 @@ fn compare_type_groups(left: &str, right: &str) -> std::cmp::Ordering {
             _ => 2,
         }
     }
-    rank(left)
-        .cmp(&rank(right))
-        .then_with(|| left.to_lowercase().cmp(&right.to_lowercase()))
+    rank(left).cmp(&rank(right)).then_with(|| {
+        left.chars()
+            .flat_map(char::to_lowercase)
+            .cmp(right.chars().flat_map(char::to_lowercase))
+    })
 }
 
 fn model_value(item: &glib::Object) -> String {
@@ -5788,47 +5797,61 @@ fn model_value(item: &glib::Object) -> String {
         .unwrap_or_default()
 }
 
-/// Empty model values have no file-type group.
-fn value_type_group(value: &str) -> String {
-    if value.is_empty() {
-        return String::new();
+fn model_string(item: &glib::Object) -> Option<glib::GString> {
+    item.downcast_ref::<gtk::StringObject>()
+        .map(|value| value.string())
+}
+
+/// Groups a pane's rows by file type. GTK's stable sort preserves the pane's
+/// filename ordering within each type.
+#[derive(Clone)]
+struct TypeGroupSorter {
+    sorter: gtk::CustomSorter,
+    /// The preferences the last comparison read, so a re-sort only follows a
+    /// preference change GTK has not already sorted spliced rows under.
+    compared_with: Rc<Cell<Option<crate::model::ViewPreferences>>>,
+}
+
+impl TypeGroupSorter {
+    fn new(preferences: impl Fn() -> Option<crate::model::ViewPreferences> + 'static) -> Self {
+        let compared_with = Rc::new(Cell::new(None));
+        let seen = compared_with.clone();
+        let sorter = gtk::CustomSorter::new(move |left, right| {
+            let preferences = preferences();
+            seen.set(preferences);
+            let (left, right) = (model_string(left), model_string(right));
+            compare_type_groups_for_preferences(
+                super::browser::model_type_group(left.as_deref().unwrap_or("")),
+                super::browser::model_type_group(right.as_deref().unwrap_or("")),
+                preferences.unwrap_or_default(),
+            )
+            .into()
+        });
+        Self {
+            sorter,
+            compared_with,
+        }
     }
-    super::browser::model_type_group(value)
+
+    /// Re-sorts after a preference change; a full re-sort is the one expensive
+    /// operation on a large pane, so rows spliced under the current preferences
+    /// never trigger one.
+    fn refresh(&self, preferences: Option<crate::model::ViewPreferences>) {
+        if self.compared_with.get() == preferences {
+            return;
+        }
+        self.compared_with.set(preferences);
+        self.sorter.changed(gtk::SorterChange::Different);
+    }
 }
 
-// GTK's stable sort preserves the pane's filename ordering within each type.
-fn type_group_sorter(
-    preferences: impl Fn() -> crate::model::ViewPreferences + 'static,
-) -> gtk::CustomSorter {
-    gtk::CustomSorter::new(move |left, right| {
-        compare_type_groups_for_preferences(
-            &value_type_group(&model_value(left)),
-            &value_type_group(&model_value(right)),
-            preferences(),
-        )
-        .into()
-    })
-}
-
-fn pane_type_group_sorter(
-    browser: &Rc<Browser>,
-    depth: usize,
-    model: &gtk::StringList,
-) -> gtk::CustomSorter {
+fn pane_type_group_sorter(browser: &Rc<Browser>, depth: usize) -> TypeGroupSorter {
     let browser = Rc::downgrade(browser);
-    let sorter = type_group_sorter(move || {
+    TypeGroupSorter::new(move || {
         browser
             .upgrade()
             .and_then(|browser| browser.column_preferences(depth))
-            .unwrap_or_default()
-    });
-    let weak_sorter = sorter.downgrade();
-    model.connect_items_changed(move |_, _, _, _| {
-        if let Some(sorter) = weak_sorter.upgrade() {
-            sorter.changed(gtk::SorterChange::Different);
-        }
-    });
-    sorter
+    })
 }
 
 fn compare_type_groups_for_preferences(
@@ -5885,8 +5908,8 @@ fn type_group_header_factory() -> gtk::SignalListItemFactory {
             .item()
             .map(|item| model_value(&item))
             .unwrap_or_default();
-        let group = value_type_group(&value);
-        heading.set_label(&crate::i18n::tr(&group));
+        let group = super::browser::model_type_group(&value);
+        heading.set_label(&crate::i18n::tr(group));
         heading.set_visible(!group.is_empty());
     });
     factory
