@@ -41,7 +41,7 @@ header key, step, target, predicate, and `fs` kind. The maintained guide is the
   `restart`, `layout`, peers in `tests/qa/peers.rs`) execute in the runner;
   the rest go to the process. Costliest runs start first.
 - **The container.** `./scripts/qa.sh` runs
-  `cargo test --features qa --test qa` inside the pinned image.
+  `cargo test --features qa,invariant-checks --test qa` inside the pinned image.
   `tests/qa.rs` refuses to start without the `STRATA_QA_CONTAINER=1` it sets.
 - **The files.** `tests/qa/scenarios/<folder>/<scenario>.jsonl`, one scenario
   per file. Line 1 is the header; every later line is one step.

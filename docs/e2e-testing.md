@@ -164,11 +164,12 @@ For explicit host-toolkit debugging only, `./scripts/e2e-native.sh` accepts
 `STRATA_BINARY` and `STRATA_E2E_VENV`. A native pass does not replace canonical
 `./scripts/e2e.sh` evidence when targeted or full E2E validation is required.
 
-Both runners build the application with `--features invariant-checks`, which
-turns on exact but slow consistency assertions (for example, the selection
-position cache against a full listing scan). `cargo test --all-features` enables
-the same feature; plain `cargo build` leaves it off so development builds keep
-their normal speed. A `STRATA_BINARY` built without it skips those checks.
+Both runners, and `scripts/qa.sh`, build the application with
+`--features invariant-checks`, which turns on exact but slow consistency
+assertions (for example, the selection position cache against a full listing
+scan). `cargo test --all-features` enables the same feature; plain
+`cargo build` leaves it off so development builds keep their normal speed. A
+`STRATA_BINARY` built without it skips those checks.
 
 ### Shared environment for formatting, lint, and Rust tests
 
@@ -617,9 +618,9 @@ STRATA_QA_KEEP_ARTIFACTS=1 ./scripts/qa.sh   # artifacts for passing runs too
 
 `scripts/qa.sh` uses the same verified image, mounts, account files, and
 `target/e2e-container` cache as `scripts/e2e.sh`, and runs
-`cargo test --features qa --test qa` there. Because the cache is shared, a QA
-run and an E2E run each rebuild `strata` with their own features: run them one
-after the other, never concurrently. `tests/qa.rs` refuses to start
+`cargo test --features qa,invariant-checks --test qa` there. Because the
+cache is shared, a QA run and an E2E run each rebuild `strata` with their own
+features: run them one after the other, never concurrently. `tests/qa.rs` refuses to start
 without the `STRATA_QA_CONTAINER=1` that script sets. A host run needs the
 owner's explicit consent for the task and `STRATA_QA_HOST=1`; it is labelled
 unsupported, is never validation evidence, and must be recorded in the handoff
@@ -1184,8 +1185,8 @@ twin, errors, and each failed step with its line).
 image, for checking a change interactively before (or instead of) writing a
 scenario. `start` starts a detached container with the same engine, image,
 mounts, account files, and `target/e2e-container` cache as `scripts/qa.sh`
-(both take them from `scripts/lib/qa-container.sh`), makes the
-build `qa.sh` makes (`cargo test --features qa --test qa --no-run`), seeds a
+(both take them from `scripts/lib/qa-container.sh`), makes the build `qa.sh`
+makes (`cargo test --features qa,invariant-checks --test qa --no-run`), seeds a
 fresh HOME, XDG directories, and fixture from `tests/fixtures/harness.json` as
 the runner does, starts Xvfb on `:90`, and launches the application in the
 fixture with the runner's environment; it prints the launch reply. A start

@@ -73,7 +73,7 @@ exec "$engine" run "${options[@]}" "${mounts[@]}" \
     rustc --version
     output="$(mktemp)"
     # Runner unit tests alone print no PASS or KNOWN BUG line, so require one.
-    cargo test --locked --features qa --test qa -- --include-ignored "$@" 2>&1 | tee "$output"
+    cargo test --locked --features qa,invariant-checks --test qa -- --include-ignored "$@" 2>&1 | tee "$output"
     status="${PIPESTATUS[0]}"
     if ((status != 0)); then exit "$status"; fi
     if ! grep -Eq "^(PASS|KNOWN BUG) " "$output"; then

@@ -217,7 +217,7 @@ case "${1:-}" in
   _build)
     inside "$1"
     mkdir -p "$HOME" "$CARGO_HOME" "$shared"
-    if ! cargo test --locked --features qa --test qa --no-run > "$shared/build.log" 2>&1; then
+    if ! cargo test --locked --features qa,invariant-checks --test qa --no-run > "$shared/build.log" 2>&1; then
       tail -n 40 "$shared/build.log" >&2
       exit 1
     fi
