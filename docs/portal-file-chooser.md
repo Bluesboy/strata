@@ -75,10 +75,11 @@ asks once whether to replace your Open and Save dialogs. **Nothing changes witho
 consent.** “Not now”, Escape, closing the offer, or clicking outside it keeps your
 current chooser. Portal requests themselves never show the offer.
 
-You can always enable Strata later through **Settings → General → System file
-chooser → Configure…**. The same control restores your previous chooser when
-Strata is configured. File chooser replacement is separate from making Strata the
-default file manager, folder handler, or “Open file location” handler.
+You can always enable Strata later through **Settings → General → Desktop
+integration → System file manager → Complete setup**. **Restore default** in the
+same row restores your previous chooser when Strata is configured. File chooser
+replacement is separate from making Strata the default file manager, folder
+handler, or “Open file location” handler.
 
 The installer asks separately, defaulting to **No**, after placing the binary at
 its permanent path. A declined installer offer is remembered so the app does not
