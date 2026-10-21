@@ -229,6 +229,8 @@
   "Command": "命令",
   "Command actions must not declare an entrypoint script": "命令类操作不能指定入口脚本",
   "Commit": "提交",
+  "Content": "内容",
+  "Frame": "框架",
   "Compact": "紧凑",
   "Compact sidebar (%{keys})": "紧凑显示侧边栏（%{keys}）",
   "Complete": "已完成",

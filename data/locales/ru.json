@@ -229,6 +229,8 @@
   "Command": "Команда",
   "Command actions must not declare an entrypoint script": "Действие-команда не должно указывать сценарий точки входа",
   "Commit": "Коммит",
+  "Content": "Контент",
+  "Frame": "Рамка",
   "Compact": "Компактная",
   "Compact sidebar (%{keys})": "Свернуть боковую панель (%{keys})",
   "Complete": "Готово",

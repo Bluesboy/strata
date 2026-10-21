@@ -12,6 +12,7 @@ use gtk::{gdk, gio, glib, prelude::*};
 use serde::{Deserialize, Serialize};
 use sourceview5::prelude::BufferExt as _;
 
+use super::browser_modes::DensityScale;
 use super::preferences::{
     CornerRoundness, FileIconColors, OmarchyVariant, PreferenceManager, TextSize,
     desktop_text_scale_factor, notify_live, snapped_root_font_px,
@@ -30,7 +31,9 @@ const BASE_THEME_STYLE_PRIORITY: u32 = RESET_STYLE_PRIORITY + 1;
 const FONT_STYLE_PRIORITY: u32 = BASE_THEME_STYLE_PRIORITY + 1;
 const STYLE_PRIORITY: u32 = FONT_STYLE_PRIORITY + 1;
 const RESET_CSS: &str = "* { all: unset; }";
-const TOKEN_STYLE_PRIORITY: u32 = STYLE_PRIORITY + 1;
+/// Above the static stylesheet so generated density spacing wins over its presets.
+const DENSITY_STYLE_PRIORITY: u32 = STYLE_PRIORITY + 1;
+const TOKEN_STYLE_PRIORITY: u32 = DENSITY_STYLE_PRIORITY + 1;
 /// Above every Strata stylesheet, so `~/.config/strata/style.css` has the final word.
 const USER_STYLE_PRIORITY: u32 = TOKEN_STYLE_PRIORITY + 1;
 const USER_STYLE_FILE: &str = "style.css";
@@ -195,6 +198,13 @@ pub struct ThemeManager {
     base_theme_provider: gtk::CssProvider,
     font_provider: gtk::CssProvider,
     base_provider: gtk::CssProvider,
+    density_provider: gtk::CssProvider,
+    density: Cell<
+        Option<(
+            super::browser_modes::BrowserDensity,
+            super::browser_modes::FrameDensity,
+        )>,
+    >,
     user_provider: gtk::CssProvider,
     base_roundness: Cell<Option<CornerRoundness>>,
     themes: RefCell<Vec<Theme>>,
@@ -258,6 +268,8 @@ impl ThemeManager {
             base_theme_provider: gtk::CssProvider::new(),
             font_provider: gtk::CssProvider::new(),
             base_provider: gtk::CssProvider::new(),
+            density_provider: gtk::CssProvider::new(),
+            density: Cell::new(None),
             user_provider: gtk::CssProvider::new(),
             base_roundness: Cell::new(None),
             themes: RefCell::new(themes),
@@ -291,6 +303,7 @@ impl ThemeManager {
         pin_base_theme();
         manager.install_provider();
         manager.apply_base_stylesheet();
+        manager.apply_density();
         manager.apply_selected();
         manager.monitor_text_scaling();
         manager.monitor_omarchy(&omarchy.directories);
@@ -488,6 +501,11 @@ impl ThemeManager {
             );
             gtk::style_context_add_provider_for_display(
                 &display,
+                &self.density_provider,
+                DENSITY_STYLE_PRIORITY,
+            );
+            gtk::style_context_add_provider_for_display(
+                &display,
                 &self.provider,
                 TOKEN_STYLE_PRIORITY,
             );
@@ -568,6 +586,32 @@ impl ThemeManager {
     #[cfg(test)]
     pub(crate) fn base_stylesheet(&self) -> String {
         self.base_provider.to_str().into()
+    }
+
+    /// Kept apart from the token provider so dragging a density slider restyles
+    /// only spacing rather than reapplying the whole theme.
+    fn apply_density(&self) {
+        let density = (
+            self.preferences.browser_density(),
+            self.preferences.frame_density(),
+        );
+        if self.density.replace(Some(density)) == Some(density) {
+            return;
+        }
+        let (browser, frame) = density;
+        let mut css = match browser {
+            super::browser_modes::BrowserDensity::Custom(px) => {
+                super::browser_modes::browser_density_custom_css(px)
+            }
+            _ => String::new(),
+        };
+        css.push_str(&frame_density_css(frame.px()));
+        self.density_provider.load_from_string(&css);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn density_stylesheet(&self) -> String {
+        self.density_provider.to_str().into()
     }
 
     fn apply_selected(&self) {
@@ -683,6 +727,7 @@ impl ThemeManager {
             self.apply_base_stylesheet();
             self.apply_selected();
         }
+        self.apply_density();
         self.theme_listeners.notify(self);
     }
 
@@ -1498,6 +1543,23 @@ fn apply_interface_font(family: Option<&str>, root_font_px: f64) {
     if let Some(settings) = gtk::Settings::default() {
         settings.set_gtk_font_name(Some(&font::font_name(family, root_font_px)));
     }
+}
+
+/// One inset for every bar so the header, tab strip, sidebar rows, and Miller and
+/// preview headers grow together and stay aligned. Padding and `margin-left` only,
+/// so `sizing`'s `min-height` and fixed button widths still hold. The sidebar toggle
+/// keeps its static margin, which lines it up with the sidebar icons below it.
+fn frame_density_css(inset: u8) -> String {
+    if inset == 0 {
+        return String::new();
+    }
+    // Miller headers keep their two extra bottom pixels that balance the top indicator.
+    let column_header_bottom = inset + 2;
+    format!(
+        "headerbar.browser-header, .tab-strip, .mode-pane-header, .preview-header, .sidebar-row {{ padding-top: {inset}px; padding-bottom: {inset}px; }}\n\
+         .directory-column .column-header {{ padding-top: {inset}px; padding-bottom: {column_header_bottom}px; }}\n\
+         headerbar.browser-header button.header-action, headerbar.browser-header menubutton.header-action > button, .tab-strip button.header-action, .directory-column .column-header button.column-header-action, .directory-column .column-header menubutton.column-header-action > button, .mode-pane-header button.column-header-action, .mode-pane-header menubutton.column-header-action > button, .mode-pane-header .list-navigation-button, .preview-header .preview-header-action {{ margin-left: {inset}px; }}\n"
+    )
 }
 
 fn tokens_css(tokens: &ThemeTokens, root_font_px: f64) -> String {
