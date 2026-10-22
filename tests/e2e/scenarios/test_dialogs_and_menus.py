@@ -333,6 +333,38 @@ def test_executable_context_menu_offers_confirmed_run(observable_executable_file
     strata.wait(marker.exists, "the confirmed program to create its marker")
 
 
+@pytest.mark.parametrize(
+    "name, suffix",
+    [("readme.md", ""), ("documents", "/")],
+    ids=["file", "directory"],
+)
+def test_properties_copy_path_uses_trailing_slash_only_for_directories(strata, name, suffix):
+    from gi.repository import Gdk, GLib
+
+    dialog = _open_properties(strata, name)
+    strata.pointer.click(strata.dialog_button("Copy path"))
+    strata.wait(lambda: dialog.find(role="button", name="Copied"), "Copy path to complete")
+
+    display = Gdk.Display.open(strata.display.display)
+    assert display is not None
+    result = []
+    try:
+        display.get_clipboard().read_text_async(
+            None, lambda clipboard, response: result.append(clipboard.read_text_finish(response))
+        )
+
+        def received():
+            context = GLib.MainContext.default()
+            while context.pending():
+                context.iteration(False)
+            return bool(result)
+
+        strata.wait(received, "the Properties path on the private display clipboard")
+        assert result[0] == str(strata.fixture.path(name)) + suffix
+    finally:
+        display.close()
+
+
 def test_properties_pins_a_folder_and_offers_unpin_afterwards(strata):
     dialog = _open_properties(strata, "documents")
     pin = dialog.find(role="button", name="Pin")

@@ -798,7 +798,7 @@ impl ViewState {
             if let Some(display) = gtk::gdk::Display::default() {
                 display
                     .clipboard()
-                    .set_text(&copy_path_text(&copied_location, true));
+                    .set_text(&copy_path_text(&copied_location, is_directory));
                 button.set_label(&crate::i18n::tr("Copied"));
             }
         });
