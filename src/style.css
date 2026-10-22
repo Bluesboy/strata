@@ -5362,6 +5362,14 @@ textview > popover.menu button.model:focus-visible,
   outline-offset: -1px;
 }
 
+/* The result Enter in the filter field opens; not a selection. */
+.file-row.enter-target,
+.list-row.enter-target,
+.icons-card.enter-target {
+  outline: 1px solid @strata_accent;
+  outline-offset: -1px;
+}
+
 .directory-column:not(:focus-within) .file-list:not(.context-selection) row:selected,
 .file-list-mode:not(:focus-within):not(.context-selection) row:selected {
   background: alpha(@strata_accent, 0.08);

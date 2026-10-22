@@ -38,6 +38,7 @@ pub(super) struct ListFactory {
     pub(super) bound_items: Rc<RefCell<Vec<BoundModeItem>>>,
     pub(super) state: Option<Weak<crate::ui::browser::ViewState>>,
     pub(super) filter_query: Rc<RefCell<String>>,
+    pub(super) enter_target: crate::ui::enter_target::EnterTarget,
 }
 
 impl ListFactory {
@@ -131,11 +132,11 @@ impl ListFactory {
         let Some(item) = object.downcast_ref::<gtk::ListItem>() else {
             return;
         };
-        let Some(row) = item
-            .child()
-            .and_downcast::<gtk::Box>()
-            .and_then(ListRow::from_widget)
-        else {
+        let Some(widget) = item.child().and_downcast::<gtk::Box>() else {
+            return;
+        };
+        self.enter_target.decorate(&widget, item);
+        let Some(row) = ListRow::from_widget(widget) else {
             return;
         };
         let Some(binding) = self.binding(item) else {

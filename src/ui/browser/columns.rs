@@ -26,7 +26,7 @@ use crate::ui::browser_modes::{ClickActivation, ClickCount};
 use crate::ui::entry_list_model::EntryListModel;
 use crate::ui::keys::{
     self,
-    bindings::{DOWN, UP},
+    bindings::{DOWN, ENTER, UP},
 };
 use crate::ui::motion::{animations_enabled, emphasized_acceleration, emphasized_deceleration};
 use gtk::prelude::*;
@@ -628,6 +628,7 @@ pub(super) fn refresh_source_filter(column: &ColumnView, browser: &crate::app::B
         &column.selection,
         &column.syncing_selection,
         items,
+        true,
     );
     column
         .search_session
@@ -662,7 +663,7 @@ pub(super) fn prune_missing_search_results(
         if items.len() == results.borrow().len() {
             return;
         }
-        if search::update_results(&model, &results, &selection, &syncing, items) {
+        if search::update_results(&model, &results, &selection, &syncing, items, true) {
             selection_changed();
         }
     });
@@ -1349,6 +1350,7 @@ impl ViewState {
 
         let (filter_entry, filter_revealer, filter_button) =
             crate::ui::browser_modes::filter_controls("Filter this pane (%{keys})");
+        let enter_target = crate::ui::enter_target::EnterTarget::new(&filter_entry);
         let weak_self = Rc::downgrade(self);
         filter_button.connect_toggled(move |button| {
             if button.is_active()
@@ -1506,6 +1508,13 @@ impl ViewState {
                 state.refresh_destination_style();
             }
         });
+        let syncing_for_pick = syncing_selection.clone();
+        let enter_for_pick = enter_target.clone();
+        selection.connect_selection_changed(move |_, _, _| {
+            if !syncing_for_pick.get() {
+                enter_for_pick.pick();
+            }
+        });
         let search_results: Rc<RefCell<Vec<crate::services::SearchItem>>> =
             Rc::new(RefCell::new(Vec::new()));
         let search_session = crate::ui::search_session::SearchSession::default();
@@ -1523,11 +1532,13 @@ impl ViewState {
         let syncing_for_search = syncing_selection.clone();
         let filter_query_for_search = filter_query.clone();
         let hits_for_search = hits.clone();
+        let enter_for_search = enter_target.clone();
         let query_binding = bind_filter_query(
             &filter_entry,
             &search_session,
             move |text, scope, restart| {
                 if restart {
+                    enter_for_search.restart();
                     session_for_changed.cancel();
                     let changed = search::update_results(
                         &search_model_for_changed,
@@ -1535,6 +1546,7 @@ impl ViewState {
                         &selection_for_search,
                         &syncing_for_search,
                         Vec::new(),
+                        false,
                     );
                     if changed && let Some(state) = weak_state_for_search.upgrade() {
                         state.notify_search_selection_changed();
@@ -1542,6 +1554,7 @@ impl ViewState {
                 }
                 let query = text.trim().to_string();
                 if query.is_empty() {
+                    enter_for_search.clear();
                     session_for_changed.cancel();
                     // Keep the hidden-file filter installed while swapping back to the directory
                     // model; GTK's synchronous model notifications otherwise leave a stale row.
@@ -1581,6 +1594,9 @@ impl ViewState {
                         &filtered_model_for_search,
                         &model_for_search,
                     );
+                    // The in-place selection is the browser's own; a new query
+                    // only stops it from counting as a pick.
+                    enter_for_search.show_query(&text);
                     apply_filter_query(
                         &filtered_model_for_search,
                         &filter,
@@ -1609,6 +1625,7 @@ impl ViewState {
                 let browser = Rc::downgrade(&state.browser);
                 let weak_state = weak_state_for_search.clone();
                 let hits = hits_for_search.clone();
+                let enter = enter_for_search.clone();
                 let root = path.clone();
                 session_for_changed.update(
                     crate::ui::search_session::SearchInput {
@@ -1650,7 +1667,15 @@ impl ViewState {
                             },
                             recursive: scope.recursive(),
                         });
-                        if search::update_results(&sm, &results, &selection, &syncing, items) {
+                        let keep_selection = !enter.show_query(&batch.query);
+                        if search::update_results(
+                            &sm,
+                            &results,
+                            &selection,
+                            &syncing,
+                            items,
+                            keep_selection,
+                        ) {
                             state.notify_search_selection_changed();
                         }
                         state.refresh_name_highlights();
@@ -1672,6 +1697,7 @@ impl ViewState {
             &recursive_search_active,
             &search_results,
             &hits,
+            &enter_target,
         );
 
         let list = gtk::ListView::new(Some(selection.clone()), Some(factory));
@@ -1694,6 +1720,7 @@ impl ViewState {
         let browser_for_navigation = Rc::downgrade(&self.browser);
         let results_for_navigation = search_results.clone();
         let navigation_state = Rc::downgrade(self);
+        let enter_for_navigation = enter_target.clone();
         keys::on_press(&search_navigation, move |_, press| {
             let filter_active = search_active_for_navigation.get()
                 || !query_for_navigation.borrow().trim().is_empty();
@@ -1707,9 +1734,15 @@ impl ViewState {
             if !activate && !press.is(DOWN) {
                 return glib::Propagation::Proceed;
             }
-            let current = bitset_positions(&selection_for_navigation.selection())
-                .last()
-                .copied();
+            // Right keeps needing a pick: in the field it otherwise moves the caret.
+            let to_top = !activate || press.is(ENTER);
+            let current = if to_top && enter_for_navigation.offers_top() {
+                Some(0)
+            } else {
+                bitset_positions(&selection_for_navigation.selection())
+                    .last()
+                    .copied()
+            };
             if activate {
                 if search_active_for_navigation.get() {
                     return if current.is_some_and(|position| {
@@ -1748,6 +1781,7 @@ impl ViewState {
             if is_recursive {
                 syncing_for_navigation.set(false);
             }
+            enter_for_navigation.pick();
             list_for_navigation.scroll_to(next, gtk::ListScrollFlags::FOCUS, None);
             if let Some(state) = navigation_state.upgrade() {
                 super::BrowserView { state }.keyboard_navigation();
@@ -1822,6 +1856,7 @@ impl ViewState {
             .build();
         scroll.add_css_class("browser-listing-scroll");
         crate::ui::scrolling::install_autoscroll(&scroll, &self.overlay);
+        enter_target.attach(&list, &selection, &scroll);
         {
             let timer_source: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
             scroll.vadjustment().connect_value_changed(move |_| {
