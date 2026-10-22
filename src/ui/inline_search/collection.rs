@@ -95,6 +95,20 @@ impl ResultCollection {
         Some(object.borrow::<SearchItem>().clone())
     }
 
+    pub(super) fn visit_bound(&self) -> crate::ui::marquee::ItemVisitor {
+        let bound = self.bound.clone();
+        Rc::new(move |visit| {
+            bound.borrow_mut().retain(|bound| {
+                let (Some(item), Some(widget)) = (bound.item.upgrade(), bound.widget.upgrade())
+                else {
+                    return false;
+                };
+                visit(item.position(), &widget);
+                true
+            });
+        })
+    }
+
     pub(super) fn items(&self) -> Vec<SearchItem> {
         (0..self.sorted.n_items())
             .filter_map(|position| self.item(position))

@@ -64,7 +64,8 @@ struct Inner {
     entry: glib::WeakRef<gtk::Entry>,
     view: glib::WeakRef<gtk::Widget>,
     selection: glib::WeakRef<gtk::MultiSelection>,
-    rows: RefCell<Vec<(glib::WeakRef<gtk::ListItem>, glib::WeakRef<gtk::Widget>)>>,
+    rows: RefCell<Option<super::marquee::ItemVisitor>>,
+    shows_mark: Cell<bool>,
     settle_queued: Cell<bool>,
     scroll_wanted: Cell<bool>,
 }
@@ -92,49 +93,62 @@ impl EnterTarget {
         target
     }
 
-    /// Follows the list whose top row Enter opens. Wheel or scrollbar use of `scroll`
-    /// stops keeping the top in view until the query changes; focusing `view` picks.
+    /// Follows the list whose top row Enter opens, whose bound rows `rows` visits. A
+    /// selection change or focus entering `view` is the user's pick unless `writing`
+    /// reports the surface's own write. Pointer, touch, wheel, or drag input on `scroll`
+    /// stops keeping the top in view until the query changes.
     pub(in crate::ui) fn attach(
         &self,
         view: &impl IsA<gtk::Widget>,
         selection: &gtk::MultiSelection,
         scroll: &gtk::ScrolledWindow,
+        rows: super::marquee::ItemVisitor,
+        writing: impl Fn() -> bool + 'static,
     ) {
         self.0.view.set(Some(view.upcast_ref()));
         self.0.selection.set(Some(selection));
+        self.0.rows.replace(Some(rows));
+        let writing = Rc::new(writing);
         let weak = Rc::downgrade(&self.0);
         selection.connect_items_changed(move |_, _, _, _| queue_settle(&weak, true));
         let weak = Rc::downgrade(&self.0);
-        selection.connect_selection_changed(move |_, _, _| queue_settle(&weak, false));
-
-        let wheel = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::BOTH_AXES);
-        wheel.set_propagation_phase(gtk::PropagationPhase::Capture);
-        let weak = Rc::downgrade(&self.0);
-        wheel.connect_scroll(move |_, _, _| {
-            if let Some(inner) = weak.upgrade() {
-                inner.tracker.borrow_mut().scrolled = true;
-            }
-            glib::Propagation::Proceed
-        });
-        scroll.add_controller(wheel);
-        let drag = gtk::GestureClick::new();
-        drag.set_propagation_phase(gtk::PropagationPhase::Capture);
-        let weak = Rc::downgrade(&self.0);
-        drag.connect_pressed(move |_, _, _, _| {
-            if let Some(inner) = weak.upgrade() {
-                inner.tracker.borrow_mut().scrolled = true;
+        let writing_for_selection = writing.clone();
+        selection.connect_selection_changed(move |_, _, _| {
+            if writing_for_selection() {
+                queue_settle(&weak, false);
+            } else {
+                pick(&weak);
             }
         });
-        scroll.vscrollbar().add_controller(drag);
-
         let focus = gtk::EventControllerFocus::new();
         let weak = Rc::downgrade(&self.0);
         focus.connect_enter(move |_| {
-            if let Some(inner) = weak.upgrade() {
-                EnterTarget(inner).pick();
+            if !writing() {
+                pick(&weak);
             }
         });
         view.add_controller(focus);
+
+        let input = gtk::EventControllerLegacy::new();
+        input.set_propagation_phase(gtk::PropagationPhase::Capture);
+        let weak = Rc::downgrade(&self.0);
+        input.connect_event(move |_, event| {
+            if matches!(
+                event.event_type(),
+                gtk::gdk::EventType::ButtonPress
+                    | gtk::gdk::EventType::Scroll
+                    | gtk::gdk::EventType::TouchBegin
+            ) {
+                mark_scrolled(&weak);
+            }
+            glib::Propagation::Proceed
+        });
+        scroll.add_controller(input);
+        // A drag hovering the list may edge-scroll it.
+        let drag = gtk::DropControllerMotion::new();
+        let weak = Rc::downgrade(&self.0);
+        drag.connect_enter(move |_, _, _| mark_scrolled(&weak));
+        scroll.add_controller(drag);
     }
 
     /// Records the query whose results the list now shows; true when the text changed,
@@ -161,8 +175,7 @@ impl EnterTarget {
 
     /// A selection or focus the user gave the results; Enter follows it from now on.
     pub(in crate::ui) fn pick(&self) {
-        self.0.tracker.borrow_mut().picked = true;
-        queue_settle(&Rc::downgrade(&self.0), false);
+        pick(&Rc::downgrade(&self.0));
     }
 
     /// Whether Enter in the field opens the top result rather than the user's pick.
@@ -179,14 +192,10 @@ impl EnterTarget {
 
     /// Marks the bound row when it is the one Enter opens; call from every bind.
     pub(in crate::ui) fn decorate(&self, widget: &impl IsA<gtk::Widget>, item: &gtk::ListItem) {
-        let widget = widget.upcast_ref();
-        let mut rows = self.0.rows.borrow_mut();
-        rows.retain(|(item, row)| {
-            item.upgrade().is_some() && row.upgrade().is_some_and(|row| &row != widget)
-        });
-        rows.push((item.downgrade(), widget.downgrade()));
-        drop(rows);
-        set_marked(widget, item.position() == 0 && self.shows_mark());
+        set_marked(
+            widget.upcast_ref(),
+            self.0.shows_mark.get() && item.position() == 0,
+        );
     }
 
     fn rows_state(&self) -> Option<(bool, bool)> {
@@ -212,16 +221,11 @@ impl EnterTarget {
 
     fn refresh(&self) {
         let shows = self.shows_mark();
-        self.0.rows.borrow_mut().retain(|(item, widget)| {
-            let (Some(item), Some(widget)) = (item.upgrade(), widget.upgrade()) else {
-                return false;
-            };
-            set_marked(
-                &widget,
-                shows && item.item().is_some() && item.position() == 0,
-            );
-            true
-        });
+        self.0.shows_mark.set(shows);
+        let rows = self.0.rows.borrow().clone();
+        if let Some(rows) = rows {
+            rows(&mut |position, widget| set_marked(widget, shows && position == 0));
+        }
     }
 
     fn settle(&self) {
@@ -237,9 +241,25 @@ impl EnterTarget {
             has_selection,
             super::tenxer_mode::chrome_suppressed(),
         );
-        if follows && let Some(view) = self.0.view.upgrade() {
+        if follows
+            && self.entry_has_focus()
+            && let Some(view) = self.0.view.upgrade()
+        {
             super::browser::scroll_results_to(&view, 0, gtk::ListScrollFlags::NONE);
         }
+    }
+}
+
+fn pick(inner: &std::rc::Weak<Inner>) {
+    if let Some(inner) = inner.upgrade() {
+        inner.tracker.borrow_mut().picked = true;
+    }
+    queue_settle(inner, false);
+}
+
+fn mark_scrolled(inner: &std::rc::Weak<Inner>) {
+    if let Some(inner) = inner.upgrade() {
+        inner.tracker.borrow_mut().scrolled = true;
     }
 }
 

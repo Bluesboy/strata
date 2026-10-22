@@ -1508,13 +1508,6 @@ impl ViewState {
                 state.refresh_destination_style();
             }
         });
-        let syncing_for_pick = syncing_selection.clone();
-        let enter_for_pick = enter_target.clone();
-        selection.connect_selection_changed(move |_, _, _| {
-            if !syncing_for_pick.get() {
-                enter_for_pick.pick();
-            }
-        });
         let search_results: Rc<RefCell<Vec<crate::services::SearchItem>>> =
             Rc::new(RefCell::new(Vec::new()));
         let search_session = crate::ui::search_session::SearchSession::default();
@@ -1856,7 +1849,20 @@ impl ViewState {
             .build();
         scroll.add_css_class("browser-listing-scroll");
         crate::ui::scrolling::install_autoscroll(&scroll, &self.overlay);
-        enter_target.attach(&list, &selection, &scroll);
+        let rows_for_visit = bound_rows.clone();
+        let visit_rows: crate::ui::marquee::ItemVisitor = Rc::new(move |visit| {
+            rows_for_visit.borrow_mut().retain(|bound| {
+                let (Some(item), Some(row)) = (bound.item.upgrade(), bound.row.upgrade()) else {
+                    return false;
+                };
+                visit(item.position(), row.upcast_ref());
+                true
+            });
+        });
+        let syncing_for_enter = syncing_selection.clone();
+        enter_target.attach(&list, &selection, &scroll, visit_rows.clone(), move || {
+            syncing_for_enter.get()
+        });
         {
             let timer_source: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
             scroll.vadjustment().connect_value_changed(move |_| {
@@ -1887,7 +1893,6 @@ impl ViewState {
             &list,
             &self.browser,
         );
-        let rows_for_marquee = bound_rows.clone();
         let weak_for_clear = Rc::downgrade(self);
         let returning_to_column = Rc::new(Cell::new(false));
         let returning_for_clear = returning_to_column.clone();
@@ -1895,16 +1900,7 @@ impl ViewState {
         let marquee_targets: Rc<RefCell<Vec<crate::ui::marquee::MarqueeTarget>>> =
             Rc::new(RefCell::new(vec![crate::ui::marquee::MarqueeTarget {
                 selection: selection.clone(),
-                visit_items: Rc::new(move |visit| {
-                    rows_for_marquee.borrow_mut().retain(|bound| {
-                        let (Some(item), Some(row)) = (bound.item.upgrade(), bound.row.upgrade())
-                        else {
-                            return false;
-                        };
-                        visit(item.position(), row.upcast_ref());
-                        true
-                    });
-                }),
+                visit_items: visit_rows,
             }]));
         let marquee = crate::ui::marquee::install(crate::ui::marquee::MarqueeSetup {
             view: list.clone().upcast(),

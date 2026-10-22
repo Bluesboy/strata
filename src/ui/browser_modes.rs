@@ -2494,7 +2494,7 @@ struct IconsContext {
     density: Cell<BrowserDensity>,
     scrolling: Rc<Cell<bool>>,
     filter_query: Rc<RefCell<String>>,
-    enter_target: super::enter_target::EnterTarget,
+    enter_target: Option<super::enter_target::EnterTarget>,
 }
 
 fn build_icons_pane(
@@ -2539,14 +2539,15 @@ fn build_icons_pane(
     // Recursive-filter results replace a native listing; hiding its rows too
     // would drop their selection out of sight.
     let results_replace_listing = Rc::new(Cell::new(false));
+    let enter_target = in_place_enter_target(&controls.filter_entry, &browser, depth);
     super::browser::bind_listing_filter(
         &controls.filter_entry,
         &filter,
         &filter_query,
         results_replace_listing.clone(),
         options.state.clone(),
+        enter_target.clone(),
     );
-    let enter_target = in_place_enter_target(&controls.filter_entry, &filter, &filter_query);
     let sections: Rc<RefCell<Vec<PaneSection>>> = Rc::new(RefCell::new(Vec::new()));
     let context = Rc::new(IconsContext {
         browser,
@@ -2589,14 +2590,20 @@ fn build_icons_pane(
         }
         activate_filtered_item(
             &browser_for_filter_activate,
-            filter_activation_position(&enter_for_activate, &selection_for_filter_activate),
+            filter_activation_position(enter_for_activate.as_ref(), &selection_for_filter_activate),
             &view_for_filter_activate,
             &source_index_for_filter_activate,
             depth_for_filter_activate,
         );
     });
-    connect_in_place_pick(&enter_target, &pane_section);
-    connect_in_place_down(&controls.filter_entry, &enter_target, &pane_section.view);
+    if let Some(enter_target) = &enter_target {
+        connect_in_place_down(
+            &controls.filter_entry,
+            enter_target,
+            &pane_section.view,
+            context.state.clone(),
+        );
+    }
     sections.borrow_mut().push(pane_section.clone());
     let root = pane_section.view.clone();
 
@@ -2658,7 +2665,9 @@ fn build_icons_pane(
         .vexpand(true)
         .build();
     scroll.add_css_class("browser-listing-scroll");
-    enter_target.attach(&pane_section.view, &pane_section.selection, &scroll);
+    if let Some(enter_target) = &enter_target {
+        attach_in_place(enter_target, &pane_section, &scroll);
+    }
     super::scrolling::popover::dismiss_on_outside_scroll(&controls.thumbnail_popover);
     let browser_for_settle = Rc::downgrade(&context.browser);
     let source_index_for_settle = context.source_index.clone();
@@ -2880,7 +2889,9 @@ fn build_icons_view(context: &Rc<IconsContext>, model: &impl IsA<gio::ListModel>
         let Some(card) = item.child().and_downcast::<gtk::Box>() else {
             return;
         };
-        enter_for_bind.decorate(&card, item);
+        if let Some(enter_target) = &enter_for_bind {
+            enter_target.decorate(&card, item);
+        }
         let source_position = item
             .item()
             .and_then(|value| source_index_for_bind.of_item(&value));
@@ -3830,14 +3841,15 @@ fn build_list_pane(
     // Recursive-filter results replace a native listing; hiding its rows too
     // would drop their selection out of sight.
     let results_replace_listing = Rc::new(Cell::new(false));
+    let enter_target = in_place_enter_target(&filter_entry, &browser, depth);
     super::browser::bind_listing_filter(
         &filter_entry,
         &filter,
         &filter_query,
         results_replace_listing.clone(),
         options.state.clone(),
+        enter_target.clone(),
     );
-    let enter_target = in_place_enter_target(&filter_entry, &filter, &filter_query);
     let view_model =
         gtk::SortListModel::new(Some(filtered_model.clone()), None::<gtk::CustomSorter>);
     let type_group_sorter = options
@@ -3951,14 +3963,20 @@ fn build_list_pane(
         }
         activate_filtered_item(
             &browser_for_filter_activate,
-            filter_activation_position(&enter_for_activate, &selection_for_filter_activate),
+            filter_activation_position(enter_for_activate.as_ref(), &selection_for_filter_activate),
             &view_for_filter_activate,
             &source_index_for_filter_activate,
             depth,
         );
     });
-    connect_in_place_pick(&enter_target, &section);
-    connect_in_place_down(&filter_entry, &enter_target, &section.view);
+    if let Some(enter_target) = &enter_target {
+        connect_in_place_down(
+            &filter_entry,
+            enter_target,
+            &section.view,
+            options.state.clone(),
+        );
+    }
     connect_selection(
         &section,
         Rc::downgrade(&sections),
@@ -3984,7 +4002,9 @@ fn build_list_pane(
         .build();
     scroll.add_css_class("browser-listing-scroll");
     scroll.add_css_class("list-listing-scroll");
-    enter_target.attach(&section.view, &section.selection, &scroll);
+    if let Some(enter_target) = &enter_target {
+        attach_in_place(enter_target, &section, &scroll);
+    }
     let browser_for_settle = Rc::downgrade(&browser);
     let source_index_for_settle = source_index.clone();
     let sections_for_settle = Rc::downgrade(&sections);
@@ -4951,30 +4971,33 @@ fn view_position_for_source(
         .find(|candidate| filtered.item(*candidate).is_some_and(|value| value == item))
 }
 
-/// Tracks the in-place filter, whose selection is the listing's own: a new query only
-/// stops that selection from counting as the user's pick.
+/// The in-place filter's target, for a pane whose filter narrows the listing itself
+/// rather than showing search results in its place. Its selection is the listing's
+/// own: a new query only stops that selection from counting as the user's pick.
 fn in_place_enter_target(
     entry: &gtk::Entry,
-    filter: &gtk::CustomFilter,
-    filter_query: &Rc<RefCell<String>>,
-) -> super::enter_target::EnterTarget {
-    let enter_target = super::enter_target::EnterTarget::new(entry);
-    let target = enter_target.clone();
-    let query = filter_query.clone();
-    filter.connect_changed(move |_, _| {
-        target.show_query(&query.borrow());
-    });
-    enter_target
+    browser: &Browser,
+    depth: usize,
+) -> Option<super::enter_target::EnterTarget> {
+    let searches = browser
+        .location_at(depth)
+        .is_some_and(|location| location.native_path().is_some());
+    (!searches).then(|| super::enter_target::EnterTarget::new(entry))
 }
 
-fn connect_in_place_pick(enter_target: &super::enter_target::EnterTarget, section: &PaneSection) {
-    let enter_target = enter_target.clone();
+fn attach_in_place(
+    enter_target: &super::enter_target::EnterTarget,
+    section: &PaneSection,
+    scroll: &gtk::ScrolledWindow,
+) {
     let syncing = section.syncing.clone();
-    section.selection.connect_selection_changed(move |_, _, _| {
-        if !syncing.get() {
-            enter_target.pick();
-        }
-    });
+    enter_target.attach(
+        &section.view,
+        &section.selection,
+        scroll,
+        section.visit.clone(),
+        move || syncing.get(),
+    );
 }
 
 /// Down from the field lands on the top row Enter would open, not the listing's cursor.
@@ -4982,6 +5005,7 @@ fn connect_in_place_down(
     entry: &gtk::Entry,
     enter_target: &super::enter_target::EnterTarget,
     view: &gtk::Widget,
+    state: Option<Weak<super::browser::ViewState>>,
 ) {
     let keys = gtk::EventControllerKey::new();
     keys.set_propagation_phase(gtk::PropagationPhase::Capture);
@@ -4994,7 +5018,9 @@ fn connect_in_place_down(
         else {
             return glib::Propagation::Proceed;
         };
-        if let Some(window) = view.root().and_downcast::<gtk::Window>() {
+        if let Some(state) = state.as_ref().and_then(Weak::upgrade) {
+            super::browser::claim_keyboard_navigation(&state);
+        } else if let Some(window) = view.root().and_downcast::<gtk::Window>() {
             window.set_focus_visible(true);
         }
         view.grab_focus();
@@ -5009,10 +5035,10 @@ fn connect_in_place_down(
 }
 
 fn filter_activation_position(
-    enter_target: &super::enter_target::EnterTarget,
+    enter_target: Option<&super::enter_target::EnterTarget>,
     selection: &gtk::MultiSelection,
 ) -> Option<u32> {
-    if enter_target.offers_top() {
+    if enter_target.is_some_and(super::enter_target::EnterTarget::offers_top) {
         return Some(0);
     }
     (0..selection.n_items()).find(|position| selection.is_selected(*position))

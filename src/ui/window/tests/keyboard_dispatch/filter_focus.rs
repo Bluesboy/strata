@@ -1213,6 +1213,9 @@ enum Pick {
     Kept,
     /// Another result picked, then the query edited: Enter opens the new top.
     Retyped,
+    /// Another result picked, then only the query's letter case changed: the filter
+    /// matches the same rows, but Enter still opens the top again.
+    Recased,
 }
 
 /// Moves off the focused top result, then returns to the field; returns the pick.
@@ -1354,10 +1357,14 @@ fn in_place_enter_target_case(mode: BrowserMode, pick: Pick) -> Result<(), Strin
     }
     let wanted = match pick {
         Pick::None => "alpha-report.txt",
-        Pick::Kept | Pick::Retyped => {
+        Pick::Kept | Pick::Retyped | Pick::Recased => {
             let rows = narrowed_rows(fixture.window.upcast_ref())
                 .ok_or_else(|| "no narrowed listing is shown".to_owned())?;
             if let Pick::Kept = pick {
+                fixture.view.record_pointer_hover((12.0, 24.0), Some(0));
+                if fixture.view.widget().has_css_class("keyboard-navigation") {
+                    return Err("pointer motion did not take over the pane".to_owned());
+                }
                 press_in_field(&field, Key::Down);
                 if !settles(|| result_has_focus(&fixture) && fixture.selected() == [0]) {
                     return Err(format!(
@@ -1366,6 +1373,9 @@ fn in_place_enter_target_case(mode: BrowserMode, pick: Pick) -> Result<(), Strin
                         fixture.selected(),
                         describe_focus(&fixture)
                     ));
+                }
+                if !fixture.view.widget().has_css_class("keyboard-navigation") {
+                    return Err("Down from the field left the pane in pointer mode".to_owned());
                 }
             }
             rows.select_item(1, true);
@@ -1378,10 +1388,17 @@ fn in_place_enter_target_case(mode: BrowserMode, pick: Pick) -> Result<(), Strin
             {
                 return Err("Ctrl+F did not return to the field".to_owned());
             }
-            if let Pick::Retyped = pick {
-                field.set_text("txt");
+            let edit = match pick {
+                Pick::Retyped => Some("txt"),
+                Pick::Recased => Some("T"),
+                _ => None,
+            };
+            if let Some(edit) = edit {
+                field.set_text(edit);
                 if !settles(|| marked_rows(fixture.window.upcast_ref()).len() == 1) {
-                    return Err("editing the query did not mark the top row again".to_owned());
+                    return Err(format!(
+                        "editing the query to {edit:?} did not mark the top row again"
+                    ));
                 }
                 "alpha-report.txt"
             } else {
@@ -1410,6 +1427,10 @@ fn enter_in_the_filter_opens_the_marked_top_result_until_a_pick() {
                             ));
                         }
                     }
+                }
+                // Only the in-place filter skips a case-only edit, which leaves its
+                // folded query unchanged.
+                for pick in [Pick::None, Pick::Kept, Pick::Retyped, Pick::Recased] {
                     if let Err(error) = in_place_enter_target_case(mode, pick) {
                         failures.push(format!("{mode:?}, remote share, {pick:?}: {error}"));
                     }

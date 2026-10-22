@@ -588,22 +588,9 @@ fn install_marquee(
     overlay: &gtk::Overlay,
     allow_drag: Rc<Cell<bool>>,
 ) -> super::marquee::Marquee {
-    let weak = Rc::downgrade(state);
     let targets = Rc::new(RefCell::new(vec![super::marquee::MarqueeTarget {
         selection: state.collection.selection.clone(),
-        visit_items: Rc::new(move |visit| {
-            let Some(state) = weak.upgrade() else {
-                return;
-            };
-            state.collection.bound.borrow_mut().retain(|bound| {
-                let (Some(item), Some(widget)) = (bound.item.upgrade(), bound.widget.upgrade())
-                else {
-                    return false;
-                };
-                visit(item.position(), &widget);
-                true
-            });
-        }),
+        visit_items: state.collection.visit_bound(),
     }]));
     let weak = Rc::downgrade(state);
     super::marquee::install(super::marquee::MarqueeSetup {
@@ -671,7 +658,6 @@ pub(super) fn wrap(
             enter: enter.clone(),
         },
     );
-    enter.attach(&collection.view, &collection.selection, &scroll);
     let status = gtk::Label::new(None);
     status.add_css_class("status-message");
     status.set_wrap(true);
@@ -704,14 +690,23 @@ pub(super) fn wrap(
         results_changed,
     });
     let weak_state = Rc::downgrade(&state);
+    state.enter.attach(
+        &state.collection.view,
+        &state.collection.selection,
+        &scroll,
+        state.collection.visit_bound(),
+        move || {
+            weak_state
+                .upgrade()
+                .is_some_and(|state| state.updating.get() || state.collection.reconciling.get())
+        },
+    );
+    let weak_state = Rc::downgrade(&state);
     state
         .collection
         .selection
         .connect_selection_changed(move |_, _, _| {
             if let Some(state) = weak_state.upgrade() {
-                if !state.updating.get() && !state.collection.reconciling.get() {
-                    state.enter.pick();
-                }
                 state.emit_selection_changed();
             }
         });
