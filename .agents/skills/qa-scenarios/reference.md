@@ -361,7 +361,7 @@ pane name) where the check reads a pane.
 | `{"present":TARGET}`, `{"absent":TARGET}` | Found on screen, or not found or not on screen. |
 | `{"presented":TARGET}` | Found, even scrolled away. |
 | `{"on_screen":TARGET}` | Within the window's height. |
-| `{"state":{"target":T,"selected":true,"focused":false,"checked":false,"pressed":true,"sensitive":true}}` | Each given state matches; also `selectable`, `editable`, `focusable`, and `busy` (what `accessibility::set_busy` recorded). An active switch is `pressed` and `checked`; a tab's `selected` is what `accessibility::set_selected` recorded. |
+| `{"state":{"target":T,"selected":true,"focused":false,"checked":false,"pressed":true,"sensitive":true}}` | Each given state matches; also `selectable`, `editable`, `focusable`, `busy` (what `accessibility::set_busy` recorded), and `marked` (an entry row outlined as the result Enter in its filter field opens). An active switch is `pressed` and `checked`; a tab's `selected` is what `accessibility::set_selected` recorded. |
 | `{"name":{"target":T,"text":"0:05"}}`, `{"text":{"target":T,"text":"..."}}`, `{"description":{"target":T,"text":"Ctrl+C"}}` | Accessible name, text content (a label's or entry's text, a text view's buffer), or description (the recorded one, or a picture's alternative text), exactly or as a pattern (`{"contains":...}`). |
 | `{"mentions":{"target":T,"text":"..."}}` | Some name or description in the subtree contains the text; `"role":"label"` limits it; `"words":"a b"` allows any whitespace; `"equals"` matches a whole collapsed name. |
 | `{"subtree_text":{"target":T,"contains":"...","strip_newlines":true}}` | The subtree's joined text contains the part. |
