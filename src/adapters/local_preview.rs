@@ -544,6 +544,7 @@ impl LocalPreviewProvider {
             }
 
             let model = ModelFormat::for_name(&entry.native_name).map(|format| ModelRender {
+                    purpose: crate::services::ModelRenderPurpose::Preview,
                 format,
                 size: MediaPreviewSize::new(request.media_size.width.min(800), request.media_size.height.min(800)),
                 palette: request.model_palette,

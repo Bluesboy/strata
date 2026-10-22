@@ -330,6 +330,18 @@ fn append_file_icon_colors_option(content: &gtk::Box, preferences: &Rc<Preferenc
         PreferenceManager::set_show_thumbnails,
     );
     group.append(&row);
+    let (row, toggle) = super::settings_option(
+        "STL model thumbnails",
+        "Render local STL models as file thumbnails, one at a time. Requires Show thumbnails.",
+        preferences.stl_thumbnails(),
+    );
+    bind_switch(
+        preferences,
+        &toggle,
+        PreferenceManager::stl_thumbnails,
+        PreferenceManager::set_stl_thumbnails,
+    );
+    group.append(&row);
 }
 
 fn append_omarchy_variant_option(

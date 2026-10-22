@@ -424,7 +424,10 @@ fn parse_sandboxed(
         .canonicalize()
         .map_err(|error| crate::services::io_error_message(&error))?;
     let stop = cancellation.clone();
-    let hold = crate::services::file_activity::hold([input, &canonical], move || stop.cancel())?;
+    let hold = Arc::new(crate::services::file_activity::hold(
+        [input, &canonical],
+        move || stop.cancel(),
+    )?);
     hold.settle(parse_canonical(
         &canonical,
         operation,
@@ -432,6 +435,7 @@ fn parse_sandboxed(
         media_backend,
         cancellation,
         progress,
+        Arc::clone(&hold),
     ))
 }
 
@@ -442,6 +446,7 @@ fn parse_canonical(
     media_backend: MediaPreviewBackend,
     cancellation: &Cancellation,
     progress: &dyn Fn(crate::services::ModelPreviewStage),
+    hold: Arc<crate::services::file_activity::Hold>,
 ) -> Result<ParseOutput, String> {
     let input_metadata =
         fs::metadata(input).map_err(|error| crate::services::io_error_message(&error))?;
@@ -479,8 +484,9 @@ fn parse_canonical(
         });
     }
 
-    let output =
-        PrivateOutput::create().map_err(|error| crate::services::io_error_message(&error))?;
+    let output = Arc::new(
+        PrivateOutput::create().map_err(|error| crate::services::io_error_message(&error))?,
+    );
     let secret = if let ParseOperation::ArchiveList {
         password: Some(password),
         ..
@@ -539,8 +545,20 @@ fn parse_canonical(
             progress(stage);
         }
     };
-    let status =
-        wait_for_renderer_reporting(&mut child, cancellation, timeout, &mut poll_progress)?;
+    let status = if matches!(&operation, ParseOperation::PreviewModel(render)
+        if render.purpose == crate::services::ModelRenderPurpose::Thumbnail)
+    {
+        model::wait_for_thumbnail(
+            child,
+            cancellation,
+            timeout,
+            &mut poll_progress,
+            Arc::clone(&output),
+            hold,
+        )?
+    } else {
+        wait_for_renderer_reporting(&mut child, cancellation, timeout, &mut poll_progress)?
+    };
     if !status.success() {
         if matches!(
             operation,
@@ -807,16 +825,27 @@ fn wait_for_renderer_reporting(
     wall_time_limit: Duration,
     progress: &mut dyn FnMut(),
 ) -> Result<ExitStatus, String> {
+    let result = monitor_renderer(child, cancellation, wall_time_limit, progress);
+    if result.is_err() {
+        terminate(child);
+    }
+    result
+}
+
+fn monitor_renderer(
+    child: &mut Renderer,
+    cancellation: &Cancellation,
+    wall_time_limit: Duration,
+    progress: &mut dyn FnMut(),
+) -> Result<ExitStatus, String> {
     let started = Instant::now();
     let deadline = started + wall_time_limit;
     let pidfd = child_pidfd(&child.child);
     loop {
         if cancellation.is_cancelled() {
-            terminate(child);
             return Err("Preview cancelled".to_owned());
         }
         if Instant::now() >= deadline {
-            terminate(child);
             return Err("The preview renderer timed out".to_owned());
         }
         progress();
@@ -824,7 +853,6 @@ fn wait_for_renderer_reporting(
             Ok(Some(status)) => return Ok(status),
             Ok(None) => wait_step(pidfd.as_ref(), deadline),
             Err(error) => {
-                terminate(child);
                 return Err(format!("Unable to monitor the preview renderer: {error}"));
             }
         }
@@ -1010,12 +1038,16 @@ fn sandbox_command(
                 format!("{value}:{}x{}", size.width, size.height)
             }
             ParseOperation::PreviewModel(render) => format!(
-                "{}:{}x{}:{:06x}:{:06x}:{}",
+                "{}:{}x{}:{:06x}:{}:{}",
                 render.format.argument(),
                 render.size.width,
                 render.size.height,
                 render.palette.accent,
-                render.palette.surface,
+                match render.purpose {
+                    crate::services::ModelRenderPurpose::Preview =>
+                        format!("{:06x}", render.palette.surface),
+                    crate::services::ModelRenderPurpose::Thumbnail => "transparent".to_owned(),
+                },
                 render.view.argument(),
             ),
             ParseOperation::ThumbnailModel(format) => format.argument().to_owned(),
@@ -1162,7 +1194,7 @@ pub(crate) fn png_dimensions(data: &[u8]) -> Option<(u32, u32)> {
     (width > 0 && height > 0).then_some((width, height))
 }
 
-fn terminate(renderer: &mut Renderer) {
+fn kill_renderer(renderer: &mut Renderer) {
     if let Ok(raw_pid) = i32::try_from(renderer.id())
         && let Some(process_group) = Pid::from_raw(raw_pid)
     {
@@ -1171,6 +1203,10 @@ fn terminate(renderer: &mut Renderer) {
     // bwrap is also the PID-namespace init process, so descendants that create a new
     // process group still die with it.
     let _killed = renderer.child.kill();
+}
+
+fn terminate(renderer: &mut Renderer) {
+    kill_renderer(renderer);
     let _waited = renderer.child.wait();
     renderer.await_namespace();
 }

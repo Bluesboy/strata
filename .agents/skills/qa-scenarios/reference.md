@@ -235,7 +235,8 @@ run's scratch directory.
 | `"opened":["$fixture/todo.txt"]` | A stub launcher's record lists exactly as many paths and each of them. |
 | `"launches":{"count":3,"within":"$fixture"}`, `{"first_dir":...}` | A stub terminal launcher's `cwd<TAB>--dir=...` lines. |
 | `"can_trash":false` | GIO's `access::can-trash`. |
-| `"cached_in":"$cache/thumbnails/large"` + `exists`/`is`/`pixel`/`keep_mtime`/`mtime_of` | Checks the path's cached freedesktop thumbnail instead. |
+| `"alpha_range":[0,255]` | An image's lowest and highest alpha, so `[0,255]` holds both a transparent and an opaque pixel. |
+| `"cached_in":"$cache/thumbnails/large"` + `exists`/`is`/`pixel`/`alpha_range`/`keep_mtime`/`mtime_of` | Checks the path's cached freedesktop thumbnail instead. |
 | `"all_cached_in":"...","except_suffix":".stl"` | Every entry but those has a cached thumbnail. |
 | `"keep_mtime":"stored"` then `"mtime_of":"stored"` | Keeps the nanosecond mtime; waits until it is that again. |
 

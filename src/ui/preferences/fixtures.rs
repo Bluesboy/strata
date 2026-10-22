@@ -86,6 +86,7 @@ pub(in crate::ui) fn non_default_preferences() -> Preferences {
         watch_network_folders: false,
         thumbnail_workers: 6,
         show_thumbnails: false,
+        stl_thumbnails: true,
         icons_thumbnail_size: 128,
         chooser_column_width: Some(420),
         browser_column_width: Some(380),
