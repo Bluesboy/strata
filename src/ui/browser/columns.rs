@@ -1363,10 +1363,10 @@ impl ViewState {
         });
         header_actions.append(&filter_button);
         if depth > 0 {
-            let close = gtk::Button::builder()
-                .tooltip_text(crate::i18n::tr("Close this pane"))
-                .build();
+            let close_label = crate::i18n::tr("Close this pane");
+            let close = gtk::Button::builder().tooltip_text(&close_label).build();
             close.set_child(Some(&crate::assets::chrome_icon(crate::assets::icons::X)));
+            crate::ui::accessibility::set_label(&close, &close_label);
             crate::ui::controls::pane_header_action(&close);
             let weak_browser = Rc::downgrade(&self.browser);
             close.connect_clicked(move |_| {

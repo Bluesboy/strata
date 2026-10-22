@@ -13,7 +13,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import resources, screenshots, tree  # noqa: E402
+from harness import parity, resources, screenshots, tree  # noqa: E402
 from harness.application import Application, build_binary  # noqa: E402
 from harness.artifacts import ArtifactCollector  # noqa: E402
 from harness.browser import Strata  # noqa: E402
@@ -96,9 +96,11 @@ def headless_display() -> HeadlessDisplay:
 @pytest.fixture(scope="session")
 def xtest(headless_display: HeadlessDisplay) -> XTestConnection:
     connection = XTestConnection(headless_display.display)
+    headless_display.input_connection = connection
     try:
         yield connection
     finally:
+        headless_display.input_connection = None
         tree.set_surface_origin_provider(None)
         connection.close()
 
@@ -141,13 +143,13 @@ def test_environment() -> TestEnvironment:
 
 
 @pytest.fixture
-def preferences() -> dict[str, object]:
+def preferences(request: pytest.FixtureRequest) -> dict[str, object]:
     """Overrides a scenario applies before the application starts.
 
     Parametrise it with `@pytest.mark.preferences(browser_mode="icons")`.
     """
 
-    return {}
+    return dict(getattr(request, "param", {}))
 
 
 @pytest.fixture
@@ -181,18 +183,37 @@ def strata(
     failed = False
     try:
         application.start()
+        _start_input_log(request, window)
         yield window
     except BaseException:
         failed = True
         raise
     finally:
         try:
+            window.keyboard.connection.stop_input_log()
+            _dump_state(request, window)
             if failed or request.node.stash.get(_REPORT_KEY, False) or request.config.getoption(
                 "--keep-artifacts"
             ):
                 _collect_artifacts(request, window)
         finally:
             application.stop()
+
+
+def _start_input_log(request: pytest.FixtureRequest, window: Strata) -> None:
+    def origin() -> tuple[int, int]:
+        bounds = window.window.screen_bounds()
+        return bounds.x, bounds.y
+
+    parity.start_input_log(window.keyboard.connection, request.node.nodeid, origin)
+
+
+def _dump_state(request: pytest.FixtureRequest, window: Strata) -> None:
+    def finished() -> bool:
+        process = window.application.process
+        return process is None or process.exited()
+
+    parity.dump_state(request.node.nodeid, window.state_snapshot, finished)
 
 
 @pytest.fixture

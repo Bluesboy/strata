@@ -29,10 +29,17 @@ Restore project skills from the committed `skills-lock.json` after cloning:
 npx skills experimental_install
 ```
 
-That installs them into `.agents/skills/`, which is gitignored. Keep
+That installs them into `.agents/skills/`, which is gitignored apart from the
+project's own skills below. Keep
 `skills-lock.json` in version control. Add or update skills with `npx skills add`
-and `npx skills update`, then commit the lockfile. Do not vendor skill files
-under `.agents/`.
+and `npx skills update`, then commit the lockfile. Do not vendor third-party
+skill files under `.agents/`.
+
+The project's own skills are the exception: `.agents/skills/qa-*` are written
+here and committed, each un-ignored in `.gitignore` and linked from
+`.claude/skills/`. Use `qa-scenarios` to write and manage QA scenarios,
+`qa-drive` to verify a change by driving the application in QA mode, and
+`qa-quality` to score a scenario's value.
 
 ## Git workflow
 
@@ -106,6 +113,22 @@ pass before merge.
   relying on CI. Keep tests portable
   across supported environments and avoid assertions that depend on
   platform-specific URI normalization or other incidental system behavior.
+
+## QA scenarios
+
+- Run the `--qa` scenarios only through `./scripts/qa.sh`, and drive the app by
+  hand only through `./scripts/qa-drive.sh`, both inside the pinned container.
+  `tests/qa.rs` refuses to start without `STRATA_QA_CONTAINER=1`.
+- A host run (`STRATA_QA_HOST=1`) needs explicit owner consent for that task.
+  Record it and the skipped container run in the handoff; it is never
+  validation evidence. Do not wire the QA runner into `scripts/e2e-native.sh`
+  or `scripts/test-headless.py`. See `docs/e2e-testing.md`.
+- `./scripts/qa.sh`, `./scripts/qa-parity.sh`, `./scripts/qa-drive.sh`, and
+  `./scripts/e2e.sh` share a build cache; run them one after another, never
+  concurrently.
+- A behaviour change updates the Python test and its QA twin together; check
+  the pair with `./scripts/qa-parity.sh` (`--baseline` for twins without a
+  mutation patch).
 
 ## E2E base-image reuse
 

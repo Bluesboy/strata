@@ -31,7 +31,7 @@ use collection::{
     CollectionBehavior, ResultCollection, ResultKind, build_collection, collection_entry,
 };
 
-pub(super) const SEARCH_RESULTS_LABEL: &str = "Search results";
+pub(crate) const SEARCH_RESULTS_LABEL: &str = "Search results";
 pub(super) type SearchSelectionChanged = Rc<dyn Fn(Vec<FileEntry>)>;
 pub(super) type SearchSelectionHandlers = Rc<RefCell<Vec<SearchSelectionChanged>>>;
 

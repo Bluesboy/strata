@@ -658,6 +658,31 @@ class Strata:
             )
         return node
 
+    def state_snapshot(self) -> dict[str, object]:
+        """The window state final-state parity compares with a `--qa` reply's `app`."""
+
+        containers = self.containers()
+        panes = []
+        for pane in containers:
+            entries = self._entries_in(pane)
+            panes.append({
+                "name": pane.name,
+                "selected": [node.name for node in entries if node.has_state("selected")],
+                "focused": next(
+                    (node.name for node in entries if node.has_state("focused")), None
+                ),
+            })
+        focused_pane = self.focused_pane()
+        dialog = self.dialog()
+        return {
+            "view_mode": VIEW_DESCRIPTIONS[containers[0].description] if containers else None,
+            "directory": self.current_directory(),
+            "panes": panes,
+            "focused": self.focused_name(),
+            "focused_pane": focused_pane.name if focused_pane is not None else None,
+            "dialog": dialog.name if dialog is not None else None,
+        }
+
     # ---------------------------------------------------------------- capture
 
     def screenshot(self, destination: Path) -> Path:

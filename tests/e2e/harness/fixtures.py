@@ -7,32 +7,32 @@ directory. Nothing outside that directory is read or written.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from .manifest import MANIFEST
+
 # Fixed so mtime-sorted views and golden screenshots stay stable.
-FIXTURE_MTIME = 1_700_000_000
+FIXTURE_MTIME: int = MANIFEST["mtime"]
 
 # Names are chosen to sort predictably and to avoid colliding with the
 # directories a scenario creates.
-CANONICAL_TREE: dict[str, object] = {
-    "documents": {
-        "notes.txt": "notes\n",
-        "report.md": "# Report\n",
-        "spreadsheet.csv": "a,b\n1,2\n",
-    },
-    "pictures": {
-        "diagram.txt": "diagram\n",
-        "photo.txt": "photo\n",
-    },
-    "archive": {},
-    "readme.md": "# Fixture\n",
-    "todo.txt": "todo\n",
-    ".hidden.txt": "hidden\n",
-}
+CANONICAL_TREE: dict[str, object] = MANIFEST["trees"]["canonical"]
+
+
+# Set to `1` by `scripts/qa_parity.py` to name each tree after its node id, as
+# the `--qa` twin names its own.
+PARITY_FIXTURES_VARIABLE = "STRATA_PARITY_FIXTURES"
+
+
+def parity_fixture_name(node_id: str) -> str:
+    """`parity_fixture_name` in `tests/qa.rs` derives the same name from the twin."""
+
+    return "strata-fixture-" + hashlib.sha256(node_id.encode()).hexdigest()[:12]
 
 
 @dataclass
@@ -43,6 +43,10 @@ class FixtureTree:
 
     @classmethod
     def create(cls, layout: dict[str, object] | None = None) -> "FixtureTree":
+        current = os.environ.get("PYTEST_CURRENT_TEST")
+        if os.environ.get(PARITY_FIXTURES_VARIABLE) == "1" and current:
+            node_id = current.rsplit(" ", 1)[0]
+            return cls.create_at(Path("/tmp") / parity_fixture_name(node_id), layout)
         root = Path(tempfile.mkdtemp(prefix="strata-e2e-fixture-", dir="/tmp"))
         return cls._build(root, layout)
 

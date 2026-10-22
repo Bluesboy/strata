@@ -892,6 +892,7 @@ pub fn build_layer(
     let close = gtk::Button::builder()
         .tooltip_text(crate::i18n::tr("Close settings"))
         .build();
+    super::accessibility::set_own_label(&close, &crate::i18n::tr("Close settings"));
     close.set_child(Some(&crate::assets::primary_icon(icons::X, 18)));
     close.add_css_class("settings-close");
     close.set_valign(gtk::Align::Center);
@@ -3347,10 +3348,8 @@ fn settings_option(title: &str, description: &str, active: bool) -> (gtk::Box, g
         .halign(gtk::Align::End)
         .valign(gtk::Align::Center)
         .build();
-    toggle.update_property(&[
-        gtk::accessible::Property::Label(&translated(title)),
-        gtk::accessible::Property::Description(&translated(description)),
-    ]);
+    super::accessibility::set_own_label(&toggle, &translated(title));
+    super::accessibility::set_description(&toggle, Some(&translated(description)));
     row.append(&copy);
     row.append(&toggle);
     (row, toggle)

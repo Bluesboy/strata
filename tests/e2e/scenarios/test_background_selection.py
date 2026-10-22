@@ -105,43 +105,53 @@ def test_preview_blank_click_keeps_the_selection_and_a_drag_still_selects(strata
     )
 
 
-def _write_sound(strata):
+def _write_sound(fixture):
     subprocess.run(
         [
             "ffmpeg", "-v", "error", "-y", "-f", "lavfi",
             "-i", "sine=frequency=440:sample_rate=44100:duration=3",
-            "-c:a", "pcm_s16le", str(strata.fixture.path("sound.wav")),
+            "-c:a", "pcm_s16le", str(fixture.path("sound.wav")),
         ],
         check=True,
         timeout=30,
     )
 
 
-def _write_clip(strata):
+def _write_clip(fixture):
     subprocess.run(
         [
             "ffmpeg", "-v", "error", "-y",
             "-f", "lavfi", "-i", "color=c=blue:s=320x180:r=24:d=2",
             "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
             "-c:v", "libx264", "-c:a", "aac", "-ac", "2", "-shortest",
-            str(strata.fixture.path("clip.mp4")),
+            str(fixture.path("clip.mp4")),
         ],
         check=True,
         timeout=30,
     )
 
 
+@pytest.fixture
+def media_file(request, fixture_tree):
+    """Written before launch: a file written while Strata runs can be replaced in the listing mid-click."""
+
+    name, write, control = request.param
+    write(fixture_tree)
+    return name, control
+
+
 @pytest.mark.preferences(single_click_previews=True)
 @pytest.mark.parametrize(
-    "name, write, control",
+    "media_file",
     [
         ("sound.wav", _write_sound, "Next audio file"),
         ("clip.mp4", _write_clip, "Next video"),
     ],
     ids=["audio", "video"],
+    indirect=True,
 )
-def test_disabled_transport_click_keeps_the_selection(strata, name, write, control):
-    write(strata)
+def test_disabled_transport_click_keeps_the_selection(media_file, strata):
+    name, control = media_file
     root = strata.fixture.root.name
     strata.wait(lambda: strata.entry(name, root), "the generated media file")
     strata.select_entry(name, root)

@@ -714,6 +714,7 @@ pub(super) fn modal_layout_with_tone(
     close.add_css_class("action-dialog-close");
     close.set_valign(gtk::Align::Center);
     close.set_tooltip_text(Some(&crate::i18n::tr("Close dialog")));
+    super::accessibility::set_own_label(&close, &crate::i18n::tr("Close dialog"));
     close.set_child(Some(&crate::assets::primary_icon(
         crate::assets::icons::X,
         16,

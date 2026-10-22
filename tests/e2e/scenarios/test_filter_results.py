@@ -381,17 +381,17 @@ def test_query_updates_retain_selection_focus_preview_and_background_menu(strata
     hovered = result(strata, "alpha/match-note.txt")
     strata.pointer.move_to(*hovered.screen_bounds().center)
     strata.settle(hovered)
-    assert not hovered.has_state("selected")
-    assert result(strata, "beta/match-note.txt").has_state("selected")
-    assert strata.preview_shows("beta source")
+    assert not hovered.has_state("selected"), "hovering not to select the alpha result"
+    assert result(strata, "beta/match-note.txt").has_state("selected"), "the beta result to stay selected"
+    assert strata.preview_shows("beta source"), "the preview to stay on the beta result"
     for query, count in [("match-note.t", 3), ("match-note", 4)] * 2:
         strata.keyboard.press("ctrl+a")
         strata.keyboard.type_text(query)
         strata.wait(lambda: len(strata.matches()) == count, "the updated result count")
-        assert result(strata, "beta/match-note.txt").has_state("selected")
-        assert field.has_state("focused")
-        assert field.text == query
-        assert strata.preview_shows("beta source")
+        assert result(strata, "beta/match-note.txt").has_state("selected"), "the beta result to stay selected"
+        assert field.has_state("focused"), "the filter to keep focus"
+        assert field.text == query, "the filter to keep the typed query"
+        assert strata.preview_shows("beta source"), "the preview to stay on the beta result"
     strata.keyboard.press("space")
     strata.wait(lambda: strata.preview() is None, "Space to close after updates")
     assert field.text == "match-note"

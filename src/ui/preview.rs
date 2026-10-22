@@ -251,7 +251,7 @@ pub(in crate::ui) use keyboard::{
 #[cfg(test)]
 mod tests;
 
-pub(super) const PREVIEW_LABEL: &str = "Preview";
+pub(crate) const PREVIEW_LABEL: &str = "Preview";
 
 #[derive(Clone)]
 pub struct PreviewDrawer {
@@ -279,6 +279,7 @@ impl PreviewDrawer {
             .tooltip_text(crate::i18n::tr("Open in default application"))
             .valign(gtk::Align::Center)
             .build();
+        super::accessibility::set_label(&open, &crate::i18n::tr("Open in default application"));
         open.set_child(Some(&crate::assets::chrome_icon(
             crate::assets::icons::EXTERNAL_LINK,
         )));
@@ -298,13 +299,12 @@ impl PreviewDrawer {
             .build();
         document_view_button.set_child(Some(&document_view_icon));
         document_view_button.add_css_class("preview-header-action");
-        document_view_button.update_property(&[gtk::accessible::Property::Label(
-            &crate::i18n::tr("View source"),
-        )]);
+        super::accessibility::set_label(&document_view_button, &crate::i18n::tr("View source"));
         let print = gtk::Button::builder()
             .tooltip_text(crate::i18n::tr("Print"))
             .valign(gtk::Align::Center)
             .build();
+        super::accessibility::set_label(&print, &crate::i18n::tr("Print"));
         print.set_child(Some(&crate::assets::chrome_icon(
             crate::assets::icons::PRINTER,
         )));
@@ -314,6 +314,7 @@ impl PreviewDrawer {
             .tooltip_text(crate::i18n::tr("Toggle word wrap"))
             .valign(gtk::Align::Center)
             .build();
+        super::accessibility::set_label(&wrap, &crate::i18n::tr("Toggle word wrap"));
         wrap.set_child(Some(&crate::assets::chrome_icon(
             crate::assets::icons::WRAP_TEXT,
         )));
@@ -324,10 +325,12 @@ impl PreviewDrawer {
             &close,
             super::preferences::PreferenceManager::tenxer_mode,
             |close, tenxer| {
-                close.set_tooltip_text(Some(&crate::ui::shortcut_reference::with_keys(
+                let label = crate::ui::shortcut_reference::with_keys(
                     "Close preview (%{keys})",
                     keys::Keys::One(if tenxer { PEEK } else { SPACE }),
-                )));
+                );
+                close.set_tooltip_text(Some(&label));
+                super::accessibility::set_label(close, &label);
             },
         );
         close.set_child(Some(&crate::assets::chrome_icon(
@@ -2066,8 +2069,7 @@ impl PreviewState {
         let (label, icon) = document_view_action(self.document_view.get());
         let label = crate::i18n::tr(label);
         self.document_view_button.set_tooltip_text(Some(&label));
-        self.document_view_button
-            .update_property(&[gtk::accessible::Property::Label(&label)]);
+        super::accessibility::set_label(&self.document_view_button, &label);
         crate::assets::set_primary_icon(&self.document_view_icon, icon);
     }
 
@@ -2188,9 +2190,7 @@ impl PreviewState {
             text_area.set_hexpand(true);
             text_area.set_vexpand(true);
             text_area.set_accessible_role(gtk::AccessibleRole::Img);
-            text_area.update_property(&[gtk::accessible::Property::Label(&crate::i18n::tr(
-                "PDF page text",
-            ))]);
+            super::accessibility::set_label(&text_area, &crate::i18n::tr("PDF page text"));
             let spinner = gtk::Spinner::new();
             spinner.set_halign(gtk::Align::Center);
             spinner.set_valign(gtk::Align::Center);
@@ -3861,9 +3861,7 @@ fn metadata_value(description: &str) -> gtk::Label {
     let value = gtk::Label::new(Some("—"));
     value.set_ellipsize(gtk::pango::EllipsizeMode::End);
     value.set_xalign(0.0);
-    value.update_property(&[gtk::accessible::Property::Description(&crate::i18n::tr(
-        description,
-    ))]);
+    super::accessibility::set_description(&value, Some(&crate::i18n::tr(description)));
     value
 }
 

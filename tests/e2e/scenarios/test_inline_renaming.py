@@ -67,10 +67,10 @@ def test_long_rename_keeps_caret_visible(strata, mode, request):
         bounds = field.window_bounds()
         window = strata.window.window_bounds()
         pane = strata.pane().window_bounds()
-        assert bounds.height > 0 and pane.x <= bounds.x < window.width
+        assert bounds.height > 0 and pane.x <= bounds.x < window.width, "the rename editor to stay inside the viewport"
         # The Rust fixture checks exact GtkText/caret bounds; here reject
         # oversized bounds from the external accessibility interface.
-        assert 0 < bounds.width <= window.width - pane.x
+        assert 0 < bounds.width <= window.width - pane.x, "the rename editor to stay inside the viewport"
 
     assert field.window_bounds().width > 0
     strata.keyboard.press("End")

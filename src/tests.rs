@@ -53,6 +53,10 @@ fn launch_mode_recognizes_only_the_first_argument_as_a_mode() {
         ("--install-udiskie-unlock", LaunchMode::InstallUdiskie),
         ("--uninstall-udiskie-unlock", LaunchMode::UninstallUdiskie),
         ("--unlock-volume", LaunchMode::Application),
+        #[cfg(feature = "qa")]
+        ("--qa", LaunchMode::Qa),
+        #[cfg(not(feature = "qa"))]
+        ("--qa", LaunchMode::Application),
     ] {
         assert_eq!(launch_mode(&["strata".into(), flag.into()]), mode);
         assert_eq!(

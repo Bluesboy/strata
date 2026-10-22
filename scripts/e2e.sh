@@ -16,6 +16,12 @@ if [[ -n "${STRATA_BINARY:-}" ]]; then
   exit 1
 fi
 
+cargo_cache="$(realpath -m --relative-to="$repository" "${STRATA_E2E_CARGO_CACHE:-$repository/target/e2e-container}")"
+if [[ "$cargo_cache" != target/* ]]; then
+  echo "STRATA_E2E_CARGO_CACHE must name a directory under the checkout's target/." >&2
+  exit 1
+fi
+
 user_id="$(id -u)"
 group_id="$(id -g)"
 image="${STRATA_E2E_IMAGE:-}"
@@ -44,6 +50,19 @@ elif [[ -z "$bundle" ]]; then
   image="$(python3 "$repository/scripts/e2e_base.py" verify "$image" --engine "$engine")"
 fi
 
+# The container sees only the checkout, at /workspace.
+parity_variables=()
+for variable in STRATA_INPUT_LOG STRATA_STATE_DUMP; do
+  value="${!variable:-}"
+  [[ -n "$value" ]] || continue
+  relative="$(realpath -m --relative-to="$repository" "$value")"
+  if [[ "$relative" == .. || "$relative" == ../* ]]; then
+    echo "$variable must name a directory inside the checkout." >&2
+    exit 1
+  fi
+  parity_variables+=(--env "$variable=/workspace/$relative")
+done
+
 accounts="$repository/target/e2e-container/accounts-$user_id-$group_id"
 mkdir -p "$accounts"
 printf 'root:x:0:0:root:/root:/bin/sh\n' > "$accounts/passwd"
@@ -69,14 +88,16 @@ exec "$engine" run "${options[@]}" \
   --mount "type=bind,source=$accounts/group,target=/etc/group,readonly" \
   --workdir /workspace \
   --env HOME=/tmp/strata-build-home \
-  --env CARGO_HOME=/workspace/target/e2e-container/cargo \
-  --env CARGO_TARGET_DIR=/workspace/target/e2e-container/build \
+  --env "CARGO_HOME=/workspace/$cargo_cache/cargo" \
+  --env "CARGO_TARGET_DIR=/workspace/$cargo_cache/build" \
   --env CARGO_PROFILE_DEV_DEBUG=0 --env CARGO_INCREMENTAL=0 \
   --env "STRATA_E2E_UPDATE_BASELINES=${STRATA_E2E_UPDATE_BASELINES:-0}" \
   --env "STRATA_E2E_WORKERS=${STRATA_E2E_WORKERS:-auto}" \
+  --env "STRATA_PARITY_FIXTURES=${STRATA_PARITY_FIXTURES:-0}" \
   --env "STRATA_E2E_BUNDLE=${bundle:+/workspace/$bundle}" \
   --env "STRATA_E2E_MAIN_IO=${STRATA_E2E_MAIN_IO:-}" \
   --env "STRATA_UI_STALL_MS=${STRATA_UI_STALL_MS:-}" \
+  "${parity_variables[@]}" \
   "$image" bash -euc '
     mkdir -p "$HOME" "$CARGO_HOME"
     if [[ -n "${STRATA_E2E_BUNDLE:-}" ]]; then

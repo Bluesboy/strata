@@ -38,9 +38,7 @@ pub(in crate::ui) fn pane_new_folder_button(
             button.set_visible(false);
         }
     }
-    button.update_property(&[gtk::accessible::Property::Label(&crate::i18n::tr(
-        "New Folder",
-    ))]);
+    crate::ui::accessibility::set_label(&button, &crate::i18n::tr("New Folder"));
     button.connect_clicked(move |_| {
         if let Some(state) = state.upgrade()
             && let Some(location) = state.browser.location_at(depth)
@@ -52,12 +50,12 @@ pub(in crate::ui) fn pane_new_folder_button(
 }
 
 pub(in crate::ui) fn pane_refresh_button(browser: &Rc<Browser>, depth: usize) -> gtk::Button {
-    let button = gtk::Button::builder()
-        .tooltip_text(crate::ui::shortcut_reference::with_keys(
-            "Refresh (%{keys})",
-            crate::ui::keys::Keys::One(crate::ui::keys::bindings::REFRESH),
-        ))
-        .build();
+    let label = crate::ui::shortcut_reference::with_keys(
+        "Refresh (%{keys})",
+        crate::ui::keys::Keys::One(crate::ui::keys::bindings::REFRESH),
+    );
+    let button = gtk::Button::builder().tooltip_text(&label).build();
+    crate::ui::accessibility::set_label(&button, &label);
     button.set_child(Some(&crate::assets::chrome_icon(
         crate::assets::icons::REFRESH,
     )));
@@ -206,6 +204,7 @@ pub(in crate::ui) fn column_sort_menu(browser: &Rc<Browser>, depth: usize) -> gt
         .tooltip_text(crate::i18n::tr("Choose sort field"))
         .popover(&popover)
         .build();
+    crate::ui::accessibility::set_label(&button, &crate::i18n::tr("Choose sort field"));
     button.set_child(Some(&crate::assets::chrome_icon(
         crate::assets::icons::SETTINGS_2,
     )));
@@ -342,13 +341,15 @@ fn sync_sort_direction_toggle(
             crate::assets::icons::ARROW_UP_NARROW_WIDE
         },
     );
-    button.set_tooltip_text(Some(&crate::i18n::tr(if device_order {
+    let hint = crate::i18n::tr(if device_order {
         "Device order follows discovery; choose a sort field to reverse its direction"
     } else if descending {
         "Descending — click to reverse"
     } else {
         "Ascending — click to reverse"
-    })));
+    });
+    button.set_tooltip_text(Some(&hint));
+    crate::ui::accessibility::set_own_label(button, &hint);
 }
 
 pub(in crate::ui) fn empty_trash_button(browser: &Rc<Browser>) -> gtk::Button {

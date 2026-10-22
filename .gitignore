@@ -22,7 +22,16 @@ packaging/aur/*/*.pkg.tar.zst
 /tests/e2e/.pytest_cache/
 
 # Restored coding-agent skills (see skills-lock.json)
-/.agents/
+/.agents/*
+!/.agents/skills/
+/.agents/skills/*
+!/.agents/skills/qa-scenarios/
+!/.agents/skills/qa-drive/
+!/.agents/skills/qa-quality/
+/.claude/skills/*
+!/.claude/skills/qa-scenarios
+!/.claude/skills/qa-drive
+!/.claude/skills/qa-quality
 /.grok/
 
 # Historical PR capture locations; upload review media to GitHub instead.

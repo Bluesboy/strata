@@ -71,17 +71,18 @@ impl Header {
         }
         let location = browser.location_widget();
         location.set_hexpand(true);
-        let search = header_action(
-            icons::SEARCH,
-            &crate::ui::shortcut_reference::with_keys(
-                "Search (%{keys})",
-                crate::ui::keys::Keys::One(crate::ui::keys::bindings::SEARCH),
-            ),
+        let search_label = crate::ui::shortcut_reference::with_keys(
+            "Search (%{keys})",
+            crate::ui::keys::Keys::One(crate::ui::keys::bindings::SEARCH),
         );
+        let search = header_action(icons::SEARCH, &search_label);
+        crate::ui::accessibility::set_label(&search, &search_label);
         crate::ui::tenxer_mode::hide_while_enabled(&search);
         let appearance =
             build_appearance_menu(browser, &browser.browser(), preferences.clone(), preview);
-        let settings = header_action(icons::SETTINGS, &crate::i18n::tr("Settings"));
+        let settings_label = crate::i18n::tr("Settings");
+        let settings = header_action(icons::SETTINGS, &settings_label);
+        crate::ui::accessibility::set_label(&settings, &settings_label);
         let minimize_label = crate::i18n::tr("Minimize window");
         let minimize = header_action(icons::MINUS, &minimize_label);
         crate::ui::accessibility::set_label(&minimize, &minimize_label);
@@ -104,7 +105,9 @@ impl Header {
             }
         });
         bind_maximize_icon(window, &maximize);
-        let close = header_action(icons::X, &crate::i18n::tr("Close window"));
+        let close_label = crate::i18n::tr("Close window");
+        let close = header_action(icons::X, &close_label);
+        crate::ui::accessibility::set_label(&close, &close_label);
         let closing_window = window.downgrade();
         close.connect_clicked(move |_| {
             if let Some(window) = closing_window.upgrade() {

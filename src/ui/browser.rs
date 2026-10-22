@@ -1568,6 +1568,14 @@ impl BrowserView {
         self.state.columns_mirror_selection.get()
     }
 
+    /// Runs the cursor mirror at once instead of after its delay.
+    #[cfg(test)]
+    pub(in crate::ui) fn mirror_focused_folder_now(&self) {
+        if let Some((depth, position, _)) = self.state.browser.focused_item() {
+            self.state.apply_child_mirror(depth, position, false);
+        }
+    }
+
     pub fn set_click_activation(&self, mode: BrowserMode, activation: ClickActivation) {
         if mode == BrowserMode::Columns {
             self.state.columns_click_activation.set(activation);

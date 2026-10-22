@@ -1564,14 +1564,17 @@ impl ViewState {
         self.pending_mirror.replace(Some(source));
     }
 
-    fn apply_child_mirror(self: &Rc<Self>, depth: usize, position: usize, force: bool) {
+    pub(super) fn apply_child_mirror(self: &Rc<Self>, depth: usize, position: usize, force: bool) {
         let filtered = self
             .columns
             .borrow()
             .get(depth)
             .is_some_and(|column| column.map.has_query());
-        // Opening or closing the child column would end a 10xer range.
+        // Opening or closing the child column would end a 10xer range. A folder
+        // that is still validating will take the focus itself; mirroring it now
+        // would cancel that open.
         if filtered
+            || self.browser.pending_navigation_generation().is_some()
             || self.browser.child_mirror_suppressed()
             || self.browser.visual_kind().is_some()
             || !self.columns_mirror_selection.get()

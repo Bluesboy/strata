@@ -313,7 +313,16 @@ def test_an_unreadable_location_reports_an_error(strata):
     blocked.mkdir()
     blocked.chmod(0o000)
     try:
+        # The monitor lists the folder first; a click landing while F5's
+        # reload replaces its row is lost, so the click waits for the new row.
+        listed = strata.entry("blocked")
         strata.keyboard.press("F5")
+        strata.wait(
+            lambda: next(
+                (node for node in strata.entries() if node.name == "blocked"), listed
+            ) != listed,
+            "F5's reload to replace the blocked row",
+        )
         strata.select_entry("blocked")
 
         dialog = strata.wait_for_dialog()

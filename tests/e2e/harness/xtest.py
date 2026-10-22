@@ -12,7 +12,8 @@ from __future__ import annotations
 import ctypes
 import ctypes.util
 from dataclasses import dataclass, field
-from typing import NamedTuple
+from pathlib import Path
+from typing import Callable, NamedTuple, TextIO
 
 KeySym = ctypes.c_ulong
 Display = ctypes.c_void_p
@@ -71,6 +72,10 @@ class KeyboardState(NamedTuple):
     locked_modifiers: int
 
 
+INPUT_LOG_VARIABLE = "STRATA_INPUT_LOG"
+OriginProvider = Callable[[], tuple[int, int]]
+
+
 class XTestError(RuntimeError):
     """The X server or its XTEST extension is unusable."""
 
@@ -92,6 +97,9 @@ class XTestConnection:
     _display: int = field(init=False)
     _root: int = field(init=False, default=0)
     _keymap: dict[int, tuple[int, bool]] = field(init=False, default_factory=dict)
+    _input_log: TextIO | None = field(init=False, default=None)
+    _log_origin: OriginProvider | None = field(init=False, default=None)
+    _last_origin: tuple[int, int] = field(init=False, default=(0, 0))
 
     def __post_init__(self) -> None:
         self._x11 = _load("X11")
@@ -225,6 +233,7 @@ class XTestConnection:
         keycode, _ = self.keycode_for(keysym)
         self._xtst.XTestFakeKeyEvent(self._display, keycode, int(pressed), NO_DELAY)
         self.flush()
+        self._log(lambda: f"key {keycode} {_state(pressed)}")
 
     def key_needs_shift(self, keysym: int) -> bool:
         return self.keycode_for(keysym)[1]
@@ -254,6 +263,7 @@ class XTestConnection:
             self._display, CURRENT_SCREEN, int(x), int(y), NO_DELAY
         )
         self.flush()
+        self._log(lambda: "motion {} {}".format(*self._relative(int(x), int(y))))
 
     def pointer_position(self) -> tuple[int, int]:
         """Where the X server currently believes the pointer is."""
@@ -347,13 +357,54 @@ class XTestConnection:
             self._display, number, int(pressed), NO_DELAY
         )
         self.flush()
+        self._log(
+            lambda: "pointer {} {} button {} {}".format(
+                *self._relative(*self.pointer_position()), number, _state(pressed)
+            )
+        )
+
+    def start_input_log(self, path: Path, origin: OriginProvider) -> None:
+        """Append every later synthetic event to `path`.
+
+        Positions are relative to `origin()`, the main window's surface origin,
+        read when each line is written, as the `--qa` injector reads its own.
+        """
+
+        self.stop_input_log()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._input_log = path.open("a", encoding="utf-8")
+        self._log_origin = origin
+        self._last_origin = (0, 0)
+
+    def stop_input_log(self) -> None:
+        log, self._input_log, self._log_origin = self._input_log, None, None
+        if log is not None:
+            log.close()
+
+    def _relative(self, x: int, y: int) -> tuple[int, int]:
+        if self._log_origin is not None:
+            try:
+                self._last_origin = self._log_origin()
+            except Exception:  # the window can be mid-teardown; keep the last origin
+                pass
+        return x - self._last_origin[0], y - self._last_origin[1]
+
+    def _log(self, line: Callable[[], str]) -> None:
+        if self._input_log is not None:
+            self._input_log.write(line() + "\n")
+            self._input_log.flush()
 
     def flush(self) -> None:
         self._x11.XSync(self._display, 0)
 
     def close(self) -> None:
+        self.stop_input_log()
         display = getattr(self, "_display", None)
         if display:
             self._xtst.XTestGrabControl(display, 0)
             self._x11.XCloseDisplay(display)
             self._display = 0
+
+
+def _state(pressed: bool) -> str:
+    return "down" if pressed else "up"

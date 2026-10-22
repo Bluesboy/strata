@@ -2278,15 +2278,15 @@ pub(crate) fn filter_controls(tooltip: &str) -> (gtk::Entry, gtk::Revealer, gtk:
         .transition_type(gtk::RevealerTransitionType::SlideDown)
         .child(&row)
         .build();
-    let button = gtk::ToggleButton::builder()
-        .tooltip_text(super::shortcut_reference::with_keys(
-            tooltip,
-            super::keys::Keys::One(super::keys::bindings::FILTER),
-        ))
-        .build();
+    let label = super::shortcut_reference::with_keys(
+        tooltip,
+        super::keys::Keys::One(super::keys::bindings::FILTER),
+    );
+    let button = gtk::ToggleButton::builder().tooltip_text(&label).build();
     button.set_child(Some(&crate::assets::chrome_icon(
         crate::assets::icons::FUNNEL,
     )));
+    super::accessibility::set_label(&button, &label);
     crate::ui::controls::pane_header_action(&button);
     let shown_filter = revealer.clone();
     let focused_filter = entry.clone();
@@ -2359,6 +2359,7 @@ fn icons_controls(browser: &Rc<Browser>, depth: usize, thumbnail_size: i32) -> I
         .tooltip_text(crate::i18n::tr("Thumbnail size"))
         .popover(&thumbnail_popover)
         .build();
+    super::accessibility::set_label(&thumbnail_menu, &crate::i18n::tr("Thumbnail size"));
     crate::ui::controls::pane_header_action(&thumbnail_menu);
     thumbnail_menu.add_css_class("icons-thumbnail-menu");
     thumbnail_menu.set_child(Some(&crate::assets::chrome_icon(

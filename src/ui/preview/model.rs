@@ -317,8 +317,7 @@ impl ModelPreview {
         self.next.set_sensitive(has_image);
         self.picture.set_opacity(0.3);
         self.picture.set_cursor_from_name(Some("wait"));
-        self.picture
-            .update_state(&[gtk::accessible::State::Busy(true)]);
+        crate::ui::accessibility::set_busy(&self.picture, true);
         crate::ui::accessibility::set_label(&self.spinner, &crate::i18n::tr("Loading preview…"));
         self.spinner.set_visible(true);
         self.spinner.start();
@@ -342,8 +341,7 @@ impl ModelPreview {
         self.next.set_sensitive(has_image);
         self.picture.set_opacity(1.0);
         self.picture.set_cursor_from_name(Some("grab"));
-        self.picture
-            .update_state(&[gtk::accessible::State::Busy(false)]);
+        crate::ui::accessibility::set_busy(&self.picture, false);
     }
 
     fn update(&self, texture: &gdk::Texture, mesh: ModelMesh) {

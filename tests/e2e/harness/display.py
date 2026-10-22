@@ -91,10 +91,11 @@ class HeadlessDisplay:
     accessibility_bus_address: str = field(init=False)
     _processes: list[ManagedProcess] = field(init=False, default_factory=list)
     _home: TestEnvironment | None = field(init=False, default=None)
+    input_connection: object | None = field(init=False, default=None)
 
     def start(self) -> None:
         self.runtime_dir = Path(tempfile.mkdtemp(prefix="strata-e2e-", dir="/tmp"))
-        self._home = TestEnvironment()
+        self._home = TestEnvironment(helper=True)
         if len(str(self.runtime_dir)) > MAX_RUNTIME_DIR_LENGTH:
             self.stop()
             raise DisplayError(

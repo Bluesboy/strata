@@ -2196,7 +2196,7 @@ fn set_open_with_explanation(button: &gtk::Button, explanation: Option<&str>) {
     if let Some(option) = button.downcast_ref::<presentation::MenuOption>() {
         option.set_menu_description(explanation.as_str());
     }
-    button.update_property(&[gtk::accessible::Property::Description(&explanation)]);
+    super::super::accessibility::set_description(button, Some(&explanation));
 }
 
 fn prepare_folder_open_with(

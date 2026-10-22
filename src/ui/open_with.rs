@@ -675,9 +675,9 @@ fn create_section_header(title: &str) -> gtk::ListBoxRow {
 fn create_app_row(app: &gio::AppInfo, display: &gtk::gdk::Display) -> gtk::ListBoxRow {
     let row = gtk::ListBoxRow::new();
     row.add_css_class("open-with-row");
-    row.update_property(&[gtk::accessible::Property::Label(&app.display_name())]);
+    super::accessibility::set_label(&row, &app.display_name());
     if let Some(description) = app.description() {
-        row.update_property(&[gtk::accessible::Property::Description(&description)]);
+        super::accessibility::set_description(&row, Some(&description));
     }
     let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
     let icon = application_icon(app, display);
@@ -757,9 +757,7 @@ pub(super) fn show(
     list.add_css_class("open-with-list");
     list.set_selection_mode(gtk::SelectionMode::Single);
     list.set_activate_on_single_click(false);
-    list.update_property(&[gtk::accessible::Property::Label(&crate::i18n::tr(
-        "Applications",
-    ))]);
+    super::accessibility::set_label(&list, &crate::i18n::tr("Applications"));
 
     let always_use =
         super::controls::form_check_button(&crate::i18n::tr(if content_types.len() > 1 {

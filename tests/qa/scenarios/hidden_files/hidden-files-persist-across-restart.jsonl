@@ -1,0 +1,10 @@
+{"scenario":"hidden-files-persist-across-restart","modes":["columns","list"],"cost":{"columns":0.5,"list":0.6}}
+{"wait":{"entries":{"contains":["todo.txt"],"excludes":[".hidden.txt"]},"dir":"$root"},"message":"the fixture listed without its hidden file"}
+{"key":"ctrl+period"}
+{"wait":{"entries":{"contains":[".hidden.txt"]},"dir":"$root"},"message":"Ctrl+. to show hidden files"}
+{"wait":{"pref":{"key":"show_hidden","value":true}},"message":"show_hidden to be saved as true"}
+{"restart":true}
+{"wait":{"entries":{"contains":["todo.txt",".hidden.txt"]},"dir":"$root"},"message":"hidden files to stay shown after a restart"}
+{"key":"ctrl+period"}
+{"wait":{"entries":{"contains":["todo.txt"],"excludes":[".hidden.txt"]},"dir":"$root"},"message":"Ctrl+. to hide hidden files again"}
+{"wait":{"pref":{"key":"show_hidden","value":false}},"message":"show_hidden to be saved as false"}

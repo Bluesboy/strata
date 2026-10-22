@@ -1467,6 +1467,11 @@ fn sync_sidebar_button(button: &gtk::Button, rail: bool) {
                     continue;
                 }
                 button.set_tooltip_text(rail.then_some(label.label().as_str()));
+                if rail {
+                    crate::ui::accessibility::set_stand_in_label(button, &label.label());
+                } else {
+                    crate::ui::accessibility::clear_stand_in_label(button);
+                }
                 label.set_visible(!rail);
             }
         }

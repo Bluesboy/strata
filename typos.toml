@@ -62,3 +62,5 @@ mak = "mak"
 edn = "edn"
 ags = "ags"
 tese = "tese"
+# The `--qa` reply field for captured GLib warnings and criticals.
+criticals = "criticals"

@@ -37,7 +37,8 @@ def _settles(condition, timeout: float = 3.0, hold: float = 0.0) -> bool:
         if since is not None and time.monotonic() - since >= hold:
             return True
         time.sleep(0.05)
-    return bool(condition())
+    # A hold is met in full or not at all; without one, a last look is enough.
+    return hold == 0 and bool(condition())
 
 
 def _elapsed(strata) -> str | None:
