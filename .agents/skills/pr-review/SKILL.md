@@ -178,8 +178,8 @@ metadata policy check fails on it.
 
 The repository has test bloat; the PR must not add to it. Review every test
 the PR adds or changes (Rust `#[test]`s in `src/**/tests*.rs` and `tests/`,
-QA scenarios in `tests/qa/scenarios/`, Python E2E under `tests/e2e/` while it
-exists, and script tests under `scripts/test_*.py`).
+QA scenarios in `tests/qa/scenarios/`, and script tests under
+`scripts/test_*.py`).
 
 For each test ask: **which production change would make this fail?** Delete
 the test when the honest answer is "none" or "only deleting the feature".
@@ -196,7 +196,7 @@ Specifically delete tests that:
 - duplicate an existing test with different inputs that exercise the same
   path; extend the existing test's table instead;
 - add a loop or parameter axis whose values never change an assertion;
-- add another E2E or QA smoke launch for behavior a unit test already owns.
+- add another QA smoke launch for behavior a unit test already owns.
 
 Keep, and if needed strengthen, tests for actions, input routing, lifecycle,
 filesystem safety, error handling, and live preference changes. If a
@@ -205,8 +205,8 @@ sharpen one of the PR's own tests, not to add another.
 
 When you delete a test, name its coverage owner (the existing test or
 scenario that still guards the behavior) in your notes; that goes in the PR
-comment. A QA scenario twinned with a Python test is changed together and
-checked with `./scripts/qa-parity.sh`. For QA scenarios, the `qa-quality`
+comment. A scenario with a `mutation` patch is checked with
+`./scripts/qa-mutation.sh <scenario>`. For QA scenarios, the `qa-quality`
 skill's rubric decides between overlapping scenarios.
 
 Deleting tests is a code change: it goes through the same validation as any
@@ -237,7 +237,7 @@ selection is nonzero, and run them.
 ```
 
 Escalate to full `./scripts/quality.sh` and
-`STRATA_CONTAINER_ENGINE=podman ./scripts/e2e.sh` only for shared
+`STRATA_CONTAINER_ENGINE=podman ./scripts/qa.sh` only for shared
 infrastructure, dependencies, build or CI changes, or when the merge touched
 something whose coverage you cannot map. Container scripts share a build
 cache: run them one after another, never concurrently, and never on the
@@ -314,7 +314,7 @@ was missing and what fixed it.> <Each open reviewer comment: addressed in
 **Validation**
 - `./scripts/test-headless.py browser::filter` — 14 tests passed
 - `./scripts/quality.sh fmt`, `./scripts/quality.sh clippy` — clean
-- Not run: `e2e.sh` (change does not touch GUI flows)
+- Not run: `qa.sh` (change does not touch GUI flows)
 
 **Follow-ups outside this PR**
 - <anything noticed but intentionally not changed>

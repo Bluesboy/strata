@@ -9,8 +9,8 @@ use super::{
     Controller, Sample,
     driver::Input,
     observe::{
-        child_processes, evaluate, footer_fill, hit_path, list_sections, number_json, preferences,
-        scroll_value, theme_accent, visible_rows, visible_top,
+        self, child_processes, evaluate, footer_fill, hit_path, list_sections, number_json,
+        preferences, scroll_value, theme_accent, visible_rows, visible_top,
     },
     pixels,
     protocol::{Check, Direction, Failure, FieldRef, PointAxis, Predicate, Target},
@@ -437,7 +437,7 @@ impl Controller {
                     use std::os::unix::fs::PermissionsExt as _;
                     let mask =
                         u32::from_str_radix(&bits.mask, 8).map_err(|error| error.to_string())?;
-                    match std::fs::metadata(&file.path) {
+                    match observe::off_ui_thread(|| std::fs::metadata(&file.path)) {
                         Ok(metadata) => {
                             let mode = metadata.permissions().mode();
                             verdict((mode & mask != 0) == bits.set, json!(format!("{mode:o}")))
@@ -446,7 +446,8 @@ impl Controller {
                     }
                 }
                 (exists, None) => {
-                    let found = Path::new(&file.path).symlink_metadata().is_ok();
+                    let found =
+                        observe::off_ui_thread(|| Path::new(&file.path).symlink_metadata().is_ok());
                     verdict(Some(found) == *exists, json!(found))
                 }
             },

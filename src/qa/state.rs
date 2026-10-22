@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-//! Mirrors the Python harness's AT-SPI page object (`tests/e2e/harness/browser.py`).
+//! Reads the application's state from its own widget tree, as AT-SPI would expose it.
 
 use std::{collections::HashMap, fmt::Write as _};
 
@@ -145,7 +145,7 @@ pub(crate) struct EntryObservation {
     pub(crate) focused: bool,
 }
 
-/// The `app` snapshot every reply carries; `docs/e2e-testing.md` defines its shape.
+/// The `app` snapshot every reply carries; `.agents/skills/qa-scenarios/reference.md` defines its shape.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub(crate) struct AppState {
     pub(crate) view_mode: Option<String>,
@@ -195,7 +195,7 @@ impl Observation {
         self.panes.first().map(|pane| pane.view)
     }
 
-    /// The last match wins, as in the Python harness.
+    /// The last match wins.
     pub(crate) fn pane(&self, directory: Option<&str>) -> Option<&PaneObservation> {
         match directory {
             None => self.panes.last(),

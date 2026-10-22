@@ -456,9 +456,20 @@ pub(super) fn footer_fill(
     })
 }
 
+/// Runs a check's own disk read on another thread and waits for it, so a
+/// main-thread I/O audit, which traces only the UI thread, sees no QA reads.
+pub(super) fn off_ui_thread<T: Send>(read: impl FnOnce() -> T + Send) -> T {
+    std::thread::scope(|scope| {
+        scope
+            .spawn(read)
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    })
+}
+
 pub(super) fn preferences() -> Result<Value, String> {
     let path = crate::storage::config_directory().join("settings.toml");
-    let text = match std::fs::read_to_string(&path) {
+    let text = match off_ui_thread(|| std::fs::read_to_string(&path)) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(error) => return Err(format!("cannot read {}: {error}", path.display())),

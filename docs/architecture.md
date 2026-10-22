@@ -204,7 +204,7 @@ selection models. They are deliberately not replaced with another navigation eng
 source/depth anchor, slow-click rename and release activation, List metadata/grouping, Icons'
 content hit testing and chooser restrictions remain explicit policies. Tests retain distinct
 pointer, keyboard, lifecycle and filesystem-effect routes rather than replacing them with a
-cross-mode launch smoke test. See [GUI validation](e2e-testing.md) and
+cross-mode launch smoke test. See [GUI validation](testing.md) and
 [live preferences](preferences.md).
 
 ### Browser implementation map
@@ -379,7 +379,7 @@ monitors and other requests it admits to a mount that stops answering;
 `adapters/gio_close.rs`, which closes the enumerators and streams the interface lets go of in the
 background (GLib still closes a GVfs stream whose open succeeded just as it was cancelled); and `storage/writer.rs`, the background writer for Strata's own settings and state. See
 [Unresponsive mounts](filesystem-compatibility.md#unresponsive-mounts) and the [main-thread I/O
-audit](e2e-testing.md#main-thread-io-audit).
+audit](testing.md#main-thread-io-audit).
 
 This separation is not a redesign of operation policy. Alternate renderers, staged
 publication/metadata orchestration, native transfer security and the settings workspace should be

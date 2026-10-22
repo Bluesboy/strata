@@ -1839,7 +1839,7 @@ The exceptions are:
   so that it still cuts a stuck request short.
 - Quitting, which waits up to 10 s for queued settings saves.
 
-The [main-thread I/O audit](e2e-testing.md#main-thread-io-audit) reports any other file call the
+The [main-thread I/O audit](testing.md#main-thread-io-audit) reports any other file call the
 interface thread makes, and its stall watchdog names the call the interface thread is blocked in.
 
 ### Request lanes
@@ -2045,7 +2045,7 @@ scoped `ui_thread::allow`. A test that checks that the window keeps running whil
 parks the call with a seam racer that waits on `test_support::Gate`, pumps the main loop until the
 call is reached, checks that nothing waited for it, then releases it. Lane tests hand the lanes'
 state the time, past 2 s and 10 s, instead of waiting. The [main-thread I/O audit and the stall
-watchdog](e2e-testing.md#main-thread-io-audit) look for calls the asserts cannot see, inside GLib
+watchdog](testing.md#main-thread-io-audit) look for calls the asserts cannot see, inside GLib
 and GTK.
 
 For [files that are still open](#files-that-are-still-open) they emulate each mount family's
@@ -2167,8 +2167,8 @@ same way. Fixtures with other malformed names, which the daemons refuse, fail th
 Requirements and safety:
 
 - Docker on amd64, as a non-root user in the `docker` group, and the host modules `loop`, `vfat`,
-  `exfat`, `ntfs3`, `nfsd`, `nfs`, `cifs` and `fuse`. The image builds on the verified E2E base
-  from `scripts/e2e_base.py`.
+  `exfat`, `ntfs3`, `nfsd`, `nfs`, `cifs` and `fuse`. The image builds on the verified test base
+  from `scripts/image_base.py`.
 - The container is privileged: it loads host modules and attaches loop devices in the host
   kernel. It has no network; its NFS, SMB and SFTP servers listen only on its own loopback.
   Crates are fetched first by a separate unprivileged container, and the build runs offline.

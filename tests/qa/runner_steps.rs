@@ -267,15 +267,22 @@ struct ProcQuery {
     gone: Option<Value>,
     parent_is_app: Option<Value>,
     kill: Option<Value>,
+    app_cwd: Option<String>,
 }
 
 impl ProcStep {
     pub(crate) fn check(&self) -> Result<(), String> {
         let query = &self.proc;
-        match (&query.gone, &query.parent_is_app, &query.kill) {
-            (Some(pids), None, None) if pids.is_array() => Ok(()),
-            (None, Some(pid), None) if pid.is_u64() => Ok(()),
-            (None, None, Some(pid)) if pid.is_u64() => {
+        match (
+            &query.gone,
+            &query.parent_is_app,
+            &query.kill,
+            &query.app_cwd,
+        ) {
+            (Some(pids), None, None, None) if pids.is_array() => Ok(()),
+            (None, Some(pid), None, None) if pid.is_u64() => Ok(()),
+            (None, None, None, Some(_)) => Ok(()),
+            (None, None, Some(pid), None) if pid.is_u64() => {
                 if self.timeout_ms.is_some() || self.message.is_some() {
                     Err("a kill happens at once; it takes no timeout_ms or message".to_owned())
                 } else {
@@ -283,7 +290,8 @@ impl ProcStep {
                 }
             }
             _ => Err(
-                "proc takes one of gone (a noted list of pids), parent_is_app, or kill (a pid)"
+                "proc takes one of gone (a noted list of pids), parent_is_app, kill (a pid), \
+                 or app_cwd (a path)"
                     .to_owned(),
             ),
         }
@@ -335,6 +343,17 @@ impl ProcStep {
                     Ok(())
                 } else {
                     Err(format!("{running:?} still run"))
+                }
+            } else if let Some(expected) = &query.app_cwd {
+                let cwd = fs::read_link(format!("/proc/{application}/cwd"))
+                    .map_err(|error| format!("/proc/{application}/cwd: {error}"))?;
+                if cwd == Path::new(expected) {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "the application's working folder is {}",
+                        cwd.display()
+                    ))
                 }
             } else {
                 parent_is_app(pid(query.parent_is_app.as_ref().unwrap_or(&Value::Null))?)

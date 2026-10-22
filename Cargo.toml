@@ -14,7 +14,7 @@ default = ["rar"]
 rar = ["dep:unrar", "dep:unrar_sys"]
 # The scripted `--qa` launch mode and its in-process X input. Never in releases.
 qa = ["dep:x11rb", "dep:regex"]
-# Exact but slow consistency checks; tests and E2E builds turn them on.
+# Exact but slow consistency checks; tests and QA builds turn them on.
 invariant-checks = []
 
 [dependencies]

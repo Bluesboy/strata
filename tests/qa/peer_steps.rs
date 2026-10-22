@@ -19,7 +19,7 @@ use crate::{
     fs_helpers::{check_png, percent_decoded},
     peers,
     process::{spawn, terminate},
-    variables::python,
+    variables::PYTHON,
 };
 
 /// `services::remote_download::DOWNLOAD_PREFIX`; only such directories may be discarded.
@@ -277,7 +277,7 @@ pub(crate) fn peer_step(
             }
             arguments.extend(step.foreign.paths.iter().cloned());
             let source = peers::ForeignSource::start(
-                &python(),
+                PYTHON,
                 Path::new(REPOSITORY),
                 &arguments,
                 &context.launch.helper_environment(),
@@ -355,8 +355,10 @@ fn launch_instance(launch: &Launch, step: &LaunchStep) -> Result<(), String> {
         .open(launch.log.with_file_name("launches.log"))
         .map_err(|error| error.to_string())?;
     let errors = output.try_clone().map_err(|error| error.to_string())?;
+    // A second instance hands its arguments over and exits; its trace is all startup.
+    let (mut command, _capture) = launch.command(BINARY)?;
     let mut child = spawn(
-        Command::new(BINARY)
+        command
             .args(&arguments)
             .current_dir(launch.fixture)
             .env_clear()

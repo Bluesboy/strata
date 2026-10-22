@@ -337,7 +337,7 @@ pub(crate) fn drive(
                     return outcome;
                 }
             };
-            if let Err(error) = parsed.run(application.child.id()) {
+            if let Err(error) = application.pid().and_then(|pid| parsed.run(pid)) {
                 file_failure(&mut outcome, *line, &label, &error);
                 return outcome;
             }

@@ -280,7 +280,7 @@ enum Along {
     Y,
 }
 
-/// Whole pixels, as AT-SPI reports a box, so the arithmetic is the twin's integer arithmetic.
+/// Whole pixels, as AT-SPI reports a box, so the arithmetic is integer arithmetic.
 fn coordinate(
     window: &gtk::Window,
     injector: &Injector,
