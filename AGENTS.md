@@ -35,11 +35,13 @@ project's own skills below. Keep
 and `npx skills update`, then commit the lockfile. Do not vendor third-party
 skill files under `.agents/`.
 
-The project's own skills are the exception: `.agents/skills/qa-*` are written
-here and committed, each un-ignored in `.gitignore` and linked from
-`.claude/skills/`. Use `qa-scenarios` to write and manage QA scenarios,
-`qa-drive` to verify a change by driving the application in QA mode, and
-`qa-quality` to score a scenario's value.
+The project's own skills are the exception: `.agents/skills/qa-*` and
+`.agents/skills/pr-review` are written here and committed, each un-ignored in
+`.gitignore` and linked from `.claude/skills/`. Use `qa-scenarios` to write
+and manage QA scenarios, `qa-drive` to verify a change by driving the
+application in QA mode, `qa-quality` to score a scenario's value, and
+`pr-review` to merge main into a pull request, prune tautological tests,
+review and fix it, and watch CI until it is green.
 
 ## Git workflow
 
