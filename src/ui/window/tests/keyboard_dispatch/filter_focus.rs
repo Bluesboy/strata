@@ -1278,7 +1278,7 @@ fn enter_target_case(mode: BrowserMode, recursive: bool, pick: Pick) -> Result<(
     let wanted = match pick {
         Pick::Kept => picked,
         _ => {
-            field.set_text("repor");
+            field.set_text("repo");
             if !settles(|| {
                 fixture
                     .view
