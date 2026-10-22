@@ -341,16 +341,16 @@ fn append_omarchy_variant_option(
         preferences,
         "Omarchy variant",
         &[
-            ("Original", OmarchyVariant::Original),
+            ("Lighter", OmarchyVariant::Lighter),
             ("Darker", OmarchyVariant::Darker),
-            ("High contrast", OmarchyVariant::HighContrast),
+            ("Contrast", OmarchyVariant::Contrast),
         ],
         PreferenceManager::omarchy_variant,
         PreferenceManager::set_omarchy_variant,
     );
     let row = super::control_row(
         "Omarchy variant",
-        "Original palette mapping, darker surfaces, or stronger contrast. Keeps following your system theme.",
+        "Lighter or darker file columns, or stronger contrast. Keeps following your system theme.",
         &choice,
     );
     super::indent_row(&row);

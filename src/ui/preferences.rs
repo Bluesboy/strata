@@ -57,10 +57,12 @@ pub(crate) enum InterfaceRenderer {
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum OmarchyVariant {
+    #[serde(alias = "original")]
+    Lighter,
     #[default]
-    Original,
     Darker,
-    HighContrast,
+    #[serde(alias = "high_contrast")]
+    Contrast,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -75,8 +77,11 @@ pub(crate) enum FileIconColors {
 pub(in crate::ui) struct Preferences {
     mode: String,
     theme: String,
-    #[serde(default)]
-    omarchy_variant: OmarchyVariant,
+    /// Pre-per-theme global choice, migrated to the active Omarchy theme.
+    #[serde(default, rename = "omarchy_variant", skip_serializing)]
+    legacy_omarchy_variant: Option<OmarchyVariant>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    omarchy_variants: HashMap<String, OmarchyVariant>,
     #[serde(default)]
     folder_peeking: bool,
     #[serde(default = "default_enabled")]
@@ -358,7 +363,8 @@ impl Default for Preferences {
         Self {
             mode: "theme".to_owned(),
             theme: "tokyo-night".to_owned(),
-            omarchy_variant: OmarchyVariant::default(),
+            legacy_omarchy_variant: None,
+            omarchy_variants: HashMap::new(),
             folder_peeking: false,
             single_click_previews: true,
             columns_mirror_selection: true,
@@ -637,6 +643,7 @@ pub struct PreferenceManager {
     folder_sorts_revision: Cell<u64>,
     folder_save_notices: save_notice::SaveNotices,
     item_customizations: item_customizations::ItemCustomizationState,
+    active_omarchy_theme: RefCell<Option<String>>,
 }
 
 impl PreferenceManager {
@@ -704,6 +711,7 @@ impl PreferenceManager {
             folder_sorts_revision: Cell::new(0),
             folder_save_notices: save_notice::SaveNotices::for_folder_views(),
             item_customizations: Default::default(),
+            active_omarchy_theme: RefCell::new(None),
             preferences: RefCell::new(preferences),
         });
         manager.folder_view_store();
@@ -1086,16 +1094,54 @@ impl PreferenceManager {
         self.save_preferences();
     }
 
+    /// The variant remembered for the active Omarchy theme.
     pub fn omarchy_variant(&self) -> OmarchyVariant {
-        self.preferences.borrow().omarchy_variant
+        let active = self.active_omarchy_theme.borrow();
+        active
+            .as_ref()
+            .and_then(|theme| {
+                self.preferences
+                    .borrow()
+                    .omarchy_variants
+                    .get(theme)
+                    .copied()
+            })
+            .unwrap_or_default()
     }
 
     pub fn set_omarchy_variant(&self, variant: OmarchyVariant) {
+        let Some(theme) = self.active_omarchy_theme.borrow().clone() else {
+            return;
+        };
         if self.omarchy_variant() == variant {
             return;
         }
-        self.preferences.borrow_mut().omarchy_variant = variant;
+        {
+            let variants = &mut self.preferences.borrow_mut().omarchy_variants;
+            if variant == OmarchyVariant::default() {
+                variants.remove(&theme);
+            } else {
+                variants.insert(theme, variant);
+            }
+        }
         self.save_preferences();
+    }
+
+    /// Records which Omarchy theme is current without publishing; the theme
+    /// manager reapplies and notifies once its palette state is updated.
+    pub(in crate::ui) fn set_active_omarchy_theme(&self, theme: &str) {
+        let theme = theme.trim().to_owned();
+        let mut preferences = self.preferences.borrow_mut();
+        // Older versions always saved "original", so only a contrast choice was deliberate.
+        if let Some(legacy) = preferences.legacy_omarchy_variant.take()
+            && legacy == OmarchyVariant::Contrast
+        {
+            preferences
+                .omarchy_variants
+                .entry(theme.clone())
+                .or_insert(legacy);
+        }
+        self.active_omarchy_theme.replace(Some(theme));
     }
 
     pub fn element_glow(&self) -> bool {

@@ -290,14 +290,18 @@ mixed-DPI monitor transitions still need compositor-specific manual testing.
 ## Omarchy variants
 
 Under **Settings → Appearance**, **Omarchy variant** sits below **Follow Omarchy**.
-**Original** preserves the current mapping; **Darker** uses dark terminal-like
-surfaces; **High contrast** strengthens readability while retaining the palette's
-light/dark character. See [Themes](themes.md#omarchy-quattro) for color behavior.
-Saved as `omarchy_variant = "original"`, `"darker"`, or `"high_contrast"`, the
-choice applies at startup and live across windows and previews, including after
-Omarchy changes themes. It is remembered but inactive when following is off.
-Missing or invalid saved values fall back to Original without resetting other
-preferences.
+**Lighter** keeps file columns on the theme's regular background; **Darker** (the
+default) moves them onto the darker pane color used by the sidebar, headers, and
+preview; **Contrast** strengthens readability on the Darker layout. See [Themes](themes.md#omarchy-quattro) for color behavior.
+The choice is remembered per Omarchy theme and saved under `[omarchy_variants]`
+keyed by the theme name, for example `tokyo-night = "lighter"` or `"contrast"`;
+Darker is the default and is not stored. It applies at startup and live across
+windows and previews, and switching Omarchy themes restores that theme's own
+choice. It is remembered but inactive when following is off. A legacy global
+`omarchy_variant = "high_contrast"` migrates to Contrast for the Omarchy theme
+active when Strata next starts; other legacy values are dropped, since earlier
+versions always saved one. Missing or invalid saved values fall back to Darker
+without resetting other preferences.
 
 ## Language
 

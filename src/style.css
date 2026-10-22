@@ -3636,16 +3636,16 @@ button.shortcut-footer-button {
 
 .shortcut-footer-button > button:hover,
 button.shortcut-footer-button:hover {
-  background: @strata_highlight;
+  background: alpha(@strata_accent, 0.15);
   color: @strata_text;
-  border-color: @strata_border;
+  border-color: alpha(@strata_accent, 0.42);
 }
 
 .shortcut-footer-button > button:active,
 .shortcut-footer-button > button:checked,
 button.shortcut-footer-button:active,
 button.shortcut-footer-button:checked {
-  background: @strata_highlight;
+  background: alpha(@strata_accent, 0.22);
   color: @strata_text;
   border-color: @strata_accent;
 }
