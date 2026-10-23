@@ -1347,12 +1347,21 @@ impl PreferenceManager {
         self.set_list_hidden_columns(hidden);
     }
 
-    pub fn swap_list_columns(&self, col1: ListColumnId, col2: ListColumnId) {
+    pub fn move_list_column(&self, column: ListColumnId, target: ListColumnId, after: bool) {
         let mut order = self.list_column_order();
-        let pos1 = order.iter().position(|col| *col == col1);
-        let pos2 = order.iter().position(|col| *col == col2);
-        if let (Some(p1), Some(p2)) = (pos1, pos2) {
-            order.swap(p1, p2);
+        let Some(from) = order.iter().position(|item| *item == column) else {
+            return;
+        };
+        let Some(target) = order.iter().position(|item| *item == target) else {
+            return;
+        };
+        let mut to = target + usize::from(after);
+        if from < to {
+            to -= 1;
+        }
+        if from != to {
+            let column = order.remove(from);
+            order.insert(to, column);
             self.set_list_column_order(order);
         }
     }

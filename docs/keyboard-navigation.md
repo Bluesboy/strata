@@ -21,6 +21,10 @@ for the full rules.
 
 In regular and 10xer modes, **Ctrl+T** opens a tab at the active location,
 **Ctrl+W** closes the active tab, and **Ctrl+Tab / Ctrl+Shift+Tab** cycles tabs.
+**Ctrl+Shift+T** reopens the last closed tab at its previous location and position.
+Repeat it to reopen up to 20 recently closed tabs in reverse closure order.
+Closed-tab history belongs to the current window and is cleared when it closes;
+reopened tabs start with fresh selection, navigation history, and preview state.
 **Ctrl+Page Up / Ctrl+Page Down** selects the previous / next tab in strip order,
 wrapping at either end, like the tab shortcuts in web browsers.
 **Ctrl+Shift+Page Up / Ctrl+Shift+Page Down** moves the active tab one position

@@ -6045,6 +6045,19 @@ menubutton.icons-thumbnail-menu > button:focus-visible {
   outline-offset: -2px;
 }
 
+.list-headings.column-reordering .list-heading-button {
+  transform: none;
+  transition: none;
+}
+
+.list-heading-cell.reorder-before .list-heading-button {
+  box-shadow: inset 3px 0 @strata_accent;
+}
+
+.list-heading-cell.reorder-after .list-heading-button {
+  box-shadow: inset -3px 0 @strata_accent;
+}
+
 .list-column-resize-handle {
   background: transparent;
   min-width: 7px;

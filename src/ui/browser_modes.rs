@@ -3263,12 +3263,7 @@ fn find_column_at_x(
     columns: &ListColumnLayout,
 ) -> Option<(ListColumnId, bool)> {
     let manager = super::preferences::PreferenceManager::shared();
-    let order = manager.list_column_order();
-    let hidden = manager.list_hidden_columns();
-    let visible_cols: Vec<ListColumnId> = order
-        .into_iter()
-        .filter(|c| !hidden.contains(c) || *c == ListColumnId::Name)
-        .collect();
+    let visible_cols = manager.list_visible_columns();
 
     for &col in &visible_cols {
         if let Some(cell) = find_heading_cell(headings, col)
@@ -3310,13 +3305,8 @@ fn column_midpoint(
         return Some(f64::from(bounds.x()) + (f64::from(bounds.width()) / 2.0));
     }
     let manager = super::preferences::PreferenceManager::shared();
-    let order = manager.list_column_order();
-    let hidden = manager.list_hidden_columns();
     let mut x_acc = 0.0;
-    for c in order {
-        if hidden.contains(&c) && c != ListColumnId::Name {
-            continue;
-        }
+    for c in manager.list_visible_columns() {
         let w = f64::from(columns.widths[c.index()].get());
         if c == col {
             return Some(x_acc + w / 2.0);
@@ -3324,6 +3314,55 @@ fn column_midpoint(
         x_acc += w;
     }
     None
+}
+
+#[derive(Clone, Copy)]
+struct ListColumnDrag {
+    column: ListColumnId,
+    origin: (f64, f64),
+    active: bool,
+}
+
+fn column_drop_site(
+    headings: &gtk::Box,
+    columns: &ListColumnLayout,
+    drag: ListColumnDrag,
+    offset: (f64, f64),
+) -> Option<(ListColumnId, bool)> {
+    let (x, y) = (drag.origin.0 + offset.0, drag.origin.1 + offset.1);
+    if x < 0.0 || x > f64::from(headings.width()) || y < 0.0 || y > f64::from(headings.height()) {
+        return None;
+    }
+    let manager = super::preferences::PreferenceManager::shared();
+    let mut visible = manager.list_visible_columns();
+    let original = visible.iter().position(|column| *column == drag.column)?;
+    visible.remove(original);
+    for (position, column) in visible.iter().copied().enumerate() {
+        if x < column_midpoint(headings, column, columns)? {
+            return (position != original).then_some((column, false));
+        }
+    }
+    let last = visible.last().copied()?;
+    (visible.len() != original).then_some((last, true))
+}
+
+fn column_drop_feedback(headings: &gtk::Box, destination: Option<(ListColumnId, bool)>) {
+    for column in ListColumnId::ALL {
+        let Some(cell) = find_heading_cell(headings, column) else {
+            continue;
+        };
+        cell.remove_css_class("reorder-before");
+        cell.remove_css_class("reorder-after");
+        if let Some((target, after)) = destination
+            && target == column
+        {
+            cell.add_css_class(if after {
+                "reorder-after"
+            } else {
+                "reorder-before"
+            });
+        }
+    }
 }
 
 fn list_headings(
@@ -3421,122 +3460,98 @@ fn list_headings(
     drag.set_button(1);
     drag.set_propagation_phase(gtk::PropagationPhase::Capture);
 
-    let drag_state = Rc::new(Cell::new(None::<(ListColumnId, f64, bool)>));
+    let drag_state = Rc::new(Cell::new(None::<ListColumnDrag>));
     let headings_weak = headings.downgrade();
-    let columns_weak = columns.clone();
-    let bound_items_weak = bound_items.clone();
-
-    drag.connect_drag_begin({
+    let finish_drag = Rc::new({
         let drag_state = drag_state.clone();
         let headings_weak = headings_weak.clone();
-        let columns_weak = columns_weak.clone();
-        move |gesture, start_x, _| {
-            let Some(headings) = headings_weak.upgrade() else {
-                drag_state.set(None);
+        let columns = columns.clone();
+        let bound_items = bound_items.clone();
+        move |released: Option<(f64, f64)>| {
+            let Some(drag) = drag_state.take() else {
                 return;
             };
-            let Some((col, is_resize)) = find_column_at_x(&headings, start_x, &columns_weak) else {
-                drag_state.set(None);
+            let Some(headings) = headings_weak.upgrade() else {
+                return;
+            };
+            headings.set_cursor(None);
+            headings.remove_css_class("column-reordering");
+            column_drop_feedback(&headings, None);
+            if drag.active
+                && let Some(offset) = released
+                && let Some((target, after)) = column_drop_site(&headings, &columns, drag, offset)
+            {
+                super::preferences::PreferenceManager::shared().move_list_column(
+                    drag.column,
+                    target,
+                    after,
+                );
+                apply_columns_layout(&headings, &columns, &bound_items);
+            }
+        }
+    });
+
+    drag.connect_drag_begin({
+        let finish_drag = finish_drag.clone();
+        let drag_state = drag_state.clone();
+        let headings_weak = headings_weak.clone();
+        let columns = columns.clone();
+        move |gesture, start_x, start_y| {
+            finish_drag(None);
+            let Some(headings) = headings_weak.upgrade() else {
+                return;
+            };
+            let Some((column, is_resize)) = find_column_at_x(&headings, start_x, &columns) else {
                 return;
             };
             if is_resize {
                 gesture.set_state(gtk::EventSequenceState::Denied);
-                drag_state.set(None);
                 return;
             }
-            drag_state.set(Some((col, start_x, false)));
+            drag_state.set(Some(ListColumnDrag {
+                column,
+                origin: (start_x, start_y),
+                active: false,
+            }));
         }
     });
 
     drag.connect_drag_update({
-        let drag_state = drag_state.clone();
         let headings_weak = headings_weak.clone();
-        let columns_weak = columns_weak.clone();
-        let bound_items_weak = bound_items_weak.clone();
-        move |gesture, offset_x, _| {
-            let Some((drag_col, start_x, drag_active)) = drag_state.get() else {
+        let columns = columns.clone();
+        move |gesture, offset_x, offset_y| {
+            let Some(mut drag) = drag_state.get() else {
                 return;
             };
-            if !drag_active {
-                if offset_x.abs() < 10.0 {
-                    return;
-                }
-                drag_state.set(Some((drag_col, start_x, true)));
-                gesture.set_state(gtk::EventSequenceState::Claimed);
-                if let Some(headings) = headings_weak.upgrade() {
-                    headings.set_cursor_from_name(Some("grabbing"));
-                }
-            }
-
             let Some(headings) = headings_weak.upgrade() else {
                 return;
             };
-            let current_x = start_x + offset_x;
-            let manager = super::preferences::PreferenceManager::shared();
-
-            loop {
-                let order = manager.list_column_order();
-                let hidden = manager.list_hidden_columns();
-                let visible_cols: Vec<ListColumnId> = order
-                    .into_iter()
-                    .filter(|c| !hidden.contains(c) || *c == ListColumnId::Name)
-                    .collect();
-
-                let Some(current_idx) = visible_cols.iter().position(|c| *c == drag_col) else {
-                    break;
-                };
-
-                let mut swapped = false;
-                if current_idx > 0 {
-                    let left_col = visible_cols[current_idx - 1];
-                    if let Some(left_mid) = column_midpoint(&headings, left_col, &columns_weak)
-                        && current_x < left_mid
-                    {
-                        manager.swap_list_columns(drag_col, left_col);
-                        apply_columns_layout(&headings, &columns_weak, &bound_items_weak);
-                        swapped = true;
-                    }
+            if !drag.active {
+                if offset_x.abs() < 10.0 {
+                    return;
                 }
-                if !swapped && current_idx + 1 < visible_cols.len() {
-                    let right_col = visible_cols[current_idx + 1];
-                    if let Some(right_mid) = column_midpoint(&headings, right_col, &columns_weak)
-                        && current_x > right_mid
-                    {
-                        manager.swap_list_columns(drag_col, right_col);
-                        apply_columns_layout(&headings, &columns_weak, &bound_items_weak);
-                        swapped = true;
-                    }
-                }
-                if !swapped {
-                    break;
-                }
+                drag.active = true;
+                drag_state.set(Some(drag));
+                gesture.set_state(gtk::EventSequenceState::Claimed);
+                headings.set_cursor_from_name(Some("grabbing"));
+                headings.add_css_class("column-reordering");
             }
+            column_drop_feedback(
+                &headings,
+                column_drop_site(&headings, &columns, drag, (offset_x, offset_y)),
+            );
         }
     });
 
     drag.connect_drag_end({
-        let drag_state = drag_state.clone();
-        let headings_weak = headings_weak.clone();
-        move |_, _, _| {
-            if let Some((_, _, true)) = drag_state.take()
-                && let Some(headings) = headings_weak.upgrade()
-            {
-                headings.set_cursor(None);
-            }
-        }
+        let finish_drag = finish_drag.clone();
+        move |_, x, y| finish_drag(Some((x, y)))
     });
-
     drag.connect_cancel({
-        let drag_state = drag_state.clone();
-        let headings_weak = headings_weak.clone();
-        move |_, _| {
-            if let Some((_, _, true)) = drag_state.take()
-                && let Some(headings) = headings_weak.upgrade()
-            {
-                headings.set_cursor(None);
-            }
-        }
+        let finish_drag = finish_drag.clone();
+        move |_, _| finish_drag(None)
     });
+    headings.connect_unmap(move |_| finish_drag(None));
 
     headings.add_controller(drag);
     let scaled_columns = columns.clone();

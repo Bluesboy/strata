@@ -5,6 +5,8 @@ use gtk::gdk;
 use super::*;
 use crate::test_support::gtk_test;
 
+mod reopen;
+
 fn press(key: gdk::Key, modifiers: gdk::ModifierType) -> KeyPress {
     KeyPress::from_signal(key, 0, modifiers)
 }
@@ -747,6 +749,7 @@ fn operations_in_inactive_tabs_prevent_tab_and_window_closure() {
             assert_eq!(tabs.tabs.borrow().len(), 2);
             tabs.close(1);
             assert_eq!(tabs.tabs.borrow().len(), 2);
+            assert!(tabs.closed_tabs.borrow().is_empty());
             assert!(!operations.cancelled(operation));
             window.close();
             assert!(window.is_visible());

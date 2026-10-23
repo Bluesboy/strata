@@ -2193,7 +2193,7 @@ fn list_columns_order_and_visibility_persist_and_update() {
             manager.set_list_column_visible(ListColumnId::Name, false);
             assert!(manager.is_list_column_visible(ListColumnId::Name));
 
-            manager.swap_list_columns(ListColumnId::Modified, ListColumnId::Type);
+            manager.move_list_column(ListColumnId::Modified, ListColumnId::Type, false);
             assert_eq!(
                 manager.list_column_order(),
                 vec![
@@ -2204,6 +2204,18 @@ fn list_columns_order_and_visibility_persist_and_update() {
                     ListColumnId::Type,
                 ]
             );
+            use ListColumnId::{Mode, Modified, Name, Size, Type};
+            for (column, target, after, expected) in [
+                (Name, Type, true, [Mode, Size, Modified, Type, Name]),
+                (Name, Mode, false, [Name, Mode, Size, Modified, Type]),
+                (Type, Name, false, [Type, Name, Mode, Size, Modified]),
+                (Type, Modified, true, [Name, Mode, Size, Modified, Type]),
+                (Size, Modified, false, [Name, Mode, Size, Modified, Type]),
+                (Modified, Modified, true, [Name, Mode, Size, Modified, Type]),
+            ] {
+                manager.move_list_column(column, target, after);
+                assert_eq!(manager.list_column_order(), expected);
+            }
             crate::storage::writer::settle();
 
             let saved = read_preferences().expect("saved preferences");
