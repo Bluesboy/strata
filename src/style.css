@@ -2660,6 +2660,12 @@ paned > separator {
   outline: none;
 }
 
+/* A message's lone action still shows which control Return activates. */
+.preview-pane.preview-keyboard-owner .preview-feedback-action:focus-visible {
+  outline: 2px solid @strata_bg;
+  outline-offset: -4px;
+}
+
 .preview-find {
   background: @strata_surface;
   color: @strata_text;
@@ -3464,26 +3470,39 @@ paned > separator {
   margin-top: 6px;
 }
 
-.preview-archive-password-row button.suggested-action {
+.preview-feedback-action {
+  margin-top: 6px;
+}
+
+.preview-archive-password-row button.suggested-action,
+.preview-feedback button.suggested-action {
   background-color: @strata_accent;
   background-image: none;
+  border-color: @strata_accent;
   color: @strata_bg;
 }
 
-.preview-archive-password-row button.suggested-action:hover {
+.preview-archive-password-row button.suggested-action:hover,
+.preview-feedback button.suggested-action:hover {
   background-color: shade(@strata_accent, 1.07);
   background-image: none;
+  border-color: shade(@strata_accent, 1.07);
 }
 
 .preview-archive-password-row button.suggested-action:active,
-.preview-archive-password-row button.suggested-action:checked {
+.preview-archive-password-row button.suggested-action:checked,
+.preview-feedback button.suggested-action:active,
+.preview-feedback button.suggested-action:checked {
   background-color: shade(@strata_accent, 0.92);
   background-image: none;
+  border-color: shade(@strata_accent, 0.92);
 }
 
-.preview-archive-password-row button.suggested-action:disabled {
+.preview-archive-password-row button.suggested-action:disabled,
+.preview-feedback button.suggested-action:disabled {
   background-color: alpha(@strata_accent, 0.5);
   background-image: none;
+  border-color: alpha(@strata_accent, 0.5);
   color: alpha(@strata_bg, 0.7);
 }
 
