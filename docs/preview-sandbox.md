@@ -105,6 +105,9 @@ isolation, resource limits, or the other narrow optional runtime mounts.
 - Local DOCX previews run `docx-rs` in the same helper under the same 20 MiB input
   limit. Only a validated, bounded JSON payload of generated HTML returns, and the
   application reparses it with the existing bounded HTML parser.
+- Local ODT and OTT previews stream `content.xml` and `styles.xml` through
+  `quick-xml` in the same helper under the same 20 MiB input limit, and return the
+  same validated HTML payload as DOCX.
 - Local [Markdown, bounded HTML, RTF, CSV, and TSV previews](document-previews.md) are parsed
   in-process by pure-Rust parsers that receive only the bounded source string and
   cannot initiate filesystem access, network access, JavaScript execution, or
@@ -179,7 +182,7 @@ namespace cleanup finish. A killed helper stuck in kernel I/O can therefore
 overlap a later render until the kernel allows it to exit. Interactive Quick Preview
 retains its existing wait-for-exit policy. Failed models retain the file icon and normal retry backoff.
 
-Heavy Quick Previews (models, PDFs, workbooks and DOCX) share one process-wide
+Heavy Quick Previews (models, PDFs, workbooks, DOCX and ODT) share one process-wide
 permit and use one-shot sandboxes. Cancellation retains that permit until the
 helper exits. Format is carried explicitly across the sandbox boundary, including
 for symlinks; the UI supplies the render palette. Geometry PNG cache keys include

@@ -18,7 +18,7 @@ use crate::{
         gio_file_for_location,
         local_operations::{ArchiveListingStatus, decode_archive_listing},
     },
-    sandbox::{Cancellation, MediaPreviewBackend, ParseOperation, PdfRenderSize},
+    sandbox::{Cancellation, DocumentFormat, MediaPreviewBackend, ParseOperation, PdfRenderSize},
     services::{
         LoadHandle, MediaPreviewSize, ModelFormat, ModelRender, Preview, PreviewContent,
         PreviewEvent, PreviewProvider, PreviewRequest, SandboxedMedia, content_family,
@@ -430,10 +430,10 @@ impl LocalPreviewProvider {
             let sandboxed = if crate::services::table::is_workbook(&content_type, &entry.native_name)
             {
                 Some(ParseOperation::PreviewWorkbook)
-            } else if crate::services::docx::is_document(&content_type, &entry.native_name)
+            } else if let Some(format) = DocumentFormat::for_file(&content_type, &entry.native_name)
                 && sample_is_text != Some(true)
             {
-                Some(ParseOperation::PreviewDocument)
+                Some(ParseOperation::PreviewDocument(format))
             } else {
                 None
             };

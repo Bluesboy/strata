@@ -20,6 +20,7 @@ pub(crate) mod model_preview;
 mod native_fs;
 mod navigation_history;
 mod network_error;
+pub(crate) mod odt;
 mod operations;
 pub(crate) mod package_manager;
 mod path_match;

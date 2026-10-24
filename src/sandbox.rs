@@ -132,6 +132,39 @@ impl CoverFormat {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DocumentFormat {
+    Docx,
+    Odt,
+}
+
+impl DocumentFormat {
+    pub(crate) fn for_file(content_type: &str, name: &std::ffi::OsStr) -> Option<Self> {
+        if crate::services::docx::is_document(content_type, name) {
+            Some(Self::Docx)
+        } else if crate::services::odt::is_document(content_type, name) {
+            Some(Self::Odt)
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn argument(self) -> &'static str {
+        match self {
+            Self::Docx => "docx",
+            Self::Odt => "odt",
+        }
+    }
+
+    pub(crate) fn from_argument(value: &str) -> Option<Self> {
+        match value {
+            "docx" => Some(Self::Docx),
+            "odt" => Some(Self::Odt),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ParseOperation {
     ThumbnailImage,
@@ -154,7 +187,7 @@ pub(crate) enum ParseOperation {
     MediaMetadata,
     RawMetadata,
     PreviewWorkbook,
-    PreviewDocument,
+    PreviewDocument(DocumentFormat),
     PreviewPdf(PdfRenderSize),
     PreviewModel(ModelRender),
     PreviewMedia(MediaPreviewSize),
@@ -193,7 +226,7 @@ impl ParseOperation {
             Self::MediaMetadata => "media-metadata",
             Self::RawMetadata => "raw-metadata",
             Self::PreviewWorkbook => "preview-workbook",
-            Self::PreviewDocument => "preview-document",
+            Self::PreviewDocument(_) => "preview-document",
             Self::PreviewPdf(_) => "preview-pdf",
             Self::PreviewModel(_) => "preview-model",
             Self::PreviewMedia(_) => "preview-media",
@@ -237,7 +270,7 @@ impl ParseOperation {
                 | Self::AudioTags
                 | Self::RawMetadata
                 | Self::PreviewWorkbook
-                | Self::PreviewDocument
+                | Self::PreviewDocument(_)
                 | Self::InspectImage
         ) {
             "result.json"
@@ -284,7 +317,7 @@ impl ParseOperation {
             | Self::MediaMetadata
             | Self::RawMetadata
             | Self::PreviewWorkbook
-            | Self::PreviewDocument
+            | Self::PreviewDocument(_)
             | Self::ArchiveList { .. } => None,
         }
     }
@@ -306,7 +339,12 @@ impl ParseOperation {
                 Some(crate::services::image_conversion::MAX_INPUT_BYTES)
             }
             Self::PreviewWorkbook => Some(crate::services::table::WORKBOOK_BYTE_LIMIT),
-            Self::PreviewDocument => Some(crate::services::docx::DOCX_BYTE_LIMIT),
+            Self::PreviewDocument(DocumentFormat::Docx) => {
+                Some(crate::services::docx::DOCX_BYTE_LIMIT)
+            }
+            Self::PreviewDocument(DocumentFormat::Odt) => {
+                Some(crate::services::odt::ODT_BYTE_LIMIT)
+            }
             Self::DocumentImage => Some(crate::services::document_media::IMAGE_INPUT_LIMIT),
             Self::DocumentMermaid => {
                 Some(crate::services::document_media::DIAGRAM_INPUT_LIMIT as u64)
@@ -1053,6 +1091,7 @@ fn sandbox_command(
             ParseOperation::ThumbnailModel(format) => format.argument().to_owned(),
             ParseOperation::ThumbnailCover(format) => format.argument().to_owned(),
             ParseOperation::PreviewCover(format) => format.argument().to_owned(),
+            ParseOperation::PreviewDocument(format) => format.argument().to_owned(),
             ParseOperation::ArchiveList { format, .. } => format.extension().to_owned(),
             _ => value.to_string(),
         };
@@ -1151,7 +1190,7 @@ fn valid_output(operation: ParseOperation, data: &[u8]) -> bool {
     if matches!(operation, ParseOperation::PreviewWorkbook) {
         return crate::services::table::TableData::from_json(data).is_ok();
     }
-    if matches!(operation, ParseOperation::PreviewDocument) {
+    if matches!(operation, ParseOperation::PreviewDocument(_)) {
         return crate::services::docx::RichTextData::from_json(data).is_ok();
     }
     if matches!(operation, ParseOperation::RawMetadata) {
