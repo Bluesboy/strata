@@ -97,7 +97,7 @@ Theme files may be symlinks into a dotfiles repository. The configurator never r
 
 ## Live updates
 
-Strata watches `~/.config/strata/themes/` while it runs. When a `.toml` file changes there, the custom themes are read again; if the theme currently selected resolves to different colors, it is re-applied to every open window, including icon colors and code-preview syntax colors. No restart is needed.
+Strata watches `~/.config/strata/themes/` while it runs, along with the directory of each file a `.toml` symlink there points to, so a theme kept in a dotfiles repository also updates live when its target is rewritten. When a theme file changes, the custom themes are read again; if the theme currently selected resolves to different colors, it is re-applied to every open window, including icon colors and code-preview syntax colors. No restart is needed.
 
 This makes dynamic themes work: a generator can rewrite a theme file in place, for example a [matugen](https://github.com/InioX/matugen) template that follows the wallpaper and writes `~/.config/strata/themes/matugen.toml` on every change. Select that theme once (Settings → Appearance, or `theme = "matugen"` in `settings.toml`) and open windows follow the file.
 
