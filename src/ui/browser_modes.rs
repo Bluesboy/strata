@@ -2798,6 +2798,7 @@ fn build_icons_view(context: &Rc<IconsContext>, model: &impl IsA<gio::ListModel>
     let bound_items_for_setup = bound_items.clone();
     let filter_query_for_setup = context.filter_query.clone();
     let selection_for_setup = selection.clone();
+    let syncing_for_setup = syncing_selection.clone();
     let browser_for_setup = Rc::downgrade(&context.browser);
     let previews_for_setup = context.click.previews.clone();
     let activation_for_setup = context.click.activation.clone();
@@ -2840,6 +2841,7 @@ fn build_icons_view(context: &Rc<IconsContext>, model: &impl IsA<gio::ListModel>
             &card,
             item,
             selection_for_setup.clone(),
+            syncing_for_setup.clone(),
             browser_for_setup.clone(),
             weak_state_for_clicks.clone(),
             depth,
@@ -3910,6 +3912,7 @@ fn build_list_pane(
             view: view_model_object.clone(),
         },
         selection: selection.clone(),
+        syncing: syncing_selection.clone(),
         previews: click_options.previews,
         activation: click_options.activation,
         transfers: transfer_handler.clone(),
@@ -4817,6 +4820,7 @@ fn install_modified_selection_click(
     widget: &impl IsA<gtk::Widget>,
     item: &gtk::ListItem,
     selection: gtk::MultiSelection,
+    syncing: Rc<Cell<bool>>,
     browser: Weak<Browser>,
     weak_state: Weak<super::browser::ViewState>,
     depth: usize,
@@ -4899,6 +4903,12 @@ fn install_modified_selection_click(
         if !shift && let Some(anchor) = change.anchor {
             anchor_at(&browser, depth, &positions, anchor);
         }
+        if control
+            && !shift
+            && let Some(row) = gesture.widget()
+        {
+            move_range_origin(&row, &selection, &syncing, position);
+        }
         selection.set_selection(
             &change.selected,
             &gtk::Bitset::new_range(0, selection.n_items()),
@@ -4921,6 +4931,27 @@ fn install_modified_selection_click(
     });
     widget.add_controller(click.clone());
     click
+}
+
+/// Modified clicks are claimed before GTK's own click handling, so GTK's Shift+arrow origin
+/// stays put. Only `list.select-item` moves it, and it replaces the selection, so the bits
+/// are put back.
+fn move_range_origin(
+    row: &gtk::Widget,
+    selection: &gtk::MultiSelection,
+    syncing: &Cell<bool>,
+    position: u32,
+) {
+    let selected = selection.selection().copy();
+    syncing.set(true);
+    if let Err(error) = row.activate_action(
+        "list.select-item",
+        Some(&(position, false, false).to_variant()),
+    ) {
+        tracing::warn!(%error, "range origin action unavailable");
+    }
+    selection.set_selection(&selected, &gtk::Bitset::new_range(0, selection.n_items()));
+    syncing.set(false);
 }
 
 fn anchor_at(browser: &Rc<Browser>, depth: usize, positions: &PanePositions, view_position: u32) {
