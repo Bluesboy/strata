@@ -495,9 +495,15 @@ fn dismiss_authentication_prompt(browser_overlay: &gtk::Overlay, layer: &gtk::Bo
     dismiss_modal_layer(layer, &window_overlay, blurred_root.as_ref());
 }
 
-fn append_authentication_field(fields: &gtk::Box, label_text: &str, field: &impl IsA<gtk::Widget>) {
+fn append_authentication_field(
+    fields: &gtk::Box,
+    label_text: &str,
+    field: &(impl IsA<gtk::Widget> + IsA<gtk::Accessible>),
+) {
     let group = gtk::Box::new(gtk::Orientation::Vertical, 5);
-    group.append(&form_label(&crate::i18n::tr(label_text)));
+    let label = form_label(&crate::i18n::tr(label_text));
+    crate::ui::accessibility::set_labelled_by(field, &[label.upcast_ref()]);
+    group.append(&label);
     group.append(field);
     fields.append(&group);
 }

@@ -2307,6 +2307,7 @@ pub(crate) fn filter_controls(tooltip: &str) -> (gtk::Entry, gtk::Revealer, gtk:
         crate::assets::icons::FUNNEL,
     )));
     super::accessibility::set_label(&button, &label);
+    super::accessibility::set_label(&entry, &label);
     crate::ui::controls::pane_header_action(&button);
     let shown_filter = revealer.clone();
     let focused_filter = entry.clone();
@@ -2364,6 +2365,7 @@ fn icons_controls(browser: &Rc<Browser>, depth: usize, thumbnail_size: i32) -> I
     large.set_xalign(1.0);
     thumbnail_extremes.append(&small);
     thumbnail_extremes.append(&large);
+    crate::ui::accessibility::set_labelled_by(&thumbnail_scale, &[thumbnail_title.upcast_ref()]);
     thumbnail_content.append(&thumbnail_heading);
     thumbnail_content.append(&thumbnail_scale);
     thumbnail_content.append(&thumbnail_extremes);
