@@ -2020,25 +2020,66 @@ fn parse_preferences(contents: &str) -> io::Result<Preferences> {
 
 /// Rebuilds preferences from every entry that deserializes on its own, so one
 /// malformed value does not reset the rest (and, on the next save, overwrite
-/// them with defaults).
+/// them with defaults). A malformed list or table keeps its other entries.
 fn salvage_preferences(saved: toml::Table) -> Preferences {
     let Ok(mut merged) = toml::Table::try_from(Preferences::default()) else {
         return Preferences::default();
     };
     for (key, value) in saved {
-        let previous = merged.insert(key.clone(), value);
-        if merged.clone().try_into::<Preferences>().is_err() {
-            match previous {
-                Some(previous) => {
-                    merged.insert(key, previous);
-                }
-                None => {
-                    merged.remove(&key);
-                }
-            }
+        let kept = {
+            let accepts = |candidate: &toml::Value| {
+                let mut trial = merged.clone();
+                trial.insert(key.clone(), candidate.clone());
+                trial.try_into::<Preferences>().is_ok()
+            };
+            salvage_value(value, &accepts)
+        };
+        if let Some(kept) = kept {
+            merged.insert(key, kept);
         }
     }
     merged.try_into().unwrap_or_default()
+}
+
+/// Returns `value` if `accepts` takes it, otherwise the entries that still pass
+/// after dropping the bad ones, level by level. Entries are tried alone, so
+/// salvage stays linear in a collection's size, and then checked together. A
+/// value of the wrong shape, or a record missing a required field, yields `None`.
+fn salvage_value(
+    value: toml::Value,
+    accepts: &dyn Fn(&toml::Value) -> bool,
+) -> Option<toml::Value> {
+    if accepts(&value) {
+        return Some(value);
+    }
+    let kept = match value {
+        toml::Value::Table(table) => {
+            let mut kept = toml::Table::new();
+            for (key, child) in table {
+                let alone = |candidate: &toml::Value| {
+                    let trial = toml::Table::from_iter([(key.clone(), candidate.clone())]);
+                    accepts(&toml::Value::Table(trial))
+                };
+                if let Some(child) = salvage_value(child, &alone) {
+                    kept.insert(key, child);
+                }
+            }
+            toml::Value::Table(kept)
+        }
+        toml::Value::Array(items) => {
+            let mut kept = Vec::new();
+            for item in items {
+                let alone =
+                    |candidate: &toml::Value| accepts(&toml::Value::Array(vec![candidate.clone()]));
+                if let Some(item) = salvage_value(item, &alone) {
+                    kept.push(item);
+                }
+            }
+            toml::Value::Array(kept)
+        }
+        _ => return None,
+    };
+    accepts(&kept).then_some(kept)
 }
 
 fn sort_preferences(preferences: &Preferences) -> ViewPreferences {

@@ -217,6 +217,70 @@ fn a_malformed_preference_does_not_discard_the_others() {
 }
 
 #[test]
+fn one_malformed_entry_keeps_the_rest_of_its_collection() {
+    let corrupt: toml::Table = toml::from_str(
+        r#"
+        search_exclusions = [".venv", 12, "/fixture/custom_excluded"]
+        list_hidden_columns = ["size", "not_a_column", "mode"]
+        list_column_order = ["name", "size", "bogus", "modified"]
+
+        [omarchy_variants]
+        fixture = "lighter"
+        broken = "not-a-variant"
+
+        [device_labels]
+        "volume:fixture-kingston" = "Research drive"
+        "volume:broken" = 5
+
+        [send_to_recent_destinations]
+        "volume:fixture-kingston" = ["Academia/2026", 7, "Teaching"]
+        "volume:broken" = "not a list"
+        "volume:fixture-sandisk" = ["Backup"]
+
+        [browser_list_columns]
+        mode = "wide"
+        size = 80
+        type = 95
+        modified = 140
+        "#,
+    )
+    .expect("fixture TOML");
+    let mut saved = toml::Table::try_from(non_default_preferences()).expect("saved preferences");
+    saved.extend(corrupt);
+    assert!(saved.clone().try_into::<Preferences>().is_err());
+
+    assert_eq!(
+        salvage_preferences(saved),
+        Preferences {
+            search_exclusions: vec![".venv".into(), "/fixture/custom_excluded".into()],
+            list_hidden_columns: vec![ListColumnId::Size, ListColumnId::Mode],
+            list_column_order: vec![
+                ListColumnId::Name,
+                ListColumnId::Size,
+                ListColumnId::Modified,
+            ],
+            omarchy_variants: HashMap::from([("fixture".into(), OmarchyVariant::Lighter)]),
+            device_labels: HashMap::from([(
+                "volume:fixture-kingston".into(),
+                "Research drive".into()
+            )]),
+            send_to_recent_destinations: HashMap::from([
+                (
+                    "volume:fixture-kingston".into(),
+                    vec![PathBuf::from("Academia/2026"), PathBuf::from("Teaching")],
+                ),
+                (
+                    "volume:fixture-sandisk".into(),
+                    vec![PathBuf::from("Backup")]
+                ),
+            ]),
+            browser_list_columns: None,
+            ..non_default_preferences()
+        }
+    );
+}
+
+#[test]
 fn a_missing_required_preference_does_not_discard_the_others() {
     let mut saved = toml::Table::try_from(non_default_preferences()).expect("saved preferences");
     saved.remove("theme");
@@ -663,6 +727,22 @@ fn multiple_invalid_preferences_do_not_block_later_valid_entries() {
                     saved.insert("show_hidden".into(), "yes".into());
                     saved.insert("future_preference".into(), true.into());
                     saved.insert("auto_refresh_interval".into(), 600.into());
+                    saved.extend(
+                        toml::from_str::<toml::Table>(
+                            r#"
+                            search_exclusions = [".venv", 12, "/fixture/custom_excluded"]
+
+                            [omarchy_variants]
+                            fixture = "lighter"
+                            broken = "not-a-variant"
+
+                            [send_to_recent_destinations]
+                            "volume:fixture-kingston" = ["Academia/2026", 7, "Teaching"]
+                            "volume:fixture-sandisk" = ["Backup"]
+                            "#,
+                        )
+                        .expect("fixture TOML"),
+                    );
                 },
                 Preferences {
                     watch_network_folders: true,
