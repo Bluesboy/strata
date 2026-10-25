@@ -257,17 +257,18 @@ impl TabStrip {
     }
 
     pub(super) fn cancel_drag(&self) -> bool {
-        let source = self
+        let drag = self
             .drag_source
             .upgrade()
-            .filter(|source| source.drag().is_some())
-            .or_else(crate::ui::window::pinned_drop::active_drag_source)
-            .or_else(crate::ui::browser::active_file_drag_source)
-            .filter(|source| source.drag().is_some());
-        let Some(source) = source else {
+            .and_then(|source| source.drag())
+            .or_else(|| crate::ui::window::pinned_drop::active_drag_source()?.drag())
+            .or_else(|| crate::ui::browser::active_file_drag_source()?.drag());
+        let Some(drag) = drag else {
             return false;
         };
-        source.drag_cancel();
+        // DragSource::drag_cancel() ends the source but keeps the X11 pointer
+        // grab, so releasing still drops; only GdkDrag::cancel releases it.
+        drag.emit_by_name::<()>("cancel", &[&gdk::DragCancelReason::UserCancelled]);
         self.show_open_drop(false);
         true
     }

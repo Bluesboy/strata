@@ -76,7 +76,9 @@ in file choosers.
 Drop files (or a mixed selection of files and folders) from a listing on a tab
 to transfer into its current directory, or hover there during a file drag to
 switch tabs and choose a folder in its listing. Existing copy/move modifiers
-and conflict handling apply.
+and conflict handling apply. Escape cancels a file drag before it dismisses
+anything else: nothing transfers on release, and the selection, preview, and
+filter stay as they were.
 
 ## Input precedence
 
