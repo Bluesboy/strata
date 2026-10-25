@@ -20,7 +20,7 @@ use crate::ui::{
         },
         paths::is_trash_location,
     },
-    browser_modes::BrowserMode,
+    browser_modes::{BrowserMode, FilteredFileClick, filtered_file_click},
     modal::slide_in_down,
 };
 use crate::{
@@ -47,15 +47,15 @@ fn anchor_at(state: &std::rc::Weak<ViewState>, depth: usize, map: &ViewMap, row:
     }
 }
 
-/// Filtered folders keep one-click open. Filtered files follow the column click
-/// count and single-click preview setting, the same as an unfiltered row.
+/// Filtered folders keep one-click open.
 fn filtered_click_kind(
     state: &ViewState,
     entry: &FileEntry,
     recursive: bool,
 ) -> Option<PendingActivationKind> {
+    let chooser = state.browser.is_chooser_mode();
     if entry.is_directory() {
-        return Some(if recursive && state.browser.is_chooser_mode() {
+        return Some(if recursive && chooser {
             PendingActivationKind::ChooserSearchNavigate
         } else if recursive {
             PendingActivationKind::RecursiveSearch
@@ -63,28 +63,17 @@ fn filtered_click_kind(
             PendingActivationKind::Mapped
         });
     }
-    if state.browser.is_chooser_mode() {
-        return None;
-    }
-    let preview = entry_responds_to_preview_click(entry, state.single_click_previews.get());
-    if is_trash_location(&entry.location) {
-        return preview.then_some(filtered_preview_kind(recursive));
-    }
-    if should_activate_single_click(1, false, state.columns_click_activation.get(), false, false) {
-        return Some(if recursive {
-            PendingActivationKind::RecursiveSearch
-        } else {
-            PendingActivationKind::Mapped
-        });
-    }
-    preview.then_some(filtered_preview_kind(recursive))
-}
-
-fn filtered_preview_kind(recursive: bool) -> PendingActivationKind {
-    if recursive {
-        PendingActivationKind::RecursivePreview
-    } else {
-        PendingActivationKind::Standard { preview: true }
+    match filtered_file_click(
+        entry,
+        chooser,
+        state.single_click_previews.get(),
+        state.columns_click_activation.get().files,
+    ) {
+        FilteredFileClick::Open if recursive => Some(PendingActivationKind::RecursiveSearch),
+        FilteredFileClick::Open => Some(PendingActivationKind::Mapped),
+        FilteredFileClick::Preview if recursive => Some(PendingActivationKind::RecursivePreview),
+        FilteredFileClick::Preview => Some(PendingActivationKind::Standard { preview: true }),
+        FilteredFileClick::Ignore => None,
     }
 }
 

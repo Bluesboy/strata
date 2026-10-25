@@ -2209,43 +2209,29 @@ fn search_collection_options(
         }
     });
     let weak_browser = Rc::downgrade(browser);
-    // A filtered folder still opens on one plain click. A file follows the same
-    // single-click preview and click-count rules as the unfiltered listing.
-    let single_click = Rc::new(move |entry: FileEntry, presses: i32| {
+    let pointer_click = Rc::new(move |entry: FileEntry, presses: i32| {
         let Some(browser) = weak_browser.upgrade() else {
             return;
         };
-        let chooser = browser.is_chooser_mode();
-        if presses >= 2 {
-            if !chooser
-                && !entry.is_directory()
-                && activation.get().files != ClickCount::One
-                && !is_trash_location(&entry.location)
-            {
-                browser.open_location(entry.location);
-            }
-            return;
-        }
-        if chooser {
-            if entry.is_directory() {
+        if entry.is_directory() {
+            if presses == 1 {
                 browser.navigate(entry.location);
             }
             return;
         }
-        if entry.is_directory() {
-            browser.navigate(entry.location);
-            return;
-        }
-        if is_trash_location(&entry.location) {
-            if previews.get() && super::preview::entry_supports_quick_preview(&entry) {
-                browser.request_preview(entry);
+        let chooser = browser.is_chooser_mode();
+        let files = activation.get().files;
+        if presses >= 2 {
+            // With one-click files the first press already opened it.
+            if !chooser && files != ClickCount::One {
+                browser.open_location(entry.location);
             }
             return;
         }
-        if activation.get().files == ClickCount::One {
-            browser.open_location(entry.location);
-        } else if previews.get() && super::preview::entry_supports_quick_preview(&entry) {
-            browser.request_preview(entry);
+        match filtered_file_click(&entry, chooser, previews.get(), files) {
+            FilteredFileClick::Open => browser.open_location(entry.location),
+            FilteredFileClick::Preview => browser.request_preview(entry),
+            FilteredFileClick::Ignore => {}
         }
     });
     let focus_state = context_state.clone();
@@ -2268,7 +2254,7 @@ fn search_collection_options(
         presentation,
         multiple_selection,
         activate,
-        single_click,
+        pointer_click,
         selection_changed,
         focus_items,
         results_changed,
@@ -5202,12 +5188,24 @@ fn install_preview_click(
         let Some(entry) = browser.entry_at(depth, position) else {
             return;
         };
-        // Folders in an in-place filter still open on one click. Files fall through
-        // to the same preview and click-count handling as an unfiltered row.
-        if entry.is_directory() && should_activate_filtered_pointer(press_count, &filter_query) {
+        if should_activate_filtered_pointer(press_count, &filter_query) {
             gesture.set_state(gtk::EventSequenceState::Claimed);
             browser.select(depth, position);
-            browser.activate_in_place(depth, position);
+            let click = if entry.is_directory() {
+                FilteredFileClick::Open
+            } else {
+                filtered_file_click(
+                    &entry,
+                    browser.is_chooser_mode(),
+                    enabled.get(),
+                    click_activation.get().files,
+                )
+            };
+            match click {
+                FilteredFileClick::Open => browser.activate_in_place(depth, position),
+                FilteredFileClick::Preview => browser.preview(depth, position),
+                FilteredFileClick::Ignore => {}
+            }
             return;
         }
         if should_activate_pointer_click(press_count, entry.is_directory(), click_activation.get())
@@ -5242,6 +5240,30 @@ fn install_preview_click(
         }
     });
     widget.add_controller(click);
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum FilteredFileClick {
+    Open,
+    Preview,
+    Ignore,
+}
+
+/// One plain click on a filtered file follows the unfiltered click-count and
+/// preview rules, except that chooser and trashed files never open from it.
+pub(super) fn filtered_file_click(
+    entry: &FileEntry,
+    chooser: bool,
+    previews: bool,
+    files: ClickCount,
+) -> FilteredFileClick {
+    if files == ClickCount::One && !chooser && !is_trash_location(&entry.location) {
+        FilteredFileClick::Open
+    } else if previews && super::preview::entry_supports_quick_preview(entry) {
+        FilteredFileClick::Preview
+    } else {
+        FilteredFileClick::Ignore
+    }
 }
 
 fn should_activate_filtered_pointer(press_count: i32, query: &RefCell<String>) -> bool {
