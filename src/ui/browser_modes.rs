@@ -1768,16 +1768,16 @@ impl ModeViews {
             pane.stack.grab_focus();
             return;
         }
-        let target = self
+        let focused = self
             .browser
             .focused_item()
-            .filter(|(focused_depth, _, _)| *focused_depth == depth)
-            .and_then(|(_, source, _)| {
-                pane.item_sections().into_iter().find_map(|section| {
-                    let position = section.source_to_view(&pane.model, source)?;
-                    (position < section.view_model.n_items()).then_some((section.view, position))
-                })
-            });
+            .filter(|(focused_depth, _, _)| *focused_depth == depth);
+        let target = focused.as_ref().and_then(|(_, source, _)| {
+            pane.item_sections().into_iter().find_map(|section| {
+                let position = section.source_to_view(&pane.model, *source)?;
+                (position < section.view_model.n_items()).then_some((section.view, position))
+            })
+        });
         let (view, position) = target.map_or_else(
             || (pane.focus_view(), None),
             |(view, position)| (view, Some(position)),
@@ -1795,8 +1795,15 @@ impl ModeViews {
                     .into_iter()
                     .find(|section| section.view == view)
                     .map(|section| section.bound_items.clone())
+                && let Some((depth, source, entry)) = focused
             {
-                focus_collection_cursor_when_bound(view.downgrade(), items, position);
+                focus_collection_cursor_when_bound(
+                    view.downgrade(),
+                    items,
+                    position,
+                    Rc::downgrade(&self.browser),
+                    (depth, source, entry.location),
+                );
             }
             return;
         }
@@ -5455,12 +5462,24 @@ fn focus_collection_cursor_when_bound(
     view: glib::object::WeakRef<gtk::Widget>,
     items: Rc<RefCell<Vec<BoundModeItem>>>,
     position: u32,
+    browser: Weak<Browser>,
+    expected: (usize, usize, Location),
 ) {
+    // A later input or splice supersedes this cursor even when focus stays in the same view.
+    let is_current = move || {
+        browser.upgrade().is_some_and(|browser| {
+            browser
+                .focused_item()
+                .is_some_and(|(depth, source, entry)| {
+                    depth == expected.0 && source == expected.1 && entry.location == expected.2
+                })
+        })
+    };
     glib::idle_add_local_once(move || {
         let Some(view) = view.upgrade() else {
             return;
         };
-        if !collection_keeps_cursor(&view) {
+        if !is_current() || !collection_keeps_cursor(&view) {
             return;
         }
         if focus_bound_cursor(&items, position) {
@@ -5469,7 +5488,8 @@ fn focus_collection_cursor_when_bound(
         let frames = Cell::new(0u8);
         let items = items.clone();
         view.add_tick_callback(move |view, _| {
-            if !collection_keeps_cursor(view)
+            if !is_current()
+                || !collection_keeps_cursor(view)
                 || focus_bound_cursor(&items, position)
                 || frames.get() >= 8
             {
