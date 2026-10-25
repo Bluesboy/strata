@@ -28,6 +28,12 @@ pub(super) fn general_page(
     let preferences = page_content();
 
     append_language_option(&preferences, &manager);
+    let units = super::unit_system_control(&manager);
+    preferences.append(&super::control_row(
+        "Units",
+        "For things like distances, heights and volumes.",
+        &units,
+    ));
     append_browsing_options(&preferences, &manager);
     append_sidebar_options(&preferences, &manager);
 

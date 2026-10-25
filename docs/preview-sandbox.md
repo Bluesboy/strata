@@ -268,6 +268,65 @@ usable; exhausting a total inspection budget fails the operation rather than
 assuming uninspected candidates are invalid. G-code reuses these limits. Only bounded PNG results return to
 GTK. Thumbnail output remains at most 256×256, in the image's original colors.
 
+## Offline route previews
+
+Quick Preview accepts local GPX, FIT and KML files, including file symlinks.
+The one-shot `preview-route` helper parses and draws the route without network,
+map tiles or external resources. The drawer and file chooser use the shared media
+layout, folder-position caption, filename header and compact format/distance badges.
+A duration badge shows elapsed time between the earliest and latest recorded
+timestamps, including pauses, when at least two distinct timestamps are available.
+An elevation line is shown against cumulative distance when a connected pair has
+recorded altitude;
+otherwise that section is omitted. The shared media play/pause shortcuts animate
+route and elevation markers over 15 seconds at a steady distance-based pace.
+Hovering either graph pauses playback and synchronizes both markers; playback
+resumes only on an explicit play action. When route passes overlap or nearly
+overlap, hovering prefers the pass nearest the current distance among hits within
+two screen pixels of the closest line. Seeking uses the media shortcuts too.
+The timer stops when the preview is hidden, closed or replaced. The elevation
+header shows the current marker height during playback, hovering and seeking,
+when altitude is available. Playback uses calculated ground distance between GPS
+points, not screen length or recorded timestamps.
+
+The helper prepares a single projected trace with cumulative distance, segment
+boundaries and optional elevation coordinates. Both PNG images are drawn from this
+trace, and the same samples drive hover and playback in the UI. The plot owns
+coordinate transforms, picking and marker drawing; the player owns position and
+the playback timer. Host validation requires the PNG dimensions to match the
+trace’s coordinate space (800×600 for the route, 800×70 for elevation).
+Units follow the saved **Settings → General → Units** preference; the preview
+has no separate unit selector. Distances use kilometres or miles; elevation uses
+metres or feet.
+Changing units updates labels in place without interrupting playback.
+
+GPX tracks, route points and isolated waypoints preserve segment boundaries.
+FIT uses `fitparser` with checksum validation, bounded sequence decoding and
+streamed records; invalid GPS fixes and timer/session boundaries break the route.
+Enhanced altitude takes precedence over legacy altitude. KML supports Points,
+LineStrings and `gx:Track`, including these inside MultiGeometry/MultiTrack.
+Polygon outlines, KMZ, NetworkLinks and external assets are not rendered. KML
+altitude contributes to the profile only with explicit `absolute` altitude mode;
+terrain-relative and default clamped altitude need terrain data unavailable here.
+
+Missing altitude stays missing, including within a segment; zero and negative
+altitudes remain valid. Distance never bridges disconnected segments. Longitude
+wrapping keeps local date-line crossings together, with Web Mercator latitude
+clamped at approximately 85 degrees for the drawing. Display thinning does not
+change distance or altitude statistics. Distances use a spherical Earth model.
+
+The helper caps input at 32 MiB, aggregate valid points at 250,000, XML nesting
+at 64 and FIT objects at 1,000,000. Existing CPU, address-space, timeout,
+cancellation and shared heavy-preview permit limits still apply. Output is bounded
+JSON containing an 800×600 route PNG, an optional 800×70 elevation PNG and small
+numeric metadata, plus at most 250,000 projected drawing positions with cumulative
+distances, optional elevation heights and segment boundaries for interaction.
+The host validates PNG dimensions, sample counts, finite drawing bounds, monotonic
+distances, segment boundaries and profile consistency before presentation.
+Geographic coordinates and original document data stay in the sandbox.
+Route previews use the existing memory cache with format and palette identity;
+visible previews reload on theme changes. No browser thumbnail job is added.
+
 ## Browser worker pool
 
 Columns, List, and Icons share one lazy process-wide pool, retained across

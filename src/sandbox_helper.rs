@@ -31,6 +31,7 @@ mod image_conversion;
 mod media;
 mod model;
 mod raw_metadata;
+mod route;
 
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
@@ -230,6 +231,13 @@ pub(crate) fn run(arguments: &[String]) -> Result<(), String> {
             text_layer_bytes = text_layer;
             (png, Some(format!("{page} {pages}")))
         }
+        "preview-route" => match route::render(input, value) {
+            Ok(bytes) => (bytes, None),
+            Err(message) => {
+                let _ = fs::write(output.with_file_name("result.error"), message.as_bytes());
+                return Err(message);
+            }
+        },
         "preview-model" => {
             let progress = |stage| {
                 if let Ok(bytes) = serde_json::to_vec(&stage) {

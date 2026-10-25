@@ -198,6 +198,7 @@ pub(crate) enum ParseOperation {
     PreviewDocument(DocumentFormat),
     PreviewPdf(PdfRenderSize),
     PreviewModel(ModelRender),
+    PreviewRoute(crate::services::route_preview::RouteRender),
     PreviewMedia(MediaPreviewSize),
     PreviewAudio(MediaPreviewSize),
     AudioPeaks,
@@ -237,6 +238,7 @@ impl ParseOperation {
             Self::PreviewDocument(_) => "preview-document",
             Self::PreviewPdf(_) => "preview-pdf",
             Self::PreviewModel(_) => "preview-model",
+            Self::PreviewRoute(_) => "preview-route",
             Self::PreviewMedia(_) => "preview-media",
             Self::PreviewAudio(_) => "preview-audio",
             Self::AudioPeaks => "audio-peaks",
@@ -279,6 +281,7 @@ impl ParseOperation {
                 | Self::RawMetadata
                 | Self::PreviewWorkbook
                 | Self::PreviewDocument(_)
+                | Self::PreviewRoute(_)
                 | Self::InspectImage
         ) {
             "result.json"
@@ -317,6 +320,7 @@ impl ParseOperation {
                 Some((size.width as u32, size.height as u32, 1280 * 1280))
             }
             Self::PreviewMedia(_)
+            | Self::PreviewRoute(_)
             | Self::InspectImage
             | Self::PreviewAudio(_)
             | Self::AudioPeaks
@@ -352,6 +356,7 @@ impl ParseOperation {
             Self::InspectImage | Self::ConvertImage => {
                 Some(crate::services::image_conversion::MAX_INPUT_BYTES)
             }
+            Self::PreviewRoute(_) => Some(crate::services::route_preview::MAX_ROUTE_INPUT_BYTES),
             Self::PreviewWorkbook => Some(crate::services::table::WORKBOOK_BYTE_LIMIT),
             Self::PreviewDocument(DocumentFormat::Docx) => {
                 Some(crate::services::docx::DOCX_BYTE_LIMIT)
@@ -515,6 +520,8 @@ fn parse_canonical(
                 ParseOperation::InspectImage | ParseOperation::ConvertImage
             ) {
                 "The image exceeds the 32 MiB conversion limit. Choose a smaller image.".to_owned()
+            } else if matches!(operation, ParseOperation::PreviewRoute(_)) {
+                "This route file exceeds the 32 MiB preview limit.".to_owned()
             } else if matches!(operation, ParseOperation::PreviewModel(_)) {
                 const _: () = assert!(
                     MAX_MODEL_INPUT_BYTES == 128 * 1024 * 1024,
@@ -615,6 +622,7 @@ fn parse_canonical(
         if matches!(
             operation,
             ParseOperation::PreviewModel(_)
+                | ParseOperation::PreviewRoute(_)
                 | ParseOperation::InspectImage
                 | ParseOperation::ConvertImage
                 | ParseOperation::PreviewPdf(_)
@@ -1108,6 +1116,12 @@ fn sandbox_command(
                 },
                 render.view.argument(),
             ),
+            ParseOperation::PreviewRoute(render) => format!(
+                "{}:{:06x}:{:06x}",
+                render.format.label(),
+                render.palette.accent,
+                render.palette.surface
+            ),
             ParseOperation::ThumbnailModel(format) => format.argument().to_owned(),
             ParseOperation::ThumbnailCover(format) => format.argument().to_owned(),
             ParseOperation::PreviewCover(format) => format.argument().to_owned(),
@@ -1199,6 +1213,9 @@ pub(crate) fn numbered_name(name: &std::ffi::OsStr, prefix: &str) -> bool {
 }
 
 fn valid_output(operation: ParseOperation, data: &[u8]) -> bool {
+    if matches!(operation, ParseOperation::PreviewRoute(_)) {
+        return crate::services::route_preview::RoutePreview::from_json(data).is_ok();
+    }
     if matches!(operation, ParseOperation::InspectImage) {
         return data.len() <= 32
             && serde_json::from_slice::<crate::services::image_conversion::ImageKind>(data)
