@@ -522,7 +522,7 @@ fn register_recent_file(file: &gio::File) -> bool {
     let uri = file.uri();
     let added = manager.add_item(uri.as_str());
     if !added {
-        tracing::debug!(uri = %uri, "unable to record file in Recent history");
+        tracing::debug!(uri = %crate::model::diagnostic_uri(uri.as_str()), "unable to record file in Recent history");
     }
     added
 }

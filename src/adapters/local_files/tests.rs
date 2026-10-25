@@ -3491,6 +3491,33 @@ fn recent_removal_failure_logs_a_warning_and_allows_retry() {
 }
 
 #[test]
+fn recent_removal_logs_keep_credentials_out_of_the_default_log() {
+    let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
+        .lock()
+        .expect("the async test lock should not be poisoned");
+    let state = RecentRemovalState::new();
+    let backend = Rc::new(FakeRemovalBackend::new());
+    let uri = "recent://alice:s3cret;domain=CORP@host.example/item?token=abc#frag".to_owned();
+    backend.fail(
+        &uri,
+        "cannot reach sftp://alice:s3cret@host.example/item?token=abc#frag",
+    );
+    let backend_dyn: Rc<dyn RecentRemovalBackend> = backend.clone();
+
+    let output = capture_logs(|| {
+        recent_remove_entries_with_backend(&state, &backend_dyn, [uri.clone()]);
+        drain_until(|| state.in_flight.borrow().is_empty());
+    });
+
+    let warning = crate::test_support::captured_event(&output, "failed to remove recent entry");
+    assert_eq!(warning.split_whitespace().next(), Some("WARN"));
+    assert!(warning.contains("recent://host.example/item"), "{warning}");
+    for secret in ["alice", "s3cret", "CORP", "token", "frag"] {
+        assert!(!output.contains(secret), "{secret} leaked:\n{output}");
+    }
+}
+
+#[test]
 fn rapid_double_invocation_on_the_same_uri_does_not_issue_two_concurrent_deletes() {
     let _serial = ASYNC_MAIN_CONTEXT_DEFAULT
         .lock()
