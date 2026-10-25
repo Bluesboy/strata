@@ -3770,13 +3770,11 @@ fn list_navigation(browser: &Rc<Browser>) -> gtk::Box {
             browser.can_go_parent(),
         ),
     ] {
-        let button = gtk::Button::builder()
-            .tooltip_text(super::shortcut_reference::with_keys(
-                tooltip,
-                Keys::One(binding),
-            ))
-            .sensitive(available)
-            .build();
+        let button = gtk::Button::builder().sensitive(available).build();
+        super::accessibility::set_tooltip_and_label(
+            &button,
+            &super::shortcut_reference::with_keys(tooltip, Keys::One(binding)),
+        );
         button.set_child(Some(&crate::assets::chrome_icon(icon)));
         button.add_css_class("list-navigation-button");
         button.set_cursor_from_name(Some("pointer"));
@@ -3842,10 +3840,8 @@ fn build_list_pane(
 
     let columns_popover =
         column_options::create_column_options_popover(&headings, &columns, &bound_items);
-    let columns_menu = gtk::MenuButton::builder()
-        .tooltip_text(crate::i18n::tr("Columns"))
-        .popover(&columns_popover)
-        .build();
+    let columns_menu = gtk::MenuButton::builder().popover(&columns_popover).build();
+    super::accessibility::set_tooltip_and_label(&columns_menu, &crate::i18n::tr("Columns"));
     columns_menu.set_child(Some(&crate::assets::chrome_icon(
         crate::assets::icons::COLUMNS,
     )));

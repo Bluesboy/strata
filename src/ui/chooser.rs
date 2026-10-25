@@ -1740,12 +1740,14 @@ fn build_chooser_hosted(
     header_content.set_valign(gtk::Align::Center);
     header_content.append(&sidebar_toggle);
     header_content.append(&location);
-    let close = gtk::Button::builder()
-        .tooltip_text(crate::ui::shortcut_reference::with_keys(
+    let close = gtk::Button::new();
+    crate::ui::accessibility::set_tooltip_and_label(
+        &close,
+        &crate::ui::shortcut_reference::with_keys(
             "Cancel file selection (%{keys})",
             crate::ui::keys::Keys::One(crate::ui::keys::bindings::ESCAPE),
-        ))
-        .build();
+        ),
+    );
     close.set_child(Some(&crate::assets::chrome_icon(crate::assets::icons::X)));
     close.add_css_class("header-action");
     let closing_window = window.downgrade();
