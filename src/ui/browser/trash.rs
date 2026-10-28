@@ -17,7 +17,7 @@ use crate::ui::controls::{
 use crate::ui::focus_navigation::vim_focus_direction;
 use crate::ui::keys::{
     self, KeyPress,
-    bindings::{ENTER_ANY, ESCAPE_ANY, LEFT, RIGHT, TENXER_DELETE_CONFIRM, VIM_LEFT, VIM_RIGHT},
+    bindings::{ENTER_ANY, ESCAPE_ANY, LEFT, RIGHT, TENXER_DELETE_CONFIRM},
 };
 use crate::ui::modal::{
     ModalHost, close_on_escape, dismiss_modal_layer, dismiss_modal_layer_then, modal_layer,
@@ -197,9 +197,9 @@ enum DeleteConfirmationFocus {
 
 fn delete_confirmation_focus_target(press: &KeyPress) -> Option<DeleteConfirmationFocus> {
     const ARROW_MODIFIERS: Modifiers = Modifiers::SHIFT_MASK.union(Modifiers::SUPER_MASK);
-    if press.is_any(&[LEFT.ignoring(ARROW_MODIFIERS), VIM_LEFT]) {
+    if press.is(LEFT.ignoring(ARROW_MODIFIERS).or_alternates()) {
         Some(DeleteConfirmationFocus::Cancel)
-    } else if press.is_any(&[RIGHT.ignoring(ARROW_MODIFIERS), VIM_RIGHT]) {
+    } else if press.is(RIGHT.ignoring(ARROW_MODIFIERS).or_alternates()) {
         Some(DeleteConfirmationFocus::Confirm)
     } else {
         None

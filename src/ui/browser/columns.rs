@@ -1799,6 +1799,7 @@ impl ViewState {
         let navigation_state = Rc::downgrade(self);
         keys::on_press(&return_to_filter, move |controller, press| {
             let filter_active = search_active.get() || !query_for_return.borrow().trim().is_empty();
+            let press = &press.untyped();
             if !filter_active || !press.is_any(&[UP, DOWN]) {
                 return glib::Propagation::Proceed;
             }

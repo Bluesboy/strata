@@ -2352,7 +2352,9 @@ struct IconsControls {
 }
 
 /// `tooltip` names the filter shortcut with `%{keys}`.
-pub(crate) fn filter_controls(tooltip: &str) -> (gtk::Entry, gtk::Revealer, gtk::ToggleButton) {
+pub(crate) fn filter_controls(
+    tooltip: &'static str,
+) -> (gtk::Entry, gtk::Revealer, gtk::ToggleButton) {
     let entry = gtk::Entry::builder()
         .placeholder_text(super::browser::filter_placeholder(0))
         .has_frame(false)
@@ -2367,16 +2369,23 @@ pub(crate) fn filter_controls(tooltip: &str) -> (gtk::Entry, gtk::Revealer, gtk:
         .transition_type(gtk::RevealerTransitionType::SlideDown)
         .child(&row)
         .build();
-    let label = super::shortcut_reference::with_keys(
-        tooltip,
-        super::keys::Keys::One(super::keys::bindings::FILTER),
-    );
-    let button = gtk::ToggleButton::builder().tooltip_text(&label).build();
+    let button = gtk::ToggleButton::new();
+    let labelled_entry = entry.clone();
+    // 10xer hides the button, so it names the default map's key.
+    super::shortcut_reference::follow_keys(&button, move |button| {
+        let keys = super::keys::label_in_map(
+            &rust_i18n::locale(),
+            &super::keys::Keys::One(super::keys::bindings::FILTER.shown()),
+            super::keys::Map::Default,
+        );
+        let label = rust_i18n::t!(tooltip, keys = keys);
+        button.set_tooltip_text(Some(&label));
+        super::accessibility::set_label(button, &label);
+        super::accessibility::set_label(&labelled_entry, &label);
+    });
     button.set_child(Some(&crate::assets::chrome_icon(
         crate::assets::icons::FUNNEL,
     )));
-    super::accessibility::set_label(&button, &label);
-    super::accessibility::set_label(&entry, &label);
     crate::ui::controls::pane_header_action(&button);
     let shown_filter = revealer.clone();
     let focused_filter = entry.clone();
@@ -3826,10 +3835,9 @@ fn list_navigation(browser: &Rc<Browser>) -> gtk::Box {
         ),
     ] {
         let button = gtk::Button::builder().sensitive(available).build();
-        super::accessibility::set_tooltip_and_label(
-            &button,
-            &super::shortcut_reference::with_keys(tooltip, Keys::One(binding)),
-        );
+        let keys = Keys::One(binding.alternate(0).shown());
+        super::shortcut_reference::follow_tooltip(&button, tooltip, keys);
+        super::shortcut_reference::follow_label(&button, tooltip, keys);
         button.set_child(Some(&crate::assets::chrome_icon(icon)));
         button.add_css_class("list-navigation-button");
         button.set_cursor_from_name(Some("pointer"));
