@@ -4188,9 +4188,8 @@ impl Browser {
                 browser.reschedule_freshness();
             }
         });
-        let watch =
-            self.source
-                .start_watch(location, self.preferences.get().show_hidden, notify, report);
+        // Hidden entries remain in the model so revealing them never needs a rescan.
+        let watch = self.source.start_watch(location, true, notify, report);
         if let Some(monitor) = self
             .monitors
             .borrow_mut()
