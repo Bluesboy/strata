@@ -2064,6 +2064,7 @@ impl BrowserView {
     }
 
     pub fn set_presence(&self, presence: Presence, power_saver: bool) {
+        self.state.path_completion.set_window_presence(presence);
         let browser = &self.state.browser;
         browser.set_freshness(FreshnessInput {
             presence,

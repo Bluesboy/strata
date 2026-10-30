@@ -1,0 +1,11 @@
+{"scenario":"path-completion-dismisses-on-window-switch","modes":["columns"],"session_bus":true}
+{"key":"ctrl+l"}
+{"wait":{"field":{"name":"Location (Ctrl+L)","focused":true}},"message":"the location entry to take focus"}
+{"key":"ctrl+a"}
+{"type":"$fixture/doc"}
+{"wait":{"present":{"role":"label","name":"documents/"}},"message":"the path suggestion to appear"}
+{"remember":{"field":true},"as":"location"}
+{"launch":["$fixture/pictures"]}
+{"wait":{"windows":{"title":"Strata","count":2}},"message":"a second window to open"}
+{"wait":{"absent":{"role":"label","name":"documents/"}},"message":"the inactive window to dismiss its path suggestion"}
+{"expect":{"field":{"of":"location","text":"$fixture/doc"}},"message":"dismissing suggestions to preserve the typed path"}
