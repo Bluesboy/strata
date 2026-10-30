@@ -48,7 +48,7 @@ fn window_presence_dismisses_completion_without_discarding_the_path() {
                 assert!(!popover.is_visible(), "{presence:?} dismisses suggestions");
                 assert_eq!(view.state.location_entry.text().as_str(), path);
                 assert!(view.location_edit_is_active());
-                view.state.location_entry.set_text(&format!("{path}u"));
+                view.state.location_entry.set_text("~");
                 assert!(
                     !popover.is_visible(),
                     "inactive edits cannot reopen suggestions"
