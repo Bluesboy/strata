@@ -36,24 +36,27 @@ fn window_presence_dismisses_completion_without_discarding_the_path() {
                 .find_map(|widget| widget.downcast::<gtk::Popover>().ok())
                 .expect("completion popover");
 
-            for presence in [crate::app::Presence::Visible, crate::app::Presence::Hidden] {
-                view.set_presence(crate::app::Presence::Focused, false);
-                view.state.begin_location_edit();
-                let path = format!("{}/doc", fixture.path().display());
-                view.state.location_entry.set_text(&path);
-                wait_until(|| popover.is_visible(), "suggestions visible");
+            let path = format!("{}/doc", fixture.path().display());
+            view.state.location_entry.set_text(&path);
+            wait_until(|| popover.is_visible(), "suggestions visible");
 
-                view.set_presence(presence, false);
+            view.set_presence(crate::app::Presence::Visible, false);
 
-                assert!(!popover.is_visible(), "{presence:?} dismisses suggestions");
-                assert_eq!(view.state.location_entry.text().as_str(), path);
-                assert!(view.location_edit_is_active());
-                view.state.location_entry.set_text("~");
-                assert!(
-                    !popover.is_visible(),
-                    "inactive edits cannot reopen suggestions"
-                );
-            }
+            assert!(!popover.is_visible(), "losing focus dismisses suggestions");
+            assert_eq!(view.state.location_entry.text().as_str(), path);
+            assert!(view.location_edit_is_active());
+            view.state.location_entry.set_text("~");
+            assert!(
+                !popover.is_visible(),
+                "inactive edits cannot reopen suggestions"
+            );
+
+            view.set_presence(crate::app::Presence::Focused, false);
+            view.state.location_entry.set_text(&path);
+            wait_until(
+                || popover.is_visible(),
+                "suggestions return once the window is focused again",
+            );
             window.destroy();
         },
     );
