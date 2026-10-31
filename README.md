@@ -26,6 +26,7 @@ Strata combines spatial Miller-column navigation with familiar Icons and List vi
 
 - [Features](#features)
 - [Installation](#installation)
+  - [Nix and NixOS](#nix-and-nixos)
   - [Interactive installation](#interactive-installation)
   - [AI-assisted installation](#ai-assisted-installation)
   - [Manual installation](#manual-installation)
@@ -67,6 +68,45 @@ Strata combines spatial Miller-column navigation with familiar Icons and List vi
 ## Installation
 
 Arch Linux and Omarchy are the primary supported environments. Current binaries require **glibc 2.39 or newer** and the runtime libraries listed below.
+
+### Nix and NixOS
+
+Build from source with Nix on `x86_64-linux` or `aarch64-linux`:
+
+```bash
+nix run github:lgse/strata
+nix profile add github:lgse/strata
+```
+
+For NixOS or Home Manager, add a flake input:
+
+```nix
+inputs.strata.url = "github:lgse/strata";
+```
+
+```nix
+{ inputs, pkgs, ... }:
+{
+  # Home Manager; use environment.systemPackages instead for NixOS.
+  home.packages = [ inputs.strata.packages.${pkgs.stdenv.hostPlatform.system}.default ];
+}
+```
+
+Pass `inputs` through `extraSpecialArgs` (Home Manager) or `specialArgs` (NixOS).
+Update the flake input and rebuild to upgrade. On NixOS, enable `services.gvfs.enable`
+for network shares and `services.udisks2.enable` for disk management.
+
+Non-free UnRAR support is omitted by default. Enable it from a package set that
+allows unfree software, such as one with `nixpkgs.config.allowUnfree = true;`:
+
+```nix
+pkgs.callPackage "${inputs.strata}/package.nix" { rarSupport = true; }
+```
+
+The integrations that Strata installs from Settings or the command line (the
+file chooser portal, the default file manager service, and the udiskie unlock
+hook) are not supported on Nix yet. They would record the store path of the
+current build, which the next update or garbage collection invalidates.
 
 ### Interactive installation
 
