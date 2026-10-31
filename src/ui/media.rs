@@ -311,7 +311,9 @@ impl DecodedMedia {
 
     /// A video with no remembered position opens this far into its duration.
     pub(crate) fn set_start_percent(&self, percent: u32) {
-        self.imp().start_percent.set(percent.min(100));
+        self.imp()
+            .start_percent
+            .set(percent.min(crate::ui::preferences::MAX_PREVIEW_VIDEO_START));
     }
 
     pub(crate) fn source(&self) -> Option<SandboxedMedia> {
