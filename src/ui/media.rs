@@ -309,8 +309,17 @@ impl DecodedMedia {
         obj
     }
 
-    /// A video with no remembered position opens this far into its duration.
+    /// A video not previewed earlier this session opens this far into its
+    /// duration. One already previewed resumes, at 0:00 when it was left in its
+    /// first second or at its end.
     pub(crate) fn set_start_percent(&self, percent: u32) {
+        let previewed = self
+            .imp()
+            .source
+            .borrow()
+            .as_ref()
+            .is_some_and(|source| recall_media_position(&source.path).is_some());
+        let percent = if previewed { 0 } else { percent };
         self.imp()
             .start_percent
             .set(percent.min(crate::ui::preferences::MAX_PREVIEW_VIDEO_START));
@@ -437,11 +446,11 @@ impl DecodedMedia {
         if let Some(source) = imp.source.borrow().as_ref() {
             let position = imp.position.get();
             let duration = self.duration().max(0) as u64;
-            if imp.header.get().is_some_and(|header| header.width > 0)
-                && position > RESTORE_MIN_US
-                && (duration == 0 || position < duration)
-            {
-                remember_media_position(source.path.clone(), position);
+            if imp.header.get().is_some_and(|header| header.width > 0) {
+                // A video closed in its first second or at its end reopens at
+                // 0:00, not at the configured start: remember it as previewed.
+                let resumable = position > RESTORE_MIN_US && (duration == 0 || position < duration);
+                remember_media_position(source.path.clone(), if resumable { position } else { 0 });
             } else {
                 forget_media_position(&source.path);
             }
