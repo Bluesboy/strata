@@ -1461,7 +1461,7 @@ impl BrowserView {
     }
 
     /// Columns only: the focused column becomes the first one. False when
-    /// there is nothing to the left of it.
+    /// there is nothing to the left of it or the strip was not re-rooted.
     pub fn make_focused_column_first(&self) -> bool {
         if self.view_mode() != BrowserMode::Columns {
             return false;
@@ -1474,8 +1474,7 @@ impl BrowserView {
         else {
             return false;
         };
-        self.state.browser.make_first_column(depth);
-        true
+        self.state.browser.make_first_column(depth)
     }
 
     pub fn navigate_up(&self) {

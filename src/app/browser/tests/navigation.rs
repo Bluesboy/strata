@@ -905,14 +905,15 @@ fn making_a_column_first_keeps_later_columns_focus_and_cursor() {
     browser.navigate(Location::local("/a"));
     browser.descend(0, Location::local("/a/b"));
     browser.descend(1, Location::local("/a/b/c"));
-    browser.select(1, 0);
+    browser.select(1, 1);
+    browser.extend_selection(-1);
     let strip = |browser: &Rc<Browser>| {
         (0..)
             .map_while(|depth| browser.location_at(depth))
             .collect::<Vec<_>>()
     };
 
-    browser.make_first_column(1);
+    assert!(browser.make_first_column(1));
 
     assert_eq!(
         strip(&browser),
@@ -920,8 +921,13 @@ fn making_a_column_first_keeps_later_columns_focus_and_cursor() {
     );
     assert_eq!(browser.active_depth(), Some(0));
     assert_eq!(focused_location(&browser), Some(Location::local("/a/b/c")));
+    assert_eq!(
+        super::location_input::selected_locations(&browser),
+        [Location::local("/a/b/c"), Location::local("/a/b/d")]
+    );
 
-    browser.make_first_column(0);
+    assert!(!browser.make_first_column(0));
+    assert!(!browser.make_first_column(2));
     assert_eq!(
         strip(&browser),
         [Location::local("/a/b"), Location::local("/a/b/c")],
