@@ -479,6 +479,11 @@ fn default_navigation(mode: BrowserMode) -> Vec<Shortcut> {
                 "Focus the visible sidebar",
             ),
             row(One(BACKSPACE.shown()), "Go to the parent folder"),
+            within(
+                "%{keys} on the Back button",
+                One(CONTEXT_MENU.shown()),
+                "List the back history (also right-click or hold)",
+            ),
             row(
                 Any(shown![
                     THUMBNAILS_LARGER.alternate(0),
@@ -551,6 +556,11 @@ fn default_navigation(mode: BrowserMode) -> Vec<Shortcut> {
         row(
             Any(shown![HISTORY_BACK, HISTORY_FORWARD]),
             "Back / forward in history",
+        ),
+        within(
+            "%{keys} on the Back button",
+            One(CONTEXT_MENU.shown()),
+            "List the back history (also right-click or hold)",
         ),
         row(One(PARENT_FOLDER.shown()), "Go to the parent folder"),
         row(One(HOME_FOLDER.shown()), "Go to Home"),
@@ -910,6 +920,11 @@ const DEFAULT_FILES: &[Shortcut] = &[
     row(One(UNDO.shown()), "Undo the last file operation"),
     row(One(REDO.shown()), "Redo the last file operation"),
     row(One(RENAME.shown()), "Rename"),
+    within(
+        "%{keys} in a rename",
+        Any(shown![FOCUS_NEXT, FOCUS_PREVIOUS]),
+        "Rename the next / previous item",
+    ),
     row(One(NEW_FOLDER.shown()), "Create a folder"),
     row(
         One(NEW_FOLDER_WITH_SELECTION.shown()),
