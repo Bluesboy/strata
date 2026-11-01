@@ -246,6 +246,8 @@ pub(super) struct ViewState {
     columns_click_activation: Cell<ClickActivation>,
     active_rename: crate::ui::collection_edit::ActiveEdits,
     pending_rename: RefCell<Option<PendingRename>>,
+    /// A footer rename to a path: its operation and what replaces the item's row.
+    typed_placement: RefCell<Option<(crate::services::OperationRequestId, Location)>>,
     rename_generation: Cell<u64>,
     rename_reveal_generation: Cell<u64>,
     keyboard_refocus: Cell<Option<file_commands::KeyboardRefocus>>,
@@ -649,6 +651,7 @@ impl BrowserView {
             columns_click_activation: Cell::new(ClickActivation::default()),
             active_rename: Rc::new(RefCell::new(None)),
             pending_rename: RefCell::new(None),
+            typed_placement: RefCell::new(None),
             rename_generation: Cell::new(0),
             rename_reveal_generation: Cell::new(0),
             keyboard_refocus: Cell::new(None),
