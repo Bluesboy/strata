@@ -468,11 +468,9 @@ pub(super) fn command_line_at(exec: &str, seconds: f64) -> Option<String> {
     )
 }
 
-/// Strata leaves its launch folder so it never keeps a mount busy, and a
-/// program GIO spawns inherits that folder. Start it in the folder of the
-/// first file instead, as a shell would, unless its desktop entry sets
-/// `Path`. GIO spawns synchronously, so Strata is back in its own folder as
-/// soon as `launch` returns.
+/// GIO spawns a program in Strata's working folder, which is `/` so Strata
+/// never keeps a mount busy. Enter the first file's folder only for the
+/// synchronous spawn; a desktop entry's `Path` still wins.
 fn launch_in_folder(
     launcher: &gio::AppInfo,
     files: &[gio::File],
