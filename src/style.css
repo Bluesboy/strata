@@ -6187,6 +6187,20 @@ menubutton.icons-thumbnail-menu > button:focus-visible {
   outline-offset: -2px;
 }
 
+.history-menu {
+  min-width: 220px;
+}
+
+.history-menu .column-menu-option {
+  padding-bottom: 5px;
+  padding-top: 5px;
+}
+
+.menu-option-detail {
+  color: @strata_dim_text;
+  font-size: 0.86em;
+}
+
 .list-row.drop-destination,
 .list-row:drop(active) {
   background: alpha(@strata_highlight, 0.82);

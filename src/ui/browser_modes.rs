@@ -3917,6 +3917,9 @@ fn list_navigation(browser: &Rc<Browser>) -> gtk::Box {
         });
         actions.append(&button);
     }
+    if let Some(back) = actions.first_child().and_downcast::<gtk::Button>() {
+        super::browser::attach_back_history(browser, &back);
+    }
     actions
 }
 
