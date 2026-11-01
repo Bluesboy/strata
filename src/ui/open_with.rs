@@ -468,6 +468,33 @@ pub(super) fn command_line_at(exec: &str, seconds: f64) -> Option<String> {
     )
 }
 
+/// GIO spawns a program in Strata's working folder, which is `/` so Strata
+/// never keeps a mount busy. Enter the first file's folder only for the
+/// synchronous spawn; a desktop entry's `Path` still wins.
+fn launch_in_folder(
+    launcher: &gio::AppInfo,
+    files: &[gio::File],
+    context: Option<&impl IsA<gio::AppLaunchContext>>,
+) -> Result<(), glib::Error> {
+    let folder = files
+        .first()
+        .and_then(|file| file.path())
+        .and_then(|path| path.parent().map(std::path::Path::to_path_buf));
+    let previous = match (folder, std::env::current_dir()) {
+        (Some(folder), Ok(previous)) if std::env::set_current_dir(&folder).is_ok() => {
+            Some(previous)
+        }
+        _ => None,
+    };
+    let result = launcher.launch(files, context);
+    if let Some(previous) = previous
+        && let Err(error) = std::env::set_current_dir(&previous)
+    {
+        tracing::warn!(%error, "unable to return from the launched program's folder");
+    }
+    result
+}
+
 fn launch_with_recent_registration(
     app: &gio::AppInfo,
     launcher: &gio::AppInfo,
@@ -483,7 +510,7 @@ fn launch_with_recent_registration(
             &crate::i18n::tr("This application cannot open files at this location"),
         ));
     }
-    launcher.launch(files, context)?;
+    launch_in_folder(launcher, files, context)?;
     if let Some(app_id) = app.id() {
         let known_ids = gio::AppInfo::all()
             .into_iter()
